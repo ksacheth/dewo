@@ -12,6 +12,12 @@ M5: the Verifier service, run as 3 instances (ports 7101 to 7103). It signs Awar
 ## Develop
 `pnpm test`, `pnpm typecheck`. `scripts/run-quorum.sh` starts all three instances.
 
+## Spike #2 lead (anti-cheat request rebuild)
+`broker.inference.processResponse(provider, chatID, content)`: `content` is usage data, not response text, so it does not bind the response (confirms the risk in the spec). The SDK also has `getChatSignatureDownloadLink(provider, chatID)`, a downloadable chat signature that may let the Verifier bind request and response hashes. Inspect its payload with a real chat ID once the Galileo wallet is funded.
+
+## Not wired yet
+`src/adapters/board.ts` throws until @dewo/board (M3) and the MissionEscrow deployment (M2) land. Everything else in `src/main.ts` is real: sim CLI, 0G compute, registry and storage, x402.
+
 ## Known gaps
 - The request-rebuild anti-cheat check (spike #2) runs only when the sim returns frame payloads; otherwise it is reported as a gap.
 - The x402 payment settles before the Replay runs, so a payer is charged even if the Mission is still pending.
