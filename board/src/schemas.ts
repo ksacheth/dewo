@@ -1,4 +1,5 @@
-// Plain row/input types shared by the real library and the mock. defineSchema calls land in B4.
+// Arkiv schemas plus the plain row/input types shared by the real library and the mock.
+import { addr, bytes, dec, defineSchema, i32, str, u64, u256 } from "@arkiv-network/sdk/schema"
 export type Hex = `0x${string}`
 export type DifficultyClass = "easy" | "medium" | "hard"
 export type MissionStatus = "open" | "awarded" | "settled"
@@ -45,3 +46,64 @@ export type VerdictInput = {
   episodeLogRoot: string
 }
 export type VerdictRow = VerdictInput & EntityMeta
+
+// ---- Arkiv schemas (docs/spec.md 5.3, board/DECISIONS.md) ----
+
+/** Anything with an address can write: a viem wallet client, a local account holder, or the mock's stand-in. */
+export type WalletLike = { account: { address: Hex } }
+
+export const Mission = defineSchema("dewo.mission", {
+  missionId: str().indexed(), // D2: Escrow bytes32
+  difficultyClass: str().indexed(),
+  bounty: u256().indexed(),
+  stepBudget: i32().indexed(),
+  status: str().indexed(),
+  requester: addr().indexed(),
+  biddingClosesAt: u64().indexed(), // D1
+  seedCommitment: str(),
+  riskWeight: dec(),
+  escrowMissionId: str(),
+  verifiers: str(), // comma-joined, D7
+})
+
+export const Bid = defineSchema("dewo.bid", {
+  missionId: str().indexed(),
+  worker: addr().indexed(),
+  policyHash: str(),
+  workerPubKey: str(),
+  verifiers: str(), // D7: order of priceCt0..2
+  priceCt0: bytes(),
+  priceCt1: bytes(),
+  priceCt2: bytes(),
+})
+
+export const SeedRelease = defineSchema("dewo.seedRelease", {
+  missionId: str().indexed(),
+  worker: addr().indexed(),
+  sealed: bytes(), // ECIES({seed, salt}) to the Worker's public key
+})
+
+export const Verdict = defineSchema("dewo.verdict", {
+  missionId: str().indexed(),
+  worker: addr().indexed(),
+  outcome: str().indexed(),
+  steps: i32().indexed(),
+  collisions: i32().indexed(),
+  difficultyClass: str().indexed(), // D3
+  stepBudget: i32(), // D3
+  signature: str(),
+  evidenceHash: str(),
+  episodeLogRoot: str(),
+})
+
+/** Entity lifetimes in milliseconds (D1 and board/PLAN.md section 3). Verdicts stay under the chain's ~182 day max. */
+export const LIFETIME_MS = {
+  mission: 60 * 60_000,
+  bid: 60 * 60_000,
+  seedRelease: 70 * 60_000,
+  verdict: 180 * 24 * 60 * 60_000,
+} as const
+
+const OUTCOMES: Outcome[] = ["Pass", "Fail", "NoShow", "InvalidCourse", "NoSeedRelease"]
+/** Index in the I5 Outcome enum, for EIP-712 signing. */
+export const outcomeIndex = (o: Outcome): number => OUTCOMES.indexOf(o)

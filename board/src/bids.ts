@@ -31,3 +31,13 @@ export function openBid(bid: Pick<BidRow, "verifiers" | "priceCt0" | "priceCt1" 
   }
   throw new BidOpenError()
 }
+
+/** D9: the first Bid per Worker is the commitment; later ones are ignored. Also drops Bids not owned by their Worker (D5). */
+export function firstBidPerWorker(rows: BidRow[]): BidRow[] {
+  const first = new Map<string, BidRow>()
+  for (const b of [...rows].sort((x, y) => x.$createdAt - y.$createdAt)) {
+    if (b.$owner.toLowerCase() !== b.worker.toLowerCase()) continue
+    if (!first.has(b.worker.toLowerCase())) first.set(b.worker.toLowerCase(), b)
+  }
+  return [...first.values()]
+}
