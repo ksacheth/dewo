@@ -17,9 +17,9 @@ export const localRunner = (prefix: string[]): SimRunner => async (args) => {
   return stdout;
 };
 
-/** Run the pinned image so Replay matches the Worker bit for bit, e.g. image = "dewo-sim:1". Mounts `dir` at the same path. */
+/** Run the pinned image (its ENTRYPOINT is `sim`) so Replay matches the Worker bit for bit, e.g. image = "dewo-sim:0.1.0". Mounts `dir` at the same path. */
 export const dockerRunner = (image: string): SimRunner => async (args, dir) => {
-  const { stdout } = await execFileAsync("docker", ["run", "--rm", "-v", `${dir}:${dir}`, image, "sim", ...args], { maxBuffer: 16 * 1024 * 1024 });
+  const { stdout } = await execFileAsync("docker", ["run", "--rm", "-v", `${dir}:${dir}`, image, ...args], { maxBuffer: 16 * 1024 * 1024 });
   return stdout;
 };
 

@@ -74,9 +74,9 @@ export interface VerdictSink { writeVerdict(v: VerdictEntity): Promise<void> }
 /** I8 event feed. */
 export interface EventSink { emit(missionId: Hex, type: string, data: Record<string, unknown>, txUrl?: string): Promise<void> }
 
-/** 0G Galileo: EpisodeRegistry. `timestamp` is the block time of EpisodeSubmitted (No-show evidence). */
+/** 0G Galileo: EpisodeRegistry. Only submissions sent by `worker` count. `timestamp` is the block time of EpisodeSubmitted (No-show evidence). */
 export interface EpisodeRegistryPort {
-  findSubmission(missionId: Hex): Promise<{ episodeLogRoot: Hex; policyRoot: Hex; decisionCount: number; timestamp: number } | null>;
+  findSubmission(missionId: Hex, worker: Address): Promise<{ episodeLogRoot: Hex; policyRoot: Hex; decisionCount: number; timestamp: number } | null>;
 }
 /** 0G Storage: download a JSON document by root hash. */
 export interface StoragePort { downloadJson<T>(root: Hex): Promise<T> }

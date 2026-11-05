@@ -22,7 +22,7 @@ function world(over: { submission?: null; seeds?: boolean; award?: null } = {}) 
       seedReleasedAt: async () => 1_010,
       revealedSeed: async () => (over.seeds === false ? null : { seed: SEED, salt: SALT }),
     },
-    registry: { findSubmission: async () => (over.submission === null ? null : { episodeLogRoot: LOG_ROOT, policyRoot: POLICY_ROOT, decisionCount: 3, timestamp: 1_100 }) },
+    registry: { findSubmission: async (_m: Hex, worker: string) => (over.submission === null || worker !== WORKER ? null : { episodeLogRoot: LOG_ROOT, policyRoot: POLICY_ROOT, decisionCount: 3, timestamp: 1_100 }) },
     storage: { downloadJson: async <T>(root: Hex) => { downloads.push(root); return (root === LOG_ROOT ? ep.log : POLICY) as T; } },
   });
   return { source, downloads, ep };

@@ -7,20 +7,22 @@ export interface AwardDeps { board: BoardPort; key: Hex; escrow: Address }
 export interface SignedAward { worker: Address; price: bigint; stake: bigint; signature: Hex }
 
 /** Open every Bid, score it with the public rule, and sign the Award for the best one. */
-export async function computeAward(deps: AwardDeps, missionId: Hex): Promise<SignedAward> {
+export async function computeAward(deps: AwardDeps, missionId: Hex, opts: { exclude?: Address[] } = {}): Promise<SignedAward> {
+  const excluded = new Set((opts.exclude ?? []).map((a) => a.toLowerCase()));
   const { board } = deps;
   const mission = await board.getMission(missionId);
   const bids = await board.listBids(missionId);
 
   const scored = [];
   for (const bid of bids) {
+    if (excluded.has(bid.worker.toLowerCase())) continue;
     let price: bigint;
     try {
       price = await board.openBid(bid);
     } catch {
       continue; // malformed ciphertext: this Bid cannot compete
     }
-    if (price <= 0n) continue;
+    if (price <= 0n || price > mission.maxBounty) continue; // Escrow could never pay a price above the max bounty
     const r = reliability(await board.listVerdicts(bid.worker));
     scored.push({ worker: bid.worker, price, r, score: awardScore(r, Number(price), mission.riskWeight) });
   }

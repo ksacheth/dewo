@@ -20,4 +20,5 @@ M5: the Verifier service, run as 3 instances (ports 7101 to 7103). It signs Awar
 
 ## Known gaps
 - The request-rebuild anti-cheat check (spike #2) runs only when the sim returns frame payloads; otherwise it is reported as a gap.
-- The x402 payment settles before the Replay runs, so a payer is charged even if the Mission is still pending.
+- Award lapse (next-best Bid) is supported by `computeAward({ exclude })` but not exposed over HTTP: deriving the lapse needs the MissionEscrow events (M2).
+- Each instance caches its first Award per Mission in memory; Verifiers called at different times can still differ if Verdict history changes, and a restart forgets the cache.

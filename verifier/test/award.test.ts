@@ -66,4 +66,18 @@ describe("computeAward", () => {
   it("rejects when no Bid can be opened", async () => {
     await expect(computeAward({ board: board({ prices: {} }), key: KEY, escrow: ESCROW }, MISSION)).rejects.toThrow(/no valid bids/);
   });
+
+  it("drops a Bid priced above the Mission's max bounty, which Escrow could never pay", async () => {
+    const award = await computeAward(
+      { board: board({ prices: { [ROOKIE]: 11n * USDC, [VETERAN]: 10n * USDC }, verdicts: { [ROOKIE]: passes(ROOKIE, 20) } }), key: KEY, escrow: ESCROW }, MISSION,
+    );
+    expect(award.worker).toBe(VETERAN);
+  });
+
+  it("awards the next-best Bid when the winner is excluded (stake deadline lapsed)", async () => {
+    const award = await computeAward(
+      { board: board({ prices: { [ROOKIE]: 5n * USDC, [VETERAN]: 10n * USDC } }), key: KEY, escrow: ESCROW }, MISSION, { exclude: [ROOKIE] },
+    );
+    expect(award.worker).toBe(VETERAN);
+  });
 });

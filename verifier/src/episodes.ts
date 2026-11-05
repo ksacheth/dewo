@@ -19,7 +19,7 @@ export function createEpisodeSource(deps: EpisodeSourceDeps): EpisodeSource {
 
       const [seedReleasedAt, submission, reveal, bids] = await Promise.all([
         deps.seeds.seedReleasedAt(missionId, award.worker),
-        deps.registry.findSubmission(missionId),
+        deps.registry.findSubmission(missionId, award.worker),
         deps.seeds.revealedSeed(missionId),
         deps.board.listBids(missionId),
       ]);

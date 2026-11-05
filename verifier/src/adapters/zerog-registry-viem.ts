@@ -9,7 +9,11 @@ export function viemRegistryReader(rpcUrl: string, registry: { address: Address;
   return {
     async getSubmissionLogs(missionId: Hex) {
       const logs = await client.getLogs({ address: registry.address, event, args: { missionId }, fromBlock: 0n });
-      return logs.map((l) => ({ args: (l as unknown as { args: Record<string, unknown> }).args, blockNumber: l.blockNumber }));
+      return Promise.all(logs.map(async (l) => ({
+        args: (l as unknown as { args: Record<string, unknown> }).args,
+        blockNumber: l.blockNumber,
+        submitter: (await client.getTransaction({ hash: l.transactionHash })).from,
+      })));
     },
     async getBlockTimestamp(blockNumber) {
       return (await client.getBlock({ blockNumber })).timestamp;

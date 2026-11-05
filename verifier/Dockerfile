@@ -1,14 +1,24 @@
-# Verifier service. The sim image is pinned so Replay is bit-identical to the Worker's run (spike #4).
-# SIM_VERSION must match the dewo-sim tag M1 publishes.
-ARG SIM_VERSION=latest
-FROM dewo-sim:${SIM_VERSION} AS sim
+# Verifier image: built ON the pinned sim image so Replay runs the exact MuJoCo build Workers used (spike #4).
+# Build the sim image first: docker build --platform linux/amd64 -t dewo-sim:0.1.0 sim/
+# Then: docker build --platform linux/amd64 --build-arg SIM_VERSION=0.1.0 -t dewo-verifier verifier/
+ARG SIM_VERSION=0.1.0
+FROM dewo-sim:${SIM_VERSION}
 
-FROM node:22-slim
-WORKDIR /app
-RUN corepack enable
+# Add Node 22 (same Debian bookworm base as python:3.12-slim) next to the sim; the sim ENTRYPOINT is cleared below.
+COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s /usr/local/lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
+    && corepack enable
+
+WORKDIR /verifier
 COPY package.json ./
 RUN pnpm install --prod=false
 COPY . .
-ENV NODE_ENV=production
+
+# Replay runs the bundled `sim` binary directly (no Docker socket inside the container).
+ENV SIM_CMD=sim \
+    NODE_ENV=production
+ENTRYPOINT []
 EXPOSE 7101 7102 7103
 CMD ["pnpm", "dev"]

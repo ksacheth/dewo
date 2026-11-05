@@ -21,24 +21,27 @@ describe("zeroGCompute", () => {
 });
 
 describe("zeroGRegistry", () => {
-  const log = (args: Record<string, unknown>, blockNumber = 42n) => ({ args, blockNumber });
+  const log = (args: Record<string, unknown>, blockNumber = 42n, submitter = PROVIDER) => ({ args, blockNumber, submitter: submitter as `0x${string}` });
   const reader = (logs: ReturnType<typeof log>[]) => ({
     getSubmissionLogs: async (missionId: Hex) => { expect(missionId).toBe(MISSION); return logs; },
     getBlockTimestamp: async (n: bigint) => { expect(n).toBe(42n); return 1_100n; },
   });
+  const sub = { episodeLogRoot: "0xaa", policyRoot: "0xbb", decisionCount: 3n };
 
   it("returns the EpisodeSubmitted fields with the block timestamp as submission time", async () => {
-    const r = zeroGRegistry(reader([log({ missionId: MISSION, episodeLogRoot: "0xaa", policyRoot: "0xbb", decisionCount: 3n })]));
-    expect(await r.findSubmission(MISSION)).toEqual({ episodeLogRoot: "0xaa", policyRoot: "0xbb", decisionCount: 3, timestamp: 1_100 });
+    const r = zeroGRegistry(reader([log(sub)]));
+    expect(await r.findSubmission(MISSION, PROVIDER)).toEqual({ episodeLogRoot: "0xaa", policyRoot: "0xbb", decisionCount: 3, timestamp: 1_100 });
   });
   it("returns null when the Worker has not submitted", async () => {
-    expect(await zeroGRegistry(reader([])).findSubmission(MISSION)).toBeNull();
+    expect(await zeroGRegistry(reader([])).findSubmission(MISSION, PROVIDER)).toBeNull();
   });
-  it("uses the earliest submission if there are several (a re-submission cannot dodge the deadline)", async () => {
-    const r = zeroGRegistry(reader([
-      log({ episodeLogRoot: "0xaa", policyRoot: "0xbb", decisionCount: 3n }),
-      log({ episodeLogRoot: "0xcc", policyRoot: "0xdd", decisionCount: 9n }, 50n),
-    ]));
-    expect((await r.findSubmission(MISSION))?.episodeLogRoot).toBe("0xaa");
+  it("uses the Worker's earliest submission if there are several (a re-submission cannot dodge the deadline)", async () => {
+    const r = zeroGRegistry(reader([log(sub), log({ ...sub, episodeLogRoot: "0xcc" }, 50n)]));
+    expect((await r.findSubmission(MISSION, PROVIDER))?.episodeLogRoot).toBe("0xaa");
+  });
+  it("ignores submissions made by anyone but the winning Worker (no front-running the registry)", async () => {
+    const other = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
+    const r = zeroGRegistry(reader([log({ ...sub, episodeLogRoot: "0xbad" }, 40n, other), log(sub, 42n, PROVIDER.toLowerCase())]));
+    expect((await r.findSubmission(MISSION, PROVIDER))?.episodeLogRoot).toBe("0xaa");
   });
 });

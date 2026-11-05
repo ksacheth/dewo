@@ -1,17 +1,18 @@
-import type { Hex } from "viem";
+import type { Address, Hex } from "viem";
 import type { EpisodeRegistryPort } from "../ports.js";
 
 export interface RegistryReader {
   /** Decoded `EpisodeSubmitted` logs for the Mission, from the ABI in chain/deployments/0g-galileo.json. */
-  getSubmissionLogs(missionId: Hex): Promise<Array<{ args: Record<string, unknown>; blockNumber: bigint }>>;
+  getSubmissionLogs(missionId: Hex): Promise<Array<{ args: Record<string, unknown>; blockNumber: bigint; submitter: Address }>>;
   getBlockTimestamp(blockNumber: bigint): Promise<bigint>;
 }
 
 /** EpisodeRegistry on 0G Galileo. The block timestamp of the earliest submission is the No-show evidence. */
 export function zeroGRegistry(reader: RegistryReader): EpisodeRegistryPort {
   return {
-    async findSubmission(missionId) {
-      const logs = await reader.getSubmissionLogs(missionId);
+    async findSubmission(missionId, worker) {
+      // Anyone can call the registry; only the winning Worker's own submission counts.
+      const logs = (await reader.getSubmissionLogs(missionId)).filter((l) => l.submitter.toLowerCase() === worker.toLowerCase());
       const first = [...logs].sort((a, b) => Number(a.blockNumber - b.blockNumber))[0];
       if (!first) return null;
       return {

@@ -30,12 +30,18 @@ async function readMissionId(req: Request): Promise<Hex | null> {
 /** One Verifier instance: POST /award (free) and POST /replay (behind x402). */
 export function createApp(deps: AppDeps) {
   const app = new Hono();
+  // The Quorum needs 2 matching Award signatures, so an instance never re-signs a different Award for the same Mission,
+  // even if Verdict history moves on between calls.
+  const awards = new Map<Hex, Awaited<ReturnType<typeof computeAward>>>();
 
   app.post("/award", async (c) => {
     const missionId = await readMissionId(c.req.raw);
     if (!missionId) return respond({ error: "missionId must be a 32-byte hex string" }, 400);
     try {
+      const cached = awards.get(missionId);
+      if (cached) return respond(cached);
       const award = await computeAward({ board: deps.board, key: deps.key, escrow: deps.escrow }, missionId);
+      awards.set(missionId, award);
       await deps.events.emit(missionId, "award.signed", { ...award });
       return respond(award);
     } catch (e) {

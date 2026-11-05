@@ -6,6 +6,7 @@ import type { Hex } from "viem";
 import { createApp, type PaymentGate } from "../src/server.js";
 import { ndjsonEvents } from "../src/events.js";
 import { Outcome } from "../src/sign.js";
+import type { VerdictRecord } from "../src/ports.js";
 import { FakeSim, honestEpisode, zeroG, MISSION, WORKER } from "./fixtures/builders.js";
 
 const KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
@@ -24,16 +25,17 @@ function app() {
   const dir = mkdtempSync(join(tmpdir(), "runs-"));
   const events = ndjsonEvents(dir, "verifier-1");
   const written: unknown[] = [];
-  const a = createApp({
+  const deps = {
     key: KEY, escrow: ESCROW, gate, events, sim: new FakeSim(), zeroG: zeroG(), now: () => 5_000,
     board: {
       getMission: async () => mission, listBids: async () => [{ worker: WORKER, policyHash: "0x00" as Hex }],
       openBid: async () => 5_000_000n, listVerdicts: async () => [],
     },
     source: { load: async () => ({ mission, worker: WORKER, timeline: { stakedAt: 1_000, seedReleasedAt: 1_010, episodeSubmittedAt: 1_100 }, episode }) },
-    verdicts: { writeVerdict: async (v) => { written.push(v); } },
-  });
-  return { a, dir, written };
+    verdicts: { writeVerdict: async (v: unknown) => { written.push(v); } },
+  };
+  const a = createApp(deps as never);
+  return { a, dir, written, deps };
 }
 const post = (a: ReturnType<typeof app>["a"], path: string, headers: Record<string, string> = {}) =>
   a.request(path, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ missionId: MISSION }) });
@@ -46,6 +48,16 @@ describe("Verifier HTTP API (I6)", () => {
     const body = await res.json();
     expect(body).toMatchObject({ worker: WORKER, price: "5000000", stake: "1666666" });
     expect(body.signature).toMatch(/^0x[0-9a-f]+$/);
+  });
+
+  it("signs the same Award every time it is asked, even if Verdict history changed in between", async () => {
+    let verdicts: VerdictRecord[] = [];
+    const base = app();
+    const a = createApp({ ...base.deps, board: { ...base.deps.board, listVerdicts: async () => verdicts } });
+    const first = await (await post(a, "/award")).json();
+    verdicts = Array.from({ length: 6 }, (_, i) => ({ worker: WORKER, outcome: Outcome.Pass, timestamp: i }));
+    const second = await (await post(a, "/award")).json();
+    expect(second).toEqual(first);
   });
 
   it("POST /replay answers 402 with payment requirements before payment, and does no work", async () => {
