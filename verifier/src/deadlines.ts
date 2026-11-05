@@ -18,7 +18,11 @@ export interface Timeline {
  */
 export function classifyTimeline(t: Timeline): Outcome | null {
   const seedDeadline = t.stakedAt + SEED_RELEASE_WINDOW;
-  if (t.seedReleasedAt === undefined) return t.now > seedDeadline ? Outcome.NoSeedRelease : null;
+  if (t.seedReleasedAt === undefined) {
+    // The Seed Release entity expires shortly after the Episode deadline, so an Episode Submission proves the Worker had the seed.
+    if (t.episodeSubmittedAt !== undefined) return null;
+    return t.now > seedDeadline ? Outcome.NoSeedRelease : null;
+  }
   if (t.seedReleasedAt > seedDeadline) return Outcome.NoSeedRelease;
 
   const episodeDeadline = t.seedReleasedAt + EPISODE_WINDOW;

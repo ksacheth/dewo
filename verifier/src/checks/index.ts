@@ -58,6 +58,9 @@ export async function verifyEpisode(deps: VerifyDeps, e: EpisodeInput): Promise<
 
   if (!policyMatchesBid(e.policy, e.bid.policyHash)) return fail("policy");
 
+  // Check 5: at most Step Budget Decisions, judged on the log itself (the sim stops executing once the goal is reached).
+  if (e.log.decisions.length > e.mission.stepBudget) return fail("replay");
+
   const replay = await deps.sim.replay(course, e.log.decisions.map((d) => d.action));
   const decisions = await checkDecisions(deps.zeroG, e.policy, e.log.decisions, replay);
   if (!decisions.ok) return done(Outcome.Fail, replay.steps, replay.collisions, replay.atGoal, "decisions", decisions.gaps);

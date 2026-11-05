@@ -26,4 +26,8 @@ describe("classifyTimeline", () => {
   it("needs a Replay (null) when the Episode was submitted on time", () => {
     expect(classifyTimeline({ stakedAt: T, seedReleasedAt: T + 10, episodeSubmittedAt: T + 100, now: T + 1000 })).toBeNull();
   });
+  it("does not blame the Requester when the Seed Release entity has expired but the Worker already submitted an Episode", () => {
+    // Arkiv drops seedRelease shortly after the Episode deadline; a submission proves the Worker had the seed.
+    expect(classifyTimeline({ stakedAt: T, episodeSubmittedAt: T + 100, now: T + 10_000 })).toBeNull();
+  });
 });

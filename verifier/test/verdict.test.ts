@@ -69,7 +69,17 @@ describe("verifyEpisode", () => {
     it("fails when the Episode uses more Decisions than the Step Budget", async () => {
       const ep = honestEpisode(["FORWARD", "FORWARD", "FORWARD"]);
       ep.mission.stepBudget = 2;
-      expect((await verifyEpisode(deps(), ep)).outcome).toBe(Outcome.Fail);
+      const v = await verifyEpisode(deps(), ep);
+      expect(v.outcome).toBe(Outcome.Fail);
+      expect(v.failedCheck).toBe("replay");
+    });
+
+    it("rejects an over-budget log even if the sim reports fewer steps (it stops at the goal)", async () => {
+      const ep = honestEpisode(["FORWARD", "FORWARD", "FORWARD", "FORWARD"]);
+      ep.mission.stepBudget = 3;
+      const sim = new FakeSim();
+      const capped = { ...sim, course: sim.course.bind(sim), plan: sim.plan.bind(sim), replay: async (c: never, a: never[]) => ({ ...(await sim.replay(c, a)), steps: 3 }) };
+      expect((await verifyEpisode(deps(capped as never), ep)).failedCheck).toBe("replay");
     });
   });
 
