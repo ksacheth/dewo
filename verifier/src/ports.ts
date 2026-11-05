@@ -44,3 +44,31 @@ export interface SimPort {
 export interface ZeroGPort {
   verifyResponse(providerAddress: Address, chatID: string): Promise<boolean>;
 }
+
+/** What the Verifier learns about a Mission's Episode from Arkiv + 0G (episodes.ts implements this for real). */
+export interface EpisodeSource {
+  load(missionId: Hex): Promise<LoadedEpisode>;
+}
+export interface LoadedEpisode {
+  mission: MissionRecord;
+  /** The winning Worker of the Mission. */
+  worker: Address;
+  timeline: { stakedAt: number; seedReleasedAt?: number; episodeSubmittedAt?: number };
+  /** Present once the Seed was released and an Episode Submission exists. */
+  episode?: {
+    bid: SealedBid;
+    reveal: { seed: Hex; salt: Hex };
+    policy: import("./formats.js").Policy;
+    log: import("./formats.js").EpisodeLog;
+    episodeLogRoot: Hex;
+  };
+}
+
+export interface VerdictEntity {
+  missionId: Hex; worker: Address; outcome: Outcome; steps: number; collisions: number;
+  signature: Hex; evidenceHash: Hex; episodeLogRoot: Hex | null;
+}
+export interface VerdictSink { writeVerdict(v: VerdictEntity): Promise<void> }
+
+/** I8 event feed. */
+export interface EventSink { emit(missionId: Hex, type: string, data: Record<string, unknown>): Promise<void> }
