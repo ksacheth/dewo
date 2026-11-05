@@ -73,3 +73,17 @@ export interface VerdictSink { writeVerdict(v: VerdictEntity): Promise<void> }
 
 /** I8 event feed. */
 export interface EventSink { emit(missionId: Hex, type: string, data: Record<string, unknown>): Promise<void> }
+
+/** 0G Galileo: EpisodeRegistry. `timestamp` is the block time of EpisodeSubmitted (No-show evidence). */
+export interface EpisodeRegistryPort {
+  findSubmission(missionId: Hex): Promise<{ episodeLogRoot: Hex; policyRoot: Hex; decisionCount: number; timestamp: number } | null>;
+}
+/** 0G Storage: download a JSON document by root hash. */
+export interface StoragePort { downloadJson<T>(root: Hex): Promise<T> }
+/** Hedera MissionEscrow facts: who won, and when they staked. */
+export interface EscrowPort { getAward(missionId: Hex): Promise<{ worker: Address; stakedAt: number } | null> }
+/** Arkiv seed facts. The revealed seed and salt become public after the Episode Submission. */
+export interface SeedPort {
+  seedReleasedAt(missionId: Hex, worker: Address): Promise<number | undefined>;
+  revealedSeed(missionId: Hex): Promise<{ seed: Hex; salt: Hex } | null>;
+}
