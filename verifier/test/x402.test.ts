@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createX402Gate } from "../src/x402.js";
+import type { GateChallenge as Challenge, GatePaid as Paid } from "../src/server.js";
 
 // A fake facilitator: advertises Hedera exact on testnet, accepts every payment.
 const facilitator = {
@@ -11,26 +12,41 @@ const facilitator = {
 describe("x402 gate", () => {
   it("answers 402 with exact-scheme Hedera requirements paying the Verifier account", async () => {
     const gate = await createX402Gate({ facilitator: facilitator as never, payTo: "0.0.5555" });
-    const res = await gate(new Request("http://v/replay", { method: "POST" }));
-    expect(res?.status).toBe(402);
-    const accepts = (res!.body as { accepts: Array<{ scheme: string; network: string; payTo: string; asset: string }> }).accepts;
+    const res = await gate(new Request("http://v/replay", { method: "POST" })) as Challenge;
+    expect(res.status).toBe(402);
+    const accepts = (res.body as { accepts: Array<{ scheme: string; network: string; payTo: string; asset: string }> }).accepts;
     expect(accepts[0]).toMatchObject({ scheme: "exact", network: "hedera:testnet", payTo: "0.0.5555", asset: "0.0.429274" });
-    expect(res!.headers?.["PAYMENT-REQUIRED"]).toBeTruthy();
+    expect(res.headers?.["PAYMENT-REQUIRED"]).toBeTruthy();
   });
 
-  it("lets a matching, verified and settled payment through", async () => {
+  it("verifies a matching payment without charging it until settle() is called", async () => {
     const gate = await createX402Gate({ facilitator: facilitator as never, payTo: "0.0.5555" });
-    const challenge = await gate(new Request("http://v/replay", { method: "POST" }));
-    const accepted = (challenge!.body as { accepts: unknown[] }).accepts[0];
+    const challenge = await gate(new Request("http://v/replay", { method: "POST" })) as Challenge;
+    const accepted = (challenge.body as { accepts: unknown[] }).accepts[0];
     const header = Buffer.from(JSON.stringify({ x402Version: 2, accepted, payload: {} })).toString("base64");
     const res = await gate(new Request("http://v/replay", { method: "POST", headers: { "payment-signature": header } }));
-    expect(res).toBeNull();
+    // Verified, but not charged yet: settlement happens only when the caller asks for it, after the work.
+    let settled = 0;
+    const counting = await createX402Gate({ facilitator: { ...facilitator, settle: async () => { settled++; return facilitator.settle(); } } as never, payTo: "0.0.5555" });
+    const ok = await counting(new Request("http://v/replay", { method: "POST", headers: { "payment-signature": header } }));
+    expect("settle" in ok).toBe(true);
+    expect(settled).toBe(0);
+    expect(await (ok as Paid).settle()).toEqual({ transaction: "0.0.1234@1700000000.000000000" });
+    expect(settled).toBe(1);
   });
 
   it("rejects a payment that fails facilitator verification", async () => {
     const gate = await createX402Gate({ facilitator: { ...facilitator, verify: async () => ({ isValid: false, invalidReason: "bad sig" }) } as never, payTo: "0.0.5555" });
-    const challenge = await gate(new Request("http://v/replay", { method: "POST" }));
-    const header = Buffer.from(JSON.stringify({ x402Version: 2, accepted: (challenge!.body as { accepts: unknown[] }).accepts[0], payload: {} })).toString("base64");
-    expect((await gate(new Request("http://v/replay", { method: "POST", headers: { "payment-signature": header } })))?.status).toBe(402);
+    const challenge = await gate(new Request("http://v/replay", { method: "POST" })) as Challenge;
+    const header = Buffer.from(JSON.stringify({ x402Version: 2, accepted: (challenge.body as { accepts: unknown[] }).accepts[0], payload: {} })).toString("base64");
+    expect(((await gate(new Request("http://v/replay", { method: "POST", headers: { "payment-signature": header } }))) as Challenge).status).toBe(402);
+  });
+
+  it("reports a facilitator settlement failure instead of a transaction", async () => {
+    const gate = await createX402Gate({ facilitator: { ...facilitator, settle: async () => ({ success: false, errorReason: "insufficient funds" }) } as never, payTo: "0.0.5555" });
+    const challenge = await gate(new Request("http://v/replay", { method: "POST" })) as Challenge;
+    const header = Buffer.from(JSON.stringify({ x402Version: 2, accepted: (challenge.body as { accepts: unknown[] }).accepts[0], payload: {} })).toString("base64");
+    const paid = await gate(new Request("http://v/replay", { method: "POST", headers: { "payment-signature": header } })) as Paid;
+    expect(await paid.settle()).toEqual({ error: "insufficient funds" });
   });
 });

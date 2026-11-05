@@ -72,7 +72,7 @@ export interface VerdictEntity {
 export interface VerdictSink { writeVerdict(v: VerdictEntity): Promise<void> }
 
 /** I8 event feed. */
-export interface EventSink { emit(missionId: Hex, type: string, data: Record<string, unknown>): Promise<void> }
+export interface EventSink { emit(missionId: Hex, type: string, data: Record<string, unknown>, txUrl?: string): Promise<void> }
 
 /** 0G Galileo: EpisodeRegistry. `timestamp` is the block time of EpisodeSubmitted (No-show evidence). */
 export interface EpisodeRegistryPort {

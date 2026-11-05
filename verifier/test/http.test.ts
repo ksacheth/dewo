@@ -12,8 +12,12 @@ const KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 const ESCROW = "0x5FbDB2315678afecb367f032d93F642f64180aa3" as const;
 
 // A stand-in x402 gate: 402 with requirements until the X-PAYMENT header says "paid".
+let settleResult: { transaction?: string; error?: string } = { transaction: "0.0.1234@1700000000.000000000" };
+let settleCalls = 0;
 const gate: PaymentGate = async (req) =>
-  req.headers.get("x-payment") === "paid" ? null : { status: 402, body: { x402Version: 2, accepts: [{ scheme: "exact", network: "hedera:testnet" }] } };
+  req.headers.get("x-payment") === "paid"
+    ? { settle: async () => { settleCalls++; return settleResult; } }
+    : { status: 402, body: { x402Version: 2, accepts: [{ scheme: "exact", network: "hedera:testnet" }] } };
 
 function app() {
   const { mission, ...episode } = honestEpisode();
@@ -62,8 +66,27 @@ describe("Verifier HTTP API (I6)", () => {
     expect(body.evidenceHash).toMatch(/^0x/);
     expect(written).toHaveLength(1);
     const lines = readFileSync(join(dir, MISSION, "events.verifier-1.ndjson"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-    expect(lines.map((l) => l.type)).toEqual(["replay.paid", "verdict.signed"]);
-    expect(lines[0]).toMatchObject({ missionId: MISSION });
+    expect(lines.map((l) => l.type)).toEqual(["verdict.signed", "replay.paid"]);
+    expect(lines[1]).toMatchObject({ missionId: MISSION, data: { transaction: "0.0.1234@1700000000.000000000" }, txUrl: "https://hashscan.io/testnet/transaction/0.0.1234@1700000000.000000000" });
+  });
+
+  it("charges only after a Verdict exists: a malformed request costs nothing", async () => {
+    settleCalls = 0;
+    const { a } = app();
+    const bad = await a.request("/replay", { method: "POST", headers: { "x-payment": "paid" }, body: JSON.stringify({ missionId: "nope" }) });
+    expect(bad.status).toBe(400);
+    expect(settleCalls).toBe(0);
+    await post(a, "/replay", { "x-payment": "paid" });
+    expect(settleCalls).toBe(1);
+  });
+
+  it("withholds the Verdict and answers 402 if settlement fails", async () => {
+    settleResult = { error: "insufficient funds" };
+    const { a } = app();
+    const res = await post(a, "/replay", { "x-payment": "paid" });
+    settleResult = { transaction: "0.0.1234@1700000000.000000000" };
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: "insufficient funds" });
   });
 
   it("returns 400 for a malformed missionId", async () => {

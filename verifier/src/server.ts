@@ -4,8 +4,13 @@ import { computeAward } from "./routes/award.js";
 import { PendingError, handleReplay } from "./routes/replay.js";
 import type { BoardPort, EpisodeSource, EventSink, SimPort, VerdictSink, ZeroGPort } from "./ports.js";
 
-/** Returns null when payment is satisfied, otherwise the HTTP response to send (an x402 402). x402.ts supplies the real one. */
-export type PaymentGate = (req: Request) => Promise<{ status: number; body: unknown; headers?: Record<string, string> } | null>;
+export interface GateChallenge { status: number; body: unknown; headers?: Record<string, string> }
+/** A payment that verified but has not been charged yet. */
+export interface GatePaid { settle(): Promise<{ transaction?: string; error?: string }> }
+/** Either an x402 402 challenge to send back, or a verified payment to settle once the work is done. x402.ts supplies the real one. */
+export type PaymentGate = (req: Request) => Promise<GateChallenge | GatePaid>;
+
+const HASHSCAN_TX = "https://hashscan.io/testnet/transaction/";
 
 export interface AppDeps {
   key: Hex; escrow: Address; gate: PaymentGate; now: () => number;
@@ -39,16 +44,22 @@ export function createApp(deps: AppDeps) {
   });
 
   app.post("/replay", async (c) => {
-    const unpaid = await deps.gate(c.req.raw.clone());
-    if (unpaid) return new Response(json(unpaid.body), { status: unpaid.status, headers: { "content-type": "application/json", ...unpaid.headers } });
+    const gated = await deps.gate(c.req.raw.clone());
+    if ("status" in gated) return new Response(json(gated.body), { status: gated.status, headers: { "content-type": "application/json", ...gated.headers } });
     const missionId = await readMissionId(c.req.raw);
     if (!missionId) return respond({ error: "missionId must be a 32-byte hex string" }, 400);
-    await deps.events.emit(missionId, "replay.paid", {});
+
+    // Do the work first; the payer is charged only if a Verdict was produced.
+    let result;
     try {
-      return respond(await handleReplay(deps, missionId));
+      result = await handleReplay(deps, missionId);
     } catch (e) {
       return respond({ error: (e as Error).message }, e instanceof PendingError ? 409 : 500);
     }
+    const settled = await gated.settle();
+    if (settled.error !== undefined || !settled.transaction) return respond({ error: settled.error ?? "settlement failed" }, 402);
+    await deps.events.emit(missionId, "replay.paid", { transaction: settled.transaction }, HASHSCAN_TX + settled.transaction);
+    return respond(result);
   });
 
   return app;
