@@ -70,7 +70,7 @@ export const Bid = defineSchema("dewo.bid", {
   missionId: str().indexed(),
   worker: addr().indexed(),
   policyHash: str(),
-  workerPubKey: str(),
+  workerPubKey: bytes(), // 65-byte key is 132 hex chars: over the 128-byte str limit
   verifiers: str(), // D7: order of priceCt0..2
   priceCt0: bytes(),
   priceCt1: bytes(),
@@ -91,7 +91,7 @@ export const Verdict = defineSchema("dewo.verdict", {
   collisions: i32().indexed(),
   difficultyClass: str().indexed(), // D3
   stepBudget: i32(), // D3
-  signature: str(),
+  signature: bytes(), // 65-byte signature: same str limit
   evidenceHash: str(),
   episodeLogRoot: str(),
 })

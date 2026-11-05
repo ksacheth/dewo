@@ -1,4 +1,13 @@
+import { ExpirationTime } from "@arkiv-network/sdk"
+import { eq } from "@arkiv-network/sdk/query"
+import { addr } from "@arkiv-network/sdk/schema"
+import { asc } from "@arkiv-network/sdk/query"
+import { bytesToHex, hexToBytes } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
+import { fetchAll, plain, readClient } from "./client"
+import type { Wallet, Written } from "./client"
+import { Bid } from "./schemas"
+import type { BidInput } from "./schemas"
 import { decrypt, encrypt } from "./crypto"
 import type { BidRow, Hex } from "./schemas"
 
@@ -40,4 +49,20 @@ export function firstBidPerWorker(rows: BidRow[]): BidRow[] {
     if (!first.has(b.worker.toLowerCase())) first.set(b.worker.toLowerCase(), b)
   }
   return [...first.values()]
+}
+
+/** Bids are readonly: a sealed Bid cannot be edited later. They live as long as their Mission (D1). */
+export async function placeBid(wallet: Wallet, bid: BidInput): Promise<Written> {
+  return wallet.createEntity(
+    Bid,
+    { ...bid, workerPubKey: hexToBytes(bid.workerPubKey), worker: addr(wallet.account.address) },
+    { expiration: ExpirationTime.fromMinutes(60), flags: { readonly: true } },
+  )
+}
+
+export async function listBids(missionId: Hex): Promise<BidRow[]> {
+  const rows = await fetchAll<Record<string, unknown>>((offset) =>
+    readClient().select().from(Bid).where(eq("missionId", missionId)).orderBy(asc("$key")).limit(100).offset(offset).fetch(),
+  )
+  return firstBidPerWorker(rows.map((r) => plain<Omit<BidRow, "workerPubKey"> & { workerPubKey: Uint8Array }>(r)).map((r): BidRow => ({ ...r, workerPubKey: bytesToHex(r.workerPubKey) })))
 }

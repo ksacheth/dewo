@@ -1,3 +1,12 @@
+import { bytesToHex, hexToBytes } from "viem"
+import { ExpirationTime } from "@arkiv-network/sdk"
+import { and, asc, eq, or } from "@arkiv-network/sdk/query"
+import type { Expression } from "@arkiv-network/sdk/query"
+import { addr, i32 } from "@arkiv-network/sdk/schema"
+import { fetchAll, plain, readClient } from "./client"
+import type { Wallet, Written } from "./client"
+import { Verdict } from "./schemas"
+import type { VerdictInput } from "./schemas"
 import { level, quorumResults, reliability, totalXp } from "./scoring"
 import type { DifficultyClass, Hex, Outcome, VerdictRow } from "./schemas"
 
@@ -34,4 +43,29 @@ export function leaderboardFrom(verdicts: VerdictRow[]): LeaderboardRow[] {
       })),
     }
   }).sort((a, b) => b.level - a.level || b.xp - a.xp)
+}
+
+/** Readonly and long-lived (leaderboard history), kept under the chain's ~182 day maximum. */
+export async function writeVerdict(wallet: Wallet, v: VerdictInput): Promise<Written> {
+  return wallet.createEntity(
+    Verdict,
+    { ...v, signature: hexToBytes(v.signature as `0x${string}`), worker: addr(v.worker), steps: i32(v.steps), collisions: i32(v.collisions), stepBudget: i32(v.stepBudget) },
+    { expiration: ExpirationTime.fromDays(180), flags: { readonly: true } },
+  )
+}
+
+/** Newest first; only entities owned by a trusted Verifier (D5). */
+export async function listVerdicts(filter: VerdictFilter = {}): Promise<VerdictRow[]> {
+  const conditions: Expression[] = [or(...trustedVerifiers().map((a) => eq("$owner", addr(a))))]
+  if (filter.worker) conditions.push(eq("worker", addr(filter.worker)))
+  if (filter.missionId) conditions.push(eq("missionId", filter.missionId))
+  if (filter.outcome) conditions.push(eq("outcome", filter.outcome))
+  const rows = await fetchAll<Record<string, unknown>>((offset) =>
+    readClient().select().from(Verdict).where(and(...conditions) as never).orderBy(asc("$key")).limit(100).offset(offset).fetch(),
+  )
+  return rows.map((r) => plain<VerdictRow>(r)).map((r) => ({ ...r, signature: bytesToHex(r.signature as unknown as Uint8Array) })).sort((a, b) => b.$createdAt - a.$createdAt)
+}
+
+export async function leaderboard(): Promise<LeaderboardRow[]> {
+  return leaderboardFrom(await listVerdicts())
 }
