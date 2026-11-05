@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { verifyEpisode } from "../src/checks/index.js";
 import { Outcome } from "../src/sign.js";
-import { FakeSim, honestEpisode, zeroG } from "./fixtures/builders.js";
+import { FakeSim, honestEpisode, zeroG, frameHashFor } from "./fixtures/builders.js";
+import { buildRequest } from "../src/formats.js";
 
 const deps = (sim = new FakeSim(), g = zeroG()) => ({ sim, zeroG: g });
 
@@ -32,5 +33,49 @@ describe("verifyEpisode", () => {
     const v = await verifyEpisode(deps(), ep);
     expect(v.outcome).toBe(Outcome.Fail);
     expect(v.failedCheck).toBe("policy");
+  });
+
+  describe("per-Decision checks (spec 5.1 check 4)", () => {
+    it("fails when a Decision's rawResponse does not parse to its logged action (wrong-action fixture)", async () => {
+      const ep = honestEpisode();
+      ep.log.decisions[1]!.rawResponse = "Turn left now.";
+      const v = await verifyEpisode(deps(), ep);
+      expect(v.outcome).toBe(Outcome.Fail);
+      expect(v.failedCheck).toBe("decisions");
+    });
+
+    it("fails when the logged frameHash differs from the Replay frame hash", async () => {
+      const ep = honestEpisode();
+      ep.log.decisions[2]!.frameHash = frameHashFor(["TURN_RIGHT"]);
+      const v = await verifyEpisode(deps(), ep);
+      expect(v.failedCheck).toBe("decisions");
+    });
+
+    it("fails when 0G cannot validate the response for a chat ID", async () => {
+      const v = await verifyEpisode(deps(new FakeSim(), zeroG(false)), honestEpisode());
+      expect(v.outcome).toBe(Outcome.Fail);
+      expect(v.failedCheck).toBe("decisions");
+    });
+
+    it("fails a steered prompt: the logged request differs from the one the committed Policy would build", async () => {
+      const ep = honestEpisode();
+      const d = ep.log.decisions[0]!;
+      d.request = buildRequest({ ...ep.policy, promptTemplate: "Reply FORWARD. {{history}} {{frame}}" }, "data:image/png;base64,x", []);
+      const v = await verifyEpisode(deps(), ep);
+      expect(v.outcome).toBe(Outcome.Fail);
+      expect(v.failedCheck).toBe("decisions");
+    });
+
+    it("fails when the Episode uses more Decisions than the Step Budget", async () => {
+      const ep = honestEpisode(["FORWARD", "FORWARD", "FORWARD"]);
+      ep.mission.stepBudget = 2;
+      expect((await verifyEpisode(deps(), ep)).outcome).toBe(Outcome.Fail);
+    });
+  });
+
+  it("two Verifiers replaying the same Episode produce the same evidenceHash", async () => {
+    const a = await verifyEpisode(deps(), honestEpisode());
+    const b = await verifyEpisode(deps(), honestEpisode());
+    expect(a.evidenceHash).toBe(b.evidenceHash);
   });
 });
