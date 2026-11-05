@@ -15,9 +15,11 @@ export interface EpisodeInput {
   policy: Policy;
   log: EpisodeLog;
   episodeLogRoot: Hex;
+  /** decisionCount recorded by EpisodeRegistry.submitEpisode. */
+  decisionCount: number;
 }
 export interface VerifyDeps { sim: SimPort; zeroG: ZeroGPort }
-export type CheckName = "seed" | "solvability" | "policy" | "decisions" | "replay";
+export type CheckName = "header" | "seed" | "solvability" | "policy" | "decisions" | "replay";
 export interface VerdictResult {
   outcome: Outcome;
   evidenceHash: Hex;
@@ -34,12 +36,21 @@ const evidence = (e: EpisodeInput, outcome: Outcome, steps: number, collisions: 
     seedCommitment: e.mission.seedCommitment, steps, collisions, atGoal,
   })));
 
+/** The log must be for this Mission, this Bid's Worker and Seed Commitment, and as long as the on-chain submission says. */
+const headerBindsEpisode = (e: EpisodeInput): boolean => {
+  const h = e.log.header;
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  return same(h.missionId, e.mission.missionId) && same(h.worker, e.bid.worker) &&
+    same(h.seedCommitment, e.mission.seedCommitment) && e.log.decisions.length === e.decisionCount;
+};
+
 /** Run the spec 5.1 checks in order. Any failure is a Fail, except an unsolvable Course (Invalid Course). */
 export async function verifyEpisode(deps: VerifyDeps, e: EpisodeInput): Promise<VerdictResult> {
   const done = (outcome: Outcome, steps: number, collisions: number, atGoal: boolean, failedCheck?: CheckName, gaps: string[] = []): VerdictResult =>
     ({ outcome, evidenceHash: evidence(e, outcome, steps, collisions, atGoal), steps, collisions, failedCheck, gaps });
   const fail = (check: CheckName) => done(Outcome.Fail, 0, 0, false, check);
 
+  if (!headerBindsEpisode(e)) return fail("header");
   if (!seedMatchesCommitment(e.reveal.seed, e.reveal.salt, e.mission.seedCommitment)) return fail("seed");
 
   const course = await deps.sim.course(e.reveal.seed, e.mission.difficultyClass);

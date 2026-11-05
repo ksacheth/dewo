@@ -56,5 +56,6 @@ export function honestEpisode(actions: Action[] = ["FORWARD", "FORWARD", "FORWAR
     policy: POLICY,
     log,
     episodeLogRoot: ("0x" + "33".repeat(32)) as Hex,
+    decisionCount: actions.length,
   };
 }

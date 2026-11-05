@@ -78,4 +78,24 @@ describe("verifyEpisode", () => {
     const b = await verifyEpisode(deps(), honestEpisode());
     expect(a.evidenceHash).toBe(b.evidenceHash);
   });
+
+  describe("Episode Log header (binds the log to this Mission)", () => {
+    it("fails a log that was written for a different Mission", async () => {
+      const ep = honestEpisode();
+      ep.log.header.missionId = ("0x" + "99".repeat(32)) as `0x${string}`;
+      const v = await verifyEpisode(deps(), ep);
+      expect(v.outcome).toBe(Outcome.Fail);
+      expect(v.failedCheck).toBe("header");
+    });
+    it("fails a log signed off by a different Worker than the Bid's", async () => {
+      const ep = honestEpisode();
+      ep.log.header.worker = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
+      expect((await verifyEpisode(deps(), ep)).failedCheck).toBe("header");
+    });
+    it("fails when the registry decisionCount differs from the log length", async () => {
+      const ep = honestEpisode();
+      ep.decisionCount = 7;
+      expect((await verifyEpisode(deps(), ep)).failedCheck).toBe("header");
+    });
+  });
 });

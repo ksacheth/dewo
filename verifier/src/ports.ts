@@ -61,6 +61,7 @@ export interface LoadedEpisode {
     policy: import("./formats.js").Policy;
     log: import("./formats.js").EpisodeLog;
     episodeLogRoot: Hex;
+    decisionCount: number;
   };
 }
 
