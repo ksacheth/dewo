@@ -1,0 +1,5 @@
+packages:
+  - board
+  - web
+  - agents
+  - verifier
