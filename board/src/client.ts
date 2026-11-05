@@ -53,3 +53,11 @@ export async function fetchAll<R>(page: (offset: number) => Promise<{ entities: 
     if (entities.length < 100) return all
   }
 }
+
+const EXPLORER = "https://rabdi.explorer.arkiv.network"
+/** Rabdi explorer links. Paths are an assumption (both answer 200); confirm in a browser before the demo. */
+export const explorerUrl = {
+  tx: (hash: Hex) => `${EXPLORER}/tx/${hash}`,
+  entity: (key: Hex) => `${EXPLORER}/entity/${key}`,
+  address: (a: Hex) => `${EXPLORER}/address/${a}`,
+}

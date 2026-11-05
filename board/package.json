@@ -8,8 +8,8 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx scripts/smoke.ts",
-    "query": "tsx scripts/query.ts"
+    "smoke": "node --env-file=.env --import tsx scripts/smoke.ts",
+    "query": "node --env-file=.env --import tsx scripts/query.ts"
   },
   "dependencies": {
     "@arkiv-network/sdk": "^1.0.1",
