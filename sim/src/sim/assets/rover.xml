@@ -1,0 +1,22 @@
+<mujoco model="dewo-rover">
+  <!-- Course geoms are inserted at COURSE by camera.py. Motion is kinematic:
+       the rover is a mocap body, MuJoCo only renders and measures distances. -->
+  <option gravity="0 0 0"/>
+  <visual>
+    <headlight ambient="0.45 0.45 0.45" diffuse="0.45 0.45 0.45" specular="0 0 0"/>
+    <global offwidth="224" offheight="224"/>
+  </visual>
+  <asset>
+    <material name="floor" rgba="0.82 0.82 0.78 1"/>
+    <material name="wall" rgba="0.45 0.45 0.5 1"/>
+    <material name="goal" rgba="0.1 0.8 0.2 1"/>
+  </asset>
+  <worldbody>
+    <light pos="3 3 6" dir="0 0 -1" diffuse="0.6 0.6 0.6" specular="0 0 0" castshadow="false"/>
+    <body name="rover" mocap="true" pos="0 0 0">
+      <geom name="rover_geom" type="cylinder" size="0.2 0.05" pos="0 0 0.05" group="4" contype="0" conaffinity="0"/>
+      <camera name="onboard" pos="0.1 0 0.12" xyaxes="0 -1 0 0 0 1" fovy="70"/>
+    </body>
+    <!--COURSE-->
+  </worldbody>
+</mujoco>

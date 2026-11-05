@@ -88,6 +88,8 @@ class Rover:
         return png, "0x" + hashlib.sha256(png).hexdigest()
 
     def act(self, action):
+        if action == "STOP":
+            return False  # ends the Episode; STOP uses no step
         if action == "FORWARD":
             self.x += FORWARD_M * math.cos(self.yaw)
             self.y += FORWARD_M * math.sin(self.yaw)
