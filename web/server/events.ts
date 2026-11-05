@@ -92,7 +92,9 @@ function sse(url: URL, req: IncomingMessage, res: ServerResponse, RUNS: string) 
       // A writer can be mid-line; keep the tail until its newline arrives.
       const parts = ((partial.get(f) ?? "") + buf.toString("utf8")).split("\n")
       partial.set(f, parts.pop() ?? "")
-      for (const l of parts.filter(Boolean)) emit(JSON.parse(l))
+      for (const l of parts.filter(Boolean)) {
+        try { emit(JSON.parse(l)) } catch { /* corrupt line: skip it, never crash the server */ }
+      }
     }
   }
   poll()
@@ -131,6 +133,8 @@ function deployments(server: ViteDevServer) {
 
 /** Stand-in for the Requester API (I7) until it lands: posts a Mission entity and a mission.posted event. Labelled "mock requester" in the UI. */
 async function mockRequester(body: { difficultyClass: string; maxBounty: number; riskWeight: number }, res: ServerResponse, loadBoard: () => Promise<Record<string, any>>, mode: string) {
+  if (!["easy", "medium", "hard"].includes(body.difficultyClass) || !(body.maxBounty > 0 && body.maxBounty <= 1000) || !(body.riskWeight >= 0 && body.riskWeight <= 1))
+    return send(res, 400, { error: "invalid difficultyClass, maxBounty or riskWeight" })
   const b = await loadBoard()
   const missionId = `0x${randomBytes(32).toString("hex")}`
   const { privateKeyToAccount } = await import("viem/accounts")

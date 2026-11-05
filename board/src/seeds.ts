@@ -6,7 +6,7 @@ import { plain, readClient } from "./client"
 import type { Wallet, Written } from "./client"
 import { decrypt, encrypt } from "./crypto"
 import { getMission } from "./missions"
-import { SeedRelease } from "./schemas"
+import { LIFETIME_MS, SeedRelease } from "./schemas"
 import type { Hex, SeedReleaseRow } from "./schemas"
 
 /** The Requester hands {seed, salt} to the winning Worker, encrypted to its public key. Readonly; expires after the Episode deadline. */
@@ -14,7 +14,7 @@ export async function releaseSeed(wallet: Wallet, missionId: Hex, seed: string, 
   return wallet.createEntity(
     SeedRelease,
     { missionId, worker: addr(publicKeyToAddress(workerPubKey)), sealed: encrypt(workerPubKey, JSON.stringify({ seed, salt })) },
-    { expiration: ExpirationTime.fromMinutes(70), flags: { readonly: true } },
+    { expiration: ExpirationTime.fromSeconds(LIFETIME_MS.seedRelease / 1000), flags: { readonly: true } },
   )
 }
 

@@ -130,7 +130,7 @@ export async function listVerdicts(filter: VerdictFilter = {}): Promise<VerdictR
     .filter((v) => !filter.worker || same(v.worker, filter.worker))
     .filter((v) => !filter.missionId || v.missionId === filter.missionId)
     .filter((v) => !filter.outcome || v.outcome === filter.outcome)
-    .sort((a, b) => b.$createdAt - a.$createdAt)
+    .sort((a, b) => b.$createdAt - a.$createdAt || (a.$key < b.$key ? -1 : 1))
 }
 
 export async function leaderboard(): Promise<LeaderboardRow[]> {

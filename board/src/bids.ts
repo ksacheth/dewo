@@ -6,7 +6,7 @@ import { bytesToHex, hexToBytes } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { fetchAll, plain, readClient } from "./client"
 import type { Wallet, Written } from "./client"
-import { Bid } from "./schemas"
+import { Bid, LIFETIME_MS } from "./schemas"
 import type { BidInput } from "./schemas"
 import { decrypt, encrypt } from "./crypto"
 import type { BidRow, Hex } from "./schemas"
@@ -44,7 +44,7 @@ export function openBid(bid: Pick<BidRow, "verifiers" | "priceCt0" | "priceCt1" 
 /** D9: the first Bid per Worker is the commitment; later ones are ignored. Also drops Bids not owned by their Worker (D5). */
 export function firstBidPerWorker(rows: BidRow[]): BidRow[] {
   const first = new Map<string, BidRow>()
-  for (const b of [...rows].sort((x, y) => x.$createdAt - y.$createdAt)) {
+  for (const b of [...rows].sort((x, y) => x.$createdAt - y.$createdAt || (x.$key < y.$key ? -1 : 1))) {
     if (b.$owner.toLowerCase() !== b.worker.toLowerCase()) continue
     if (!first.has(b.worker.toLowerCase())) first.set(b.worker.toLowerCase(), b)
   }
@@ -56,7 +56,7 @@ export async function placeBid(wallet: Wallet, bid: BidInput): Promise<Written> 
   return wallet.createEntity(
     Bid,
     { ...bid, workerPubKey: hexToBytes(bid.workerPubKey), worker: addr(wallet.account.address) },
-    { expiration: ExpirationTime.fromMinutes(60), flags: { readonly: true } },
+    { expiration: ExpirationTime.fromSeconds(LIFETIME_MS.bid / 1000), flags: { readonly: true } },
   )
 }
 

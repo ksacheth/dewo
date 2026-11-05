@@ -5,7 +5,7 @@ import type { Expression } from "@arkiv-network/sdk/query"
 import { addr, i32 } from "@arkiv-network/sdk/schema"
 import { fetchAll, plain, readClient } from "./client"
 import type { Wallet, Written } from "./client"
-import { Verdict } from "./schemas"
+import { LIFETIME_MS, Verdict } from "./schemas"
 import type { VerdictInput } from "./schemas"
 import { level, quorumResults, reliability, totalXp } from "./scoring"
 import type { DifficultyClass, Hex, Outcome, VerdictRow } from "./schemas"
@@ -50,7 +50,7 @@ export async function writeVerdict(wallet: Wallet, v: VerdictInput): Promise<Wri
   return wallet.createEntity(
     Verdict,
     { ...v, signature: hexToBytes(v.signature as `0x${string}`), worker: addr(v.worker), steps: i32(v.steps), collisions: i32(v.collisions), stepBudget: i32(v.stepBudget) },
-    { expiration: ExpirationTime.fromDays(180), flags: { readonly: true } },
+    { expiration: ExpirationTime.fromSeconds(LIFETIME_MS.verdict / 1000), flags: { readonly: true } },
   )
 }
 
@@ -63,7 +63,7 @@ export async function listVerdicts(filter: VerdictFilter = {}): Promise<VerdictR
   const rows = await fetchAll<Record<string, unknown>>((offset) =>
     readClient().select().from(Verdict).where(and(...conditions) as never).orderBy(asc("$key")).limit(100).offset(offset).fetch(),
   )
-  return rows.map((r) => plain<VerdictRow>(r)).map((r) => ({ ...r, signature: bytesToHex(r.signature as unknown as Uint8Array) })).sort((a, b) => b.$createdAt - a.$createdAt)
+  return rows.map((r) => plain<VerdictRow>(r)).map((r) => ({ ...r, signature: bytesToHex(r.signature as unknown as Uint8Array) })).sort((a, b) => b.$createdAt - a.$createdAt || (a.$key < b.$key ? -1 : 1))
 }
 
 export async function leaderboard(): Promise<LeaderboardRow[]> {

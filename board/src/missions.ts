@@ -4,7 +4,7 @@ import type { Expression } from "@arkiv-network/sdk/query"
 import { addr, dec, i32, u64, u256 } from "@arkiv-network/sdk/schema"
 import { fetchAll, plain, readClient } from "./client"
 import type { Wallet, Written } from "./client"
-import { Mission } from "./schemas"
+import { LIFETIME_MS, Mission } from "./schemas"
 import type { DifficultyClass, Hex, MissionInput, MissionRow, MissionStatus } from "./schemas"
 
 /** D1: a Mission lives 60 min (the rescue deadline); the board hides it once biddingClosesAt passes. */
@@ -24,7 +24,7 @@ export async function postMission(wallet: Wallet, m: MissionInput): Promise<Writ
       escrowMissionId: m.missionId,
       verifiers: m.verifiers,
     },
-    { expiration: ExpirationTime.fromMinutes(60) },
+    { expiration: ExpirationTime.fromSeconds(LIFETIME_MS.mission / 1000) },
   )
 }
 
