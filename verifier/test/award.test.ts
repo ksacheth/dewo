@@ -15,7 +15,7 @@ const USDC = 1_000_000n;
 
 function board(opts: { prices: Record<Address, bigint>; verdicts?: Record<Address, VerdictRecord[]>; riskWeight?: number }): BoardPort {
   return {
-    getMission: async () => ({ missionId: MISSION, riskWeight: opts.riskWeight ?? 0.5, maxBounty: 10n * USDC, seedCommitment: "0x00" }),
+    getMission: async () => ({ missionId: MISSION, riskWeight: opts.riskWeight ?? 0.5, maxBounty: 10n * USDC, seedCommitment: "0x00", stepBudget: 15, difficultyClass: "medium" }),
     listBids: async () => Object.keys(opts.prices).map((worker) => ({ worker: worker as Address, policyHash: "0x00" as Hex })),
     openBid: async (bid) => opts.prices[bid.worker]!,
     listVerdicts: async (w) => opts.verdicts?.[w] ?? [],
