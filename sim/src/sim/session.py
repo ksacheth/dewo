@@ -55,6 +55,8 @@ def run(course, frames_dir, stdin=None, stdout=None):
                 continue
             try:
                 msg = json.loads(line)
+                if not isinstance(msg, dict):
+                    raise ValueError(f"expected a JSON object in {line}")
                 if msg.get("cmd") == "observe":
                     out = ep.observe()
                 elif msg.get("cmd") == "act":

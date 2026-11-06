@@ -43,3 +43,13 @@ def test_live_session_and_replay_give_identical_frame_hashes(load_fixture, tmp_p
 def test_different_actions_give_different_frames(load_fixture):
     course, actions = load_fixture("course_medium.json"), load_fixture("actions_medium.json")
     assert replay(course, actions)["frameHashes"] != replay(course, ["TURN_LEFT"] + actions)["frameHashes"]
+
+
+def test_non_object_json_lines_get_an_error_reply_and_session_survives(load_fixture, tmp_path):
+    course = load_fixture("course_medium.json")
+    stdin = io.StringIO('[1]\n3\n"x"\nnull\n{"cmd": "observe"}\n')
+    out = io.StringIO()
+    run(course, tmp_path / "frames", stdin=stdin, stdout=out)
+    replies = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert all("error" in r for r in replies[:4])
+    assert "frameHash" in replies[4]
