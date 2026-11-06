@@ -10,7 +10,7 @@ const ok: SkipContext = {
   stake: 0.5,
   txFees: 0.05,
   zgBalance: 5,
-  costPerDecision: 0.05,
+  zeroGPerDecision: 0.05,
 };
 
 describe("shouldSkip", () => {
