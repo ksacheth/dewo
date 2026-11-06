@@ -176,13 +176,23 @@ function deployments(server: ViteDevServer) {
  * board mock also gets a Mission entity: in real board mode a fake entity (no escrow) would pollute Arkiv, so none is
  * written. Labelled "mock requester" in the UI.
  */
-export async function mockRequester(body: { difficultyClass: string; maxBounty: number; riskWeight: number; maxSteps: number; maxCollisions: number }, res: ServerResponse, loadBoard: () => Promise<Record<string, any>>, mode: string) {
+type MockMissionBody = { difficultyClass: string; maxBounty: number; riskWeight: number; maxSteps: number; maxCollisions: number }
+
+const uint32From = (x: unknown, min: number): boolean => Number.isInteger(x) && (x as number) >= min && (x as number) <= 0xffffffff
+
+/** Why a mock POST /missions body is invalid, or null. The limits mirror createMission (ADR 0006): maxSteps >= 1, uint32. */
+function mockBodyError(body: MockMissionBody): string | null {
   const num = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x)
-  const uint32 = (x: unknown, min: number): x is number => Number.isInteger(x) && (x as number) >= min && (x as number) <= 0xffffffff
   if (!body || typeof body !== "object" || !["easy", "medium", "hard"].includes(body.difficultyClass) || !(num(body.maxBounty) && body.maxBounty > 0 && body.maxBounty <= 1000) || !(num(body.riskWeight) && body.riskWeight >= 0 && body.riskWeight <= 1))
-    return send(res, 400, { error: "invalid difficultyClass, maxBounty or riskWeight" })
-  if (!uint32(body.maxSteps, 1) || !uint32(body.maxCollisions, 0))
-    return send(res, 400, { error: "maxSteps must be a whole number of at least 1 and maxCollisions a whole number of at least 0" })
+    return "invalid difficultyClass, maxBounty or riskWeight"
+  if (!uint32From(body.maxSteps, 1) || !uint32From(body.maxCollisions, 0))
+    return "maxSteps must be a whole number of at least 1 and maxCollisions a whole number of at least 0"
+  return null
+}
+
+export async function mockRequester(body: MockMissionBody, res: ServerResponse, loadBoard: () => Promise<Record<string, any>>, mode: string) {
+  const error = mockBodyError(body)
+  if (error) return send(res, 400, { error })
   const { maxSteps, maxCollisions } = body
   const b = await loadBoard()
   const missionId = `0x${randomBytes(32).toString("hex")}`

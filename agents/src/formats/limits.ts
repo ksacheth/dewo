@@ -12,17 +12,18 @@ export interface MissionLimits {
 /** createMission stores both limits as uint32. */
 const UINT32_MAX = 0xffff_ffff;
 
+/** A whole number from `min` to the uint32 maximum. */
+const isUint32From = (value: number, min: number): boolean => Number.isInteger(value) && value >= min && value <= UINT32_MAX;
+
 /** Everything wrong with a pair of limits, as readable sentences; empty when createMission would accept them. */
 export function limitsProblems(limits: MissionLimits): string[] {
-  const problems: string[] = [];
-  const { maxSteps, maxCollisions } = limits;
-  if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > UINT32_MAX) {
-    problems.push(`maxSteps must be a whole number from 1 to ${UINT32_MAX}, got ${maxSteps}`);
-  }
-  if (!Number.isInteger(maxCollisions) || maxCollisions < 0 || maxCollisions > UINT32_MAX) {
-    problems.push(`maxCollisions must be a whole number from 0 to ${UINT32_MAX}, got ${maxCollisions}`);
-  }
-  return problems;
+  const rules = [
+    ["maxSteps", limits.maxSteps, 1],
+    ["maxCollisions", limits.maxCollisions, 0],
+  ] as const;
+  return rules
+    .filter(([, value, min]) => !isUint32From(value, min))
+    .map(([name, value, min]) => `${name} must be a whole number from ${min} to ${UINT32_MAX}, got ${value}`);
 }
 
 /** Moving Actions, every Decision except STOP: `steps` in `sim replay` output and in a Verdict. */
