@@ -7,7 +7,9 @@ export default {
     prefixer({
       prefix: ".landing",
       includeFiles: [/src[\\/]landing[\\/].*\.css$/],
-      transform: (prefix, selector, prefixed) => (/^(:root|html|body)$/.test(selector) ? prefix : prefixed),
+      // `html` keeps its own element (scroll-behavior and scroll-padding only work on the scroller), gated by a class the
+      // Landing component sets on <html> while it is mounted.
+      transform: (prefix, selector, prefixed) => (selector === "html" ? "html.landing-root" : /^(:root|body)$/.test(selector) ? prefix : prefixed),
     }),
   ],
 }

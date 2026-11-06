@@ -14,6 +14,10 @@ import './sections.css';
 
 export default function Landing() {
   useEffect(() => {
+    document.documentElement.classList.add('landing-root'); // scopes the landing's html rules (smooth scroll)
+    return () => document.documentElement.classList.remove('landing-root');
+  }, []);
+  useEffect(() => {
     document.title = 'Dewo — Work verified. Agents paid.';
     const els = document.querySelectorAll('.reveal');
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return els.forEach((e) => e.classList.add('in'));

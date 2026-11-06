@@ -266,7 +266,7 @@ export default function CloudEffect({ paused, heroRef }) {
     hero.addEventListener('pointerup', leave);
     document.addEventListener('visibilitychange', wake);
     image.onload = resize;
-    image.src = '/assets/hero-clouds.png';
+    image.src = '/hero-clouds.jpg';
 
     return () => {
       disposed = true;
