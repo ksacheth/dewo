@@ -38,6 +38,7 @@ async function main() {
   const gate = await createX402Gate({
     facilitator: new HTTPFacilitatorClient({ url: process.env.X402_FACILITATOR_URL ?? "https://api.testnet.blocky402.com" }),
     payTo: env("HEDERA_PAY_TO"),
+    asset: process.env.X402_ASSET ? { id: process.env.X402_ASSET, decimals: 6 } : undefined,
   });
 
   const app = createApp({

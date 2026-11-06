@@ -3,11 +3,11 @@
  *
  * Runs the real Verifier app (real x402 gate, real signing, real event feed) in-process with a fixture Episode,
  * then pays its 402 as a client and prints the Hedera transaction. Keys come from the environment only:
- *   HEDERA_PAY_TO                 account receiving the fee (must be associated with USDC 0.0.429274)
+ *   HEDERA_PAY_TO                 account receiving the fee (must be associated with USDC 0.0.5449, or auto-associate)
  *   HEDERA_CLIENT_ACCOUNT_ID      payer account (associated, holding testnet USDC and some HBAR)
  *   HEDERA_CLIENT_PRIVATE_KEY     payer ECDSA key, 0x-prefixed
  *   X402_FACILITATOR_URL          optional, defaults to Blocky402 testnet
- *   X402_ASSET                    optional HTS token id to charge in (Circle's faucet mints 0.0.5449); defaults to 0.0.429274
+ *   X402_ASSET                    optional HTS token id to charge in; defaults to Circle's testnet USDC 0.0.5449
  */
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";

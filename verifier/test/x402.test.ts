@@ -15,15 +15,15 @@ describe("x402 gate", () => {
     const res = await gate(new Request("http://v/replay", { method: "POST" })) as Challenge;
     expect(res.status).toBe(402);
     const accepts = (res.body as { accepts: Array<{ scheme: string; network: string; payTo: string; asset: string }> }).accepts;
-    expect(accepts[0]).toMatchObject({ scheme: "exact", network: "hedera:testnet", payTo: "0.0.5555", asset: "0.0.429274" });
+    expect(accepts[0]).toMatchObject({ scheme: "exact", network: "hedera:testnet", payTo: "0.0.5555", asset: "0.0.5449" });
     expect(res.headers?.["PAYMENT-REQUIRED"]).toBeTruthy();
   });
 
-  it("charges in a different HTS USDC when configured (Circle's faucet mints 0.0.5449)", async () => {
-    const gate = await createX402Gate({ facilitator: facilitator as never, payTo: "0.0.5555", asset: { id: "0.0.5449", decimals: 6 } });
+  it("charges in another HTS token when configured", async () => {
+    const gate = await createX402Gate({ facilitator: facilitator as never, payTo: "0.0.5555", asset: { id: "0.0.6001", decimals: 6 } });
     const res = await gate(new Request("http://v/replay", { method: "POST" })) as Challenge;
     const accepts = (res.body as { accepts: Array<{ asset: string; amount: string }> }).accepts;
-    expect(accepts[0]).toMatchObject({ asset: "0.0.5449", amount: "50000" });
+    expect(accepts[0]).toMatchObject({ asset: "0.0.6001", amount: "50000" });
   });
 
   it("verifies a matching payment without charging it until settle() is called", async () => {
