@@ -12,7 +12,7 @@ M5: the Verifier service, run as 3 instances (ports 7101 to 7103). It signs Awar
 |---|---|---|
 | Mission terms (`maxBounty`, difficulty, risk weight, seed commitment), the 3 Verifiers, `biddingEndsAt`, requester, current Award, stake time, lapsed Workers | MissionEscrow on Hedera (the Requester cannot change them after Bids arrive) | `adapters/escrow-chain.ts` |
 | Bids (first per Worker, created at or before `biddingEndsAt`, R2), sealed prices, Reliability (Quorum Verdicts written by the Mission's own Verifiers) | Arkiv via `@dewo/board` | `adapters/board.ts` |
-| Seed Release time, public seed reveal | Arkiv (`$createdAt` is a block number, converted to seconds with `getBlock`) | `adapters/board.ts` |
+| Seed Release time, public seed reveal | Arkiv (`$createdAt` is a block number, converted to seconds with the board's `blockTimestamps`) | `adapters/board.ts` |
 | Episode Submission and its block time | EpisodeRegistry `submissions(missionId, worker)` on 0G Galileo | `adapters/zerog-registry.ts` |
 | Episode Log, Policy | 0G Storage `downloadToBlob` | `adapters/zerog-storage.ts` |
 | `course`, `plan --max-cost 29`, `replay` | the sim CLI (I1) through `sim/scripts/sim-docker`, the pinned `dewo-sim` image (R1) | `adapters/sim-cli.ts` |
