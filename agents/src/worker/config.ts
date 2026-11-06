@@ -30,13 +30,15 @@ export function workerSettings(env: Env, readFile = (path: string) => readFileSy
     throw new Error("WORKER_PUBKEY is not the public key of WORKER_PRIVATE_KEY; leave it empty to derive it");
   }
   const policy = JSON.parse(readFile(requiredEnv(env, "WORKER_POLICY"))) as Policy;
+  const verifiers = verifiersFromEnv(env);
   return {
     privateKey,
     config: {
       address: account.address,
       publicKey: account.publicKey,
       policy,
-      verifierPubKeys: verifiersFromEnv(env).map((verifier) => verifier.publicKey),
+      verifierPubKeys: verifiers.map((verifier) => verifier.publicKey),
+      verifierAddresses: verifiers.map((verifier) => verifier.address),
       strategy: strategyFromEnv(env),
     },
   };

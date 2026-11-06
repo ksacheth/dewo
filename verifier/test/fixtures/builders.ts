@@ -116,13 +116,16 @@ export const VERIFIERS = [
 /** Bidding ended long before the tests' clock (5_000). */
 export const BIDDING_ENDS_AT = 1_000;
 
-export function fakeChain(opts: { award?: () => EscrowAward | null; lapsed?: string[]; maxBounty?: bigint; riskWeight?: number; biddingEndsAt?: number } = {}): EscrowPort {
+export function fakeChain(opts: { award?: () => EscrowAward | null; lapsed?: string[]; maxBounty?: bigint; riskWeight?: number; biddingEndsAt?: number; verifiers?: readonly Address[]; down?: boolean } = {}): EscrowPort {
   return {
-    getMission: async () => ({
-      requester: REQUESTER, verifiers: VERIFIERS, biddingEndsAt: opts.biddingEndsAt ?? BIDDING_ENDS_AT,
+    getMission: async () => {
+      if (opts.down) throw new Error("Hashio timed out");
+      return {
+      requester: REQUESTER, verifiers: opts.verifiers ?? VERIFIERS, biddingEndsAt: opts.biddingEndsAt ?? BIDDING_ENDS_AT,
       mission: { missionId: MISSION, difficultyClass: "medium", riskWeight: opts.riskWeight ?? 0.5, maxBounty: opts.maxBounty ?? 10_000_000n, seedCommitment: seedCommitment(SEED, SALT), deadlines: DEADLINES },
       award: opts.award ? opts.award() : null,
-    }),
+      };
+    },
     isLapsed: async (_mission, worker) => (opts.lapsed ?? []).includes(worker),
   };
 }

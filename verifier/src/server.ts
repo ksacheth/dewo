@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { isHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { BiddingOpenError, EvidenceExpiredError, NoValidBidsError, PendingError, StorageUnavailableError } from "./errors.js";
+import { BiddingOpenError, EvidenceExpiredError, NoValidBidsError, PendingError, StorageUnavailableError, UntrustedVerifiersError } from "./errors.js";
 import { createAwarder, type SignedAward } from "./routes/award.js";
 import { decideVerdict, publishVerdict, type DecidedVerdict } from "./routes/replay.js";
 import type { BoardPort, EpisodeSource, EscrowPort, EventSink, SimPort, VerdictSink, ZeroGPort } from "./ports.js";
+import { verifierSetGuard } from "./verifier-set.js";
 
 export interface GateChallenge { status: number; body: unknown; headers?: Record<string, string> }
 /**
@@ -22,6 +23,8 @@ export interface AppDeps {
   key: Hex; escrow: Address; gate: PaymentGate; now: () => number;
   board: BoardPort; chain: EscrowPort; source: EpisodeSource; sim: SimPort; zeroG: ZeroGPort;
   verdicts: VerdictSink; events: EventSink;
+  /** `VERIFIER_ADDRESSES`: the only Verifier set this instance serves Missions on (ADR 0005). */
+  trustedVerifiers: readonly Address[];
 }
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -55,10 +58,25 @@ export function createApp(deps: AppDeps) {
   const app = new Hono();
   const verifier = privateKeyToAccount(deps.key).address;
   const awardFor = createAwarder(deps);
+  // ADR 0005: both routes refuse a Mission whose on-chain Verifiers are not this instance plus the other two trusted ones.
+  const checkVerifierSet = verifierSetGuard(deps.chain, verifier, deps.trustedVerifiers);
+
+  /** 403 when the Mission's Verifiers are untrusted (final); 503 when the escrow read itself fails (retryable). Null to go on. */
+  async function refuseUntrusted(missionId: Hex): Promise<Response | null> {
+    try {
+      await checkVerifierSet(missionId);
+      return null;
+    } catch (e) {
+      if (e instanceof UntrustedVerifiersError) return respond({ error: e.message }, 403);
+      return respond({ error: `escrow unavailable: ${errorMessage(e)}` }, 503);
+    }
+  }
 
   app.post("/award", async (c) => {
     const missionId = await readMissionId(c.req.raw);
     if (!missionId) return respond({ error: "missionId must be a 32-byte hex string" }, 400);
+    const refused = await refuseUntrusted(missionId);
+    if (refused) return refused;
     try {
       const award = await awardFor(missionId);
       await announceAward(missionId, award);
@@ -91,6 +109,8 @@ export function createApp(deps: AppDeps) {
   }
 
   async function paidReplay(missionId: Hex, payment: GatePaid): Promise<Response> {
+    const refused = await refuseUntrusted(missionId);
+    if (refused) return refused;
     let decided: DecidedVerdict;
     try {
       decided = await decideVerdict(deps, missionId);

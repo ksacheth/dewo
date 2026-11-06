@@ -38,6 +38,8 @@ export interface Award {
 
 export interface EscrowMission {
   terms: MissionTerms;
+  /** The 3 Verifiers passed to createMission: 2 of their signatures Award and settle the Mission (ADR 0002, ADR 0005). */
+  verifiers: readonly Hex[];
   /** The current Award; it can move to the next-best Bid if the winner misses the stake window. */
   award: Award | null;
   stakedAt: number | null;
