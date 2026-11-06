@@ -29,7 +29,7 @@ export class SimCli implements SimPort {
   }
 }
 
-class CliSession implements SimSession {
+export class CliSession implements SimSession {
   private readonly pending: { resolve: (line: string) => void; reject: (error: Error) => void }[] = [];
   private exited: Error | null = null;
   private stderr = "";
@@ -40,10 +40,17 @@ class CliSession implements SimSession {
   ) {
     createInterface({ input: child.stdout }).on("line", (line) => this.pending.shift()?.resolve(line));
     child.stderr.on("data", (chunk) => (this.stderr = (this.stderr + String(chunk)).slice(-2000)));
-    child.on("exit", (code) => {
-      this.exited = new Error(`sim session exited (${code}): ${this.stderr.trim()}`);
-      for (const waiter of this.pending.splice(0)) waiter.reject(this.exited);
-    });
+    child.on("exit", (code) => this.fail(new Error(`sim session exited (${code}): ${this.stderr.trim()}`)));
+    // Spawn failures and EPIPE after the sim died arrive as events; unhandled they would crash the whole agent.
+    child.on("error", (error) => this.fail(new Error(`sim session failed: ${error.message}`)));
+    child.stdin.on("error", (error) => this.fail(new Error(`sim session stdin failed: ${error.message}`)));
+  }
+
+  /** Rejects everything in flight and makes later calls fail fast. The first failure is the one reported. */
+  private fail(error: Error): void {
+    this.exited ??= error;
+    for (const waiter of this.pending.splice(0)) waiter.reject(this.exited);
+    if (this.child.exitCode === null && !this.child.killed) this.child.kill();
   }
 
   async observe(): Promise<Observation> {

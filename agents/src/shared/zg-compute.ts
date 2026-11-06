@@ -16,7 +16,11 @@ interface Completion {
 export class ZeroGInference implements InferencePort {
   private readonly endpoints = new Map<string, Promise<string>>();
 
-  constructor(private readonly broker: ZGComputeNetworkBroker) {}
+  /** `timeoutMs` bounds each 0G HTTP call, so an unreachable provider surfaces as an error (the Episode then safe-stops). */
+  constructor(
+    private readonly broker: ZGComputeNetworkBroker,
+    private readonly timeoutMs = 60_000,
+  ) {}
 
   static async connect(wallet: Wallet): Promise<ZeroGInference> {
     return new ZeroGInference(await createZGComputeNetworkBroker(wallet));
@@ -43,6 +47,7 @@ export class ZeroGInference implements InferencePort {
       method: "POST",
       headers: { "content-type": "application/json", ...(headers as unknown as Record<string, string>) },
       body: JSON.stringify(request),
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!response.ok) throw new Error(`0G inference failed: ${response.status} ${await response.text()}`);
 
@@ -56,14 +61,17 @@ export class ZeroGInference implements InferencePort {
     const key = `${providerAddress}:${model}`;
     if (!this.endpoints.has(key)) {
       const metadata = this.broker.inference.getServiceMetadata(providerAddress, model);
-      this.endpoints.set(key, metadata.then((m) => m.endpoint));
+      const endpoint = metadata.then((m) => m.endpoint);
+      this.endpoints.set(key, endpoint);
+      // A failed lookup must not be cached forever: drop it so the next Decision retries.
+      endpoint.catch(() => this.endpoints.delete(key));
     }
     return this.endpoints.get(key)!;
   }
 
   private async receipt(providerAddress: Hex, chatID: string): Promise<ChatReceipt> {
     const url = await this.broker.inference.getChatSignatureDownloadLink(providerAddress, chatID);
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(this.timeoutMs) });
     if (!response.ok) throw new Error(`0G receipt for chat ${chatID} unavailable: ${response.status}`);
     const { text, signature } = (await response.json()) as { text: string; signature: Hex };
     return { text, signature };

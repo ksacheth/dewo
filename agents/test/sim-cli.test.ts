@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { SimCli } from "../src/shared/sim-cli";
+import { spawn } from "node:child_process";
+import { CliSession, SimCli } from "../src/shared/sim-cli";
 import { runEpisode } from "../src/worker/episode";
 import { ScriptedInference, SEED, policy } from "./fakes";
 
@@ -52,5 +53,20 @@ describe("SimCli (I1 over JSON lines)", () => {
 
   it("fails loudly when the sim CLI fails", async () => {
     await expect(new SimCli(["node", fakeSim, "bogus"], runs).openSession(SEED, "easy", MISSION)).rejects.toThrow(/sim course failed/);
+  });
+
+  it("rejects the in-flight call and fails fast when the sim dies mid-session", async () => {
+    const session = await sim.openSession(SEED, "easy", MISSION);
+    await expect(session.act("DIE" as never)).rejects.toThrow(/sim session exited \(3\)/);
+    await expect(session.observe()).rejects.toThrow(/sim session exited/);
+    await expect(session.act("FORWARD")).rejects.toThrow(/sim session exited/);
+    await session.close();
+  });
+
+  it("turns a spawn failure into a rejected call instead of an unhandled error", async () => {
+    const session = new CliSession(spawn("dewo-no-such-sim-binary", [], { stdio: "pipe" }), runs);
+    await expect(session.observe()).rejects.toThrow(/sim session failed/);
+    await expect(session.act("FORWARD")).rejects.toThrow(/sim session failed/);
+    await session.close();
   });
 });

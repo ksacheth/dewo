@@ -25,6 +25,8 @@ if (command === "course") {
       writeFileSync(frame, bytes);
       const frameHash = `0x${createHash("sha256").update(bytes).digest("hex")}`;
       console.log(JSON.stringify({ step, frame, frameHash, atGoal: position >= goalAt, collisions: 0 }));
+    } else if (message.action === "DIE") {
+      process.exit(3); // test hook: the sim dies mid-session
     } else if (ended) {
       // Like the real sim: Actions after the Episode ended are rejected, not executed.
       console.log(JSON.stringify({ error: "episode already ended" }));
