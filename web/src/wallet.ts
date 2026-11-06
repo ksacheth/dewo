@@ -52,6 +52,7 @@ async function chain(e: Eth) { set({ chainId: parseInt(await e.request({ method:
 
 /** Connects the wallet (prompts if needed). Returns the address (lowercase), or null with `error` set. */
 export async function connectWallet(): Promise<string | null> {
+  wire() // listen for accountsChanged / chainChanged from the first connect on
   const e = eth()
   if (!e) { set({ error: "No browser wallet found. Install MetaMask or another EVM wallet." }); return null }
   try {

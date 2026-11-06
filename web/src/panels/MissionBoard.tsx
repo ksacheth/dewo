@@ -22,15 +22,16 @@ export function MissionBoard({ onSelect }: { onSelect: (id: string) => void }) {
       {!error && open.length === 0 && <p className="empty">No open Missions right now.</p>}
       <ol className="rows">
         {open.map((m) => (
-          <li key={m.$key}>
-            <button type="button" className="row-item" style={{ gridTemplateColumns: "minmax(0,1fr) auto auto" }} onClick={() => onSelect(m.missionId)}>
+          <li key={m.$key} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", alignItems: "center", borderBottom: "1px solid var(--line)" }}>
+            <button type="button" className="row-item" style={{ gridTemplateColumns: "minmax(0,1fr) auto auto", borderBottom: 0 }} onClick={() => onSelect(m.missionId)}>
               <span style={{ display: "grid", gap: 2 }}>
                 <span className="row-title">{m.courseSeed ? taskOf(m.courseSeed) : "rover"} · {m.difficultyClass}</span>
-                <span className="row-sub">≤ {m.maxSteps ?? "?"} Decisions · ≤ {m.maxCollisions ?? "?"} collisions · Risk Weight {m.riskWeight} · Course {m.courseSeed ? short(m.courseSeed, 3) : "?"} · <a href={arkivEntity(m.$key)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>Arkiv</a></span>
+                <span className="row-sub">≤ {m.maxSteps ?? "?"} Decisions · ≤ {m.maxCollisions ?? "?"} collisions · Risk Weight {m.riskWeight} · Course {m.courseSeed ? short(m.courseSeed, 3) : "?"}</span>
               </span>
               <span className="value">{usdc(m.bounty)}<small>USDC</small></span>
               <span className="row-end"><Tag tone="accent" live>{clock(m.biddingClosesAt - now)}</Tag></span>
             </button>
+            <a href={arkivEntity(m.$key)} target="_blank" rel="noreferrer" className="row-sub" style={{ padding: "0 18px" }}>Arkiv</a>
           </li>
         ))}
       </ol>

@@ -65,7 +65,7 @@ function postedOf(dir: string, missionId: string): { task?: string; difficultyCl
       const e = JSON.parse(line)
       if (e.type === "mission.posted") return e.data
     }
-  return {}
+  return null
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const hs = (id: string) => `https://hashscan.io/testnet/transaction/${id}`
