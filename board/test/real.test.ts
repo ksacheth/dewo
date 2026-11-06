@@ -31,6 +31,8 @@ describe.skipIf(!enabled)("real Arkiv (Rabdi)", () => {
     expect((await board.listOpenMissions({ difficultyClass: "hard", requester: me })).map((m) => m.missionId)).not.toContain(missionId)
     const got = await board.getMission(missionId)
     expect(got).toMatchObject({ requester: me, bounty: 10_000_000n, riskWeight: 0.5 })
+    expect((await board.getMission(missionId, me))?.$key).toBe(entityKey)
+    expect(await board.getMission(missionId, privateKeyToAddress(verifierKeys[0]))).toBeNull()
 
     await board.setMissionStatus(wallet!, entityKey, "awarded")
     expect((await board.getMission(missionId))?.status).toBe("awarded")

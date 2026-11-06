@@ -314,6 +314,28 @@ describe("Requester: crash safety", () => {
     expect(s.board.listings).toHaveLength(1);
   });
 
+  it("does not list twice when a crash lost the record write after postMission", async () => {
+    const s = setupRequester();
+    const postMission = s.board.postMission.bind(s.board);
+    // The listing lands on Arkiv, then the process dies before the record moves on.
+    s.board.postMission = async (listing) => {
+      await postMission(listing);
+      throw new Error("crash");
+    };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await s.post();
+    expect(s.stage()).toBe("CREATED");
+
+    s.board.postMission = postMission;
+    await s.requester.tick();
+    errors.mockRestore();
+    expect(s.board.listings).toHaveLength(1);
+    expect(s.stage()).toBe("BIDDING");
+    expect(s.events.filter((e) => e.type === "mission.posted")).toEqual([
+      expect.objectContaining({ data: expect.objectContaining({ arkivKey: "arkiv-mission-1" }) }),
+    ]);
+  });
+
   it("stops listing once bidding has closed and rescues it later", async () => {
     const s = setupRequester();
     s.board.postMission = async () => Promise.reject(new Error("arkiv down"));

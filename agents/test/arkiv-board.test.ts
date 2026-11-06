@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as mock from "@dewo/board/mock";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Hex } from "../src/formats";
 import type { MissionListing, RequesterBoardPort } from "../src/requester/ports";
 import { RequesterArkivBoard, WorkerArkivBoard, type BoardLibrary, type BoardWallet } from "../src/shared/arkiv-board";
@@ -84,6 +84,14 @@ describe.each(implementations)("board port contract: %s", (_, make) => {
     expect(await boards.worker.listOpenMissionIds()).toContain(missionId(1));
   });
 
+  it("listingOf finds the Requester's own listing once posted, with the key postMission returned", async () => {
+    const boards = make();
+    expect(await boards.requester.listingOf(missionId(1))).toBeNull();
+    const { key } = await boards.requester.postMission(listing(1));
+    expect(await boards.requester.listingOf(missionId(1))).toEqual({ key });
+    expect(await boards.requester.listingOf(missionId(2))).toBeNull();
+  });
+
   it("myBid finds this Worker's Bid once placed, and the Requester reads its public key", async () => {
     const boards = make();
     await boards.requester.postMission(listing(1));
@@ -122,6 +130,15 @@ describe("RequesterArkivBoard", () => {
       seedCommitment: `0x${"cc".repeat(32)}`,
       verifiers: verifiers.map((v) => v.account.address).join(","),
     });
+  });
+
+  it("listingOf ignores a Mission entity someone else posted for the same Mission id", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await new RequesterArkivBoard(lib, actor().wallet, { verifierPubKeys }).postMission(listing(1));
+    expect(await board().listingOf(missionId(1))).toBeNull();
+    const { key } = await board().postMission(listing(1));
+    expect(await board().listingOf(missionId(1))).toEqual({ key });
+    warn.mockRestore();
   });
 
   it("hasSeedRelease is per Worker", async () => {

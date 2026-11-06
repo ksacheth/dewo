@@ -241,11 +241,15 @@ export class Requester {
     this.deps.records.put({ ...creating, stage: "RETIRED", note: `created as ${missionId}` });
   }
 
-  /** Lists a funded Mission on Arkiv; if bidding closed first, nobody can bid, so wait for rescue. */
+  /**
+   * Lists a funded Mission on Arkiv; if bidding closed first, nobody can bid, so wait for rescue.
+   * Check before acting: a crash after postMission but before the record write must not list twice. An adopted
+   * listing is still announced, since that crash also came before the mission.posted event.
+   */
   private async list(record: RequesterRecord, mission: EscrowMission): Promise<void> {
     const { terms } = mission;
     if (this.deps.clock.now() >= terms.deadlines.biddingClosesAt) return this.move(record, "NO_BIDS", "never listed");
-    const { key } = await this.deps.board.postMission({
+    const { key } = (await this.deps.board.listingOf(record.missionId)) ?? await this.deps.board.postMission({
       missionId: record.missionId,
       difficultyClass: terms.difficultyClass,
       maxBounty: terms.maxBounty,
