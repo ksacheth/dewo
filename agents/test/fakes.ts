@@ -319,6 +319,9 @@ export class FakeVerifiers implements VerifiersPort {
   dissenting = new Set<string>();
   /** Verifier URLs that answer /replay with 503 "not ready yet" (never charged). */
   notReady = new Set<string>();
+  /** What a not-ready Verifier says: its reason, and when the wait ends (unix seconds) if it knows. */
+  notReadyReason = "Galileo is not 120 s past the submission yet";
+  notReadyAt: number | undefined = undefined;
 
   constructor(
     private readonly board: FakeBoard,
@@ -342,7 +345,7 @@ export class FakeVerifiers implements VerifiersPort {
 
   async requestReplay(url: string, missionId: string): Promise<ReplayResult> {
     this.failIfBroken(url);
-    if (this.notReady.has(url)) throw new VerifierNotReadyError(503, `${url} answered 503: Galileo is not 120 s past the submission yet`);
+    if (this.notReady.has(url)) throw new VerifierNotReadyError(503, `${url} answered 503: ${this.notReadyReason}`, this.notReadyReason, this.notReadyAt);
     this.replays.push(url);
     const submitted = await this.registry.isSubmitted(missionId);
     const outcome: Outcome = this.dissenting.has(url) ? "Fail" : submitted ? "Pass" : "NoShow";

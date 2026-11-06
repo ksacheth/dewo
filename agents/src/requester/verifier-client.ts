@@ -154,6 +154,21 @@ function matching(fields: Record<string, unknown>, name: string, pattern: RegExp
 /** "Ask again later": a Verifier answers these before it asks for payment (verifier/src/server.ts); see requestReplay for after. */
 const NOT_READY = new Set([409, 503]);
 
+/** A not-ready body is `{ error, readyAt? }` (verifier/src/server.ts); anything else is passed on as plain text. */
+function notReadyDetail(text: string): { reason?: string; readyAt?: number } {
+  try {
+    const body: unknown = JSON.parse(text);
+    if (typeof body !== "object" || body === null) return {};
+    const { error, readyAt } = body as { error?: unknown; readyAt?: unknown };
+    return {
+      reason: typeof error === "string" ? error : undefined,
+      readyAt: typeof readyAt === "number" && Number.isFinite(readyAt) ? readyAt : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
 async function post(doFetch: typeof fetch, url: string, missionId: string, timeoutMs: number): Promise<unknown> {
   const response = await doFetch(url, {
     method: "POST",
@@ -162,8 +177,11 @@ async function post(doFetch: typeof fetch, url: string, missionId: string, timeo
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) {
-    const message = `${url} answered ${response.status}: ${await response.text()}`;
-    throw NOT_READY.has(response.status) ? new VerifierNotReadyError(response.status, message) : new Error(message);
+    const text = await response.text();
+    const message = `${url} answered ${response.status}: ${text}`;
+    if (!NOT_READY.has(response.status)) throw new Error(message);
+    const { reason, readyAt } = notReadyDetail(text);
+    throw new VerifierNotReadyError(response.status, message, reason ?? text, readyAt);
   }
   return response.json();
 }

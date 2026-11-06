@@ -134,6 +134,8 @@ const random32 = (): Hex => `0x${randomBytes(32).toString("hex")}`;
 export class Requester {
   /** CREATING records whose createMission is in flight in this process. */
   private readonly creating = new Set<string>();
+  /** The last `replay.waiting` value emitted per Mission and Verifier URL, so a repeated answer stays silent (in memory only). */
+  private readonly lastWaiting = new Map<string, string>();
   private readonly payouts: PayoutClaimer;
 
   constructor(
@@ -407,12 +409,23 @@ export class Requester {
       });
     } catch (error) {
       // Not ready yet (409/503) was never charged, so the slot goes back and the next tick asks again; anything else may have been paid.
+      if (error instanceof VerifierNotReadyError) this.announceWaiting(record.missionId, url, error);
       next = error instanceof VerifierNotReadyError
         ? { ...record, note: `Replay at ${url} not ready yet: ${error.message}` }
         : { ...next, note: `Replay at ${url} failed: ${String(error)}` };
     }
     this.deps.records.put(next);
     return next;
+  }
+
+  /** Tells the feed why a Verifier is not ready, but only when the reason or the end of the wait changed since the last tick. */
+  private announceWaiting(missionId: string, url: string, error: VerifierNotReadyError): void {
+    const { reason, readyAt } = error;
+    const key = `${missionId}|${url}`, value = `${reason}|${readyAt ?? ""}`;
+    if (this.lastWaiting.get(key) === value) return;
+    this.lastWaiting.set(key, value);
+    const verifier = this.config.verifiers.find((v) => v.url === url)?.address ?? url;
+    this.deps.events.emit(missionId, "replay.waiting", { verifier, reason, ...(readyAt !== undefined && { readyAt }) });
   }
 
   /** The audit log is best-effort: a failed HCS write never blocks settlement. */
