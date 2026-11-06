@@ -100,6 +100,8 @@ describe.skipIf(!OUT)("escrow + registry adapters against M2's contracts (Anvil)
       },
       verifiers.map((v) => v.address),
     );
+    expect(await requester.findMission(seedCommitment(SEED, SALT))).toBe(missionId);
+    expect(await requester.findMission(`0x${"99".repeat(32)}` as Hex)).toBeNull();
     const posted = await worker.getMission(missionId);
     expect(posted).toMatchObject({ award: null, stakedAt: null, settled: false });
     expect(posted.terms).toMatchObject({ maxBounty: 10_000_000n, difficultyClass: "medium", riskWeightBps: 7500, seedCommitment: seedCommitment(SEED, SALT) });
@@ -135,5 +137,24 @@ describe.skipIf(!OUT)("escrow + registry adapters against M2's contracts (Anvil)
 
     const balance = await deployer.public.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [workerAddress] });
     expect(balance).toBe(100_000_000n + 6_000_000n); // got the price; the stake came back
+  }, 60_000);
+
+  it("rescues a Mission nobody bid on once rescueAt has passed", async () => {
+    const requester = new EscrowContract(clientsFor(requesterKey), escrowAddress);
+    const now = Number((await deployer.public.getBlock()).timestamp);
+    const missionId = await requester.createMission(
+      {
+        maxBounty: 1_000_000n,
+        difficultyClass: "easy",
+        riskWeightBps: 5000,
+        seedCommitment: seedCommitment(SALT, SEED),
+        deadlines: { biddingClosesAt: now + 60, stakeWindow: 30, seedReleaseWindow: 30, episodeWindow: 300, rescueAt: now + 3600 },
+      },
+      verifiers.map((v) => v.address),
+    );
+    await testClient.increaseTime({ seconds: 3601 });
+    await testClient.mine({ blocks: 1 });
+    await requester.rescue(missionId);
+    expect((await requester.getMission(missionId)).settled).toBe(true);
   }, 60_000);
 });

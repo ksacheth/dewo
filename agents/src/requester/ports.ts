@@ -28,6 +28,10 @@ export interface RequesterEscrowPort {
   /** Locks maxBounty and fixes the terms on-chain; returns the Mission id. */
   createMission(terms: MissionTerms, verifiers: readonly Hex[]): Promise<string>;
   getMission(missionId: string): Promise<EscrowMission>;
+  /** The id of this Requester's Mission with that Seed Commitment (from MissionCreated events), or null. */
+  findMission(seedCommitment: Hex): Promise<string | null>;
+  /** Refunds the Mission once rescueAt has passed; anyone may call it. */
+  rescue(missionId: string): Promise<void>;
   award(missionId: string, award: AwardTerms, signatures: readonly Hex[]): Promise<void>;
   settle(missionId: string, outcome: Outcome, evidenceHash: Hex, signatures: readonly Hex[]): Promise<void>;
 }
@@ -47,6 +51,8 @@ export interface RequesterBoardPort {
   postMission(listing: MissionListing): Promise<{ key: string }>;
   /** The public key the winner put in its Bid entity. */
   workerPubKey(missionId: string, worker: Hex): Promise<Hex | null>;
+  /** Whether a Seed Release for this winner is already on Arkiv. */
+  hasSeedRelease(missionId: string, worker: Hex): Promise<boolean>;
   /** Seed + salt encrypted to the winner only. */
   releaseSeed(missionId: string, seed: Hex, salt: Hex, workerPubKey: Hex): Promise<{ key: string }>;
   /** Seed + salt in the clear, after the Episode, so anyone can re-run the Replay. */

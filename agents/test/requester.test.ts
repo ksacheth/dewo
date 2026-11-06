@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { seedCommitment, toBaseUnits, type Hex } from "../src/formats";
 import type { AuditPort, PaymentRecord } from "../src/requester/audit";
+import { CREATE_RETRY_SECONDS } from "../src/requester/requester";
 import { RIVAL, ME, SALT, SEED, VERIFIER_URLS, requesterIn, world } from "./fakes";
 
 const randoms = (): (() => Hex) => {
@@ -175,5 +176,183 @@ describe("Requester: HCS spending log", () => {
   it("still settles when the audit log is down", async () => {
     const { w } = await settledWith({ recordPayment: async () => Promise.reject(new Error("HCS down")) });
     expect(w.escrow.settlements).toHaveLength(1);
+  });
+});
+
+describe("Requester: crash safety", () => {
+  it("saves the seed before createMission, so a crash after the lock still recovers it", async () => {
+    const s = setupRequester();
+    const create = s.escrow.createMission.bind(s.escrow);
+    // The Mission is created on-chain, then the process dies before it learns the id.
+    s.escrow.createMission = async (t) => {
+      await create(t);
+      throw new Error("crash");
+    };
+    await expect(s.post()).rejects.toThrow("crash");
+    expect(s.records.all().map((r) => r.stage)).toEqual(["CREATING"]);
+
+    s.escrow.createMission = create;
+    await s.requester.tick();
+    expect(s.escrow.missions.size).toBe(1);
+    expect(s.stage()).toBe("BIDDING");
+    expect(s.records.get("m1")).toMatchObject({ seed: SEED, salt: SALT });
+    expect(s.board.listings).toHaveLength(1);
+
+    s.bid(ME, 2);
+    s.closeBidding();
+    await s.requester.tick();
+    await s.escrow.stake("m1", 500_000n);
+    await s.requester.tick();
+    expect(s.board.releases.get("m1")).toMatchObject({ seed: SEED, salt: SALT });
+  });
+
+  it("retries createMission with the same seed once the failed attempt is stale", async () => {
+    const s = setupRequester();
+    const create = s.escrow.createMission.bind(s.escrow);
+    s.escrow.createMission = async () => Promise.reject(new Error("rpc down"));
+    await expect(s.post()).rejects.toThrow("rpc down");
+
+    s.escrow.createMission = create;
+    await s.requester.tick();
+    expect(s.escrow.missions.size).toBe(0);
+    s.clock.t += CREATE_RETRY_SECONDS + 1;
+    await s.requester.tick();
+    expect([...s.escrow.missions.values()].map((m) => m.terms.seedCommitment)).toEqual([seedCommitment(SEED, SALT)]);
+    expect(s.stage()).toBe("BIDDING");
+  });
+
+  it("does not retry while createMission is still in flight", async () => {
+    const s = setupRequester();
+    let release = () => {};
+    const create = s.escrow.createMission.bind(s.escrow);
+    s.escrow.createMission = (t) => new Promise((resolve) => (release = () => resolve(create(t))));
+    const posting = s.post();
+    s.clock.t += CREATE_RETRY_SECONDS + 1;
+    await s.requester.tick();
+    release();
+    await posting;
+    expect(s.escrow.missions.size).toBe(1);
+  });
+
+  it("keeps a funded Mission and lists it on a later tick when Arkiv fails", async () => {
+    const s = setupRequester();
+    const postMission = s.board.postMission.bind(s.board);
+    s.board.postMission = async () => Promise.reject(new Error("arkiv down"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await s.post();
+    expect(s.stage()).toBe("CREATED");
+    expect(s.board.listings).toHaveLength(0);
+
+    s.board.postMission = postMission;
+    await s.requester.tick();
+    errors.mockRestore();
+    expect(s.stage()).toBe("BIDDING");
+    expect(s.board.listings).toHaveLength(1);
+  });
+
+  it("stops listing once bidding has closed and rescues it later", async () => {
+    const s = setupRequester();
+    s.board.postMission = async () => Promise.reject(new Error("arkiv down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await s.post();
+    s.closeBidding();
+    await s.requester.tick();
+    expect(s.stage()).toBe("NO_BIDS");
+    s.clock.t += 3600;
+    await s.requester.tick();
+    expect(s.stage()).toBe("RESCUED");
+    vi.restoreAllMocks();
+  });
+
+  it("does not release the seed twice when a crash lost the record write", async () => {
+    const s = await staked();
+    expect(s.board.releases.size).toBe(1);
+    s.records.put({ ...s.records.get("m1")!, stage: "AWARDED" });
+    const release = vi.spyOn(s.board, "releaseSeed");
+    await s.requester.tick();
+    expect(release).not.toHaveBeenCalled();
+    expect(s.stage()).toBe("SEED_RELEASED");
+  });
+
+  it("counts a Replay as spent before the payment goes out", async () => {
+    const s = await staked();
+    await s.registry.submitEpisode("m1", "0x01", "0x02", 3);
+    const seen: number[] = [];
+    const replay = s.verifiers.requestReplay.bind(s.verifiers);
+    s.verifiers.requestReplay = async (url, id) => {
+      seen.push(s.records.get("m1")!.paidReplays);
+      return replay(url, id);
+    };
+    await s.requester.tick();
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it("holds the Replay cap across a crash mid-payment", async () => {
+    const s = await staked();
+    await s.registry.submitEpisode("m1", "0x01", "0x02", 3);
+    s.records.put({ ...s.records.get("m1")!, stage: "VERIFYING", paidReplays: 3 });
+    await s.requester.tick();
+    expect(s.verifiers.replays).toHaveLength(0);
+    expect(s.records.get("m1")?.note).toContain("Replay budget");
+  });
+});
+
+describe("Requester: rescue", () => {
+  it("rescues a Mission with no Bids once rescueAt passes, not before", async () => {
+    const s = setupRequester();
+    await s.post();
+    s.closeBidding();
+    await s.requester.tick();
+    expect(s.stage()).toBe("NO_BIDS");
+    expect(s.escrow.rescues).toEqual([]);
+
+    s.clock.t = 1_000 + 3600;
+    await s.requester.tick();
+    expect(s.escrow.rescues).toEqual(["m1"]);
+    expect(s.stage()).toBe("RESCUED");
+  });
+
+  it("rescues a Mission stuck in VERIFYING", async () => {
+    const s = await staked();
+    VERIFIER_URLS.forEach((url) => s.verifiers.broken.add(url));
+    s.clock.t += 301;
+    await s.requester.tick();
+    expect(s.stage()).toBe("VERIFYING");
+    s.clock.t = 1_000 + 3600;
+    await s.requester.tick();
+    expect(s.stage()).toBe("RESCUED");
+  });
+
+  it("only records a Mission someone else rescued", async () => {
+    const s = setupRequester();
+    await s.post();
+    s.clock.t = 1_000 + 3600;
+    s.escrow.patch("m1", { settled: true });
+    await s.requester.tick();
+    expect(s.escrow.rescues).toEqual([]);
+    expect(s.stage()).toBe("SETTLED");
+  });
+});
+
+describe("Requester: isolation", () => {
+  it("keeps going with the other Missions when one throws", async () => {
+    const w = world();
+    let n = 0;
+    const { requester, records } = requesterIn(w, { random: () => `0x${(++n).toString(16).padStart(64, "0")}` });
+    const request = { difficulty: "easy", maxBounty: 5, riskWeight: 0.5 } as const;
+    await requester.post(request);
+    await requester.post(request);
+    w.board.bids.push({ missionId: "m2", worker: ME, policyHash: "0x00", workerPubKey: "0x04", sealedPrice: ["enc(2000000)@k"] });
+    w.clock.t += 61;
+
+    const real = w.escrow.getMission.bind(w.escrow);
+    w.escrow.getMission = async (id) => (id === "m1" ? Promise.reject(new Error("rpc")) : real(id));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await requester.tick();
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("m1"), expect.anything());
+    errors.mockRestore();
+
+    expect(records.get("m1")?.stage).toBe("BIDDING");
+    expect(records.get("m2")?.stage).toBe("AWARDED");
   });
 });
