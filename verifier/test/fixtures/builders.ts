@@ -1,6 +1,7 @@
 import { concat, keccak256, toBytes, type Hex } from "viem";
-import type { Action, SimPort, ZeroGPort, Course, ReplayResult } from "../../src/ports.js";
-import { buildRequest, policyHash, type Decision, type EpisodeLog, type Policy } from "../../src/formats.js";
+import { policyHash, type Action, type Decision, type EpisodeLog, type Policy } from "@dewo/agents/formats";
+import type { SimPort, ZeroGPort, Course, ReplayResult } from "../../src/ports.js";
+import { buildRequest } from "../../src/request.js";
 import type { EpisodeInput } from "../../src/checks/index.js";
 
 export const SEED = ("0x" + "5e".repeat(16)) as Hex;
@@ -12,14 +13,14 @@ export const PROVIDER = "0x90F79bf6EB2c4f870365E785982E1f101E93b906" as const;
 export const POLICY: Policy = {
   name: "careful", model: "qwen2.5-vl-72b", providerAddress: PROVIDER,
   promptTemplate: "You drive a rover. Past actions: {{history}}. View: {{frame}}. Reply with one action.",
-  memoryWindow: 3, version: "1",
+  memoryWindow: 3, temperature: 0, version: "1",
 };
 
 /** Straight-line stand-in for the sim: the goal is 3 FORWARDs away; TURN_LEFT hits an obstacle. Frames depend on history. */
 export class FakeSim implements SimPort {
-  constructor(private opts: { solvable?: boolean; collideAt?: Action } = {}) {}
+  constructor(private opts: { solvable?: boolean; optimalPathCost?: number; collideAt?: Action } = {}) {}
   async course(seed: Hex): Promise<Course> { return { seed, difficulty: "medium" }; }
-  async plan() { return { solvable: this.opts.solvable ?? true, minSteps: 3 }; }
+  async plan() { return { solvable: this.opts.solvable ?? true, optimalPathCost: this.opts.optimalPathCost ?? 3 }; }
   async replay(_c: Course, actions: Action[]): Promise<ReplayResult> {
     const frameHashes = actions.map((_, i) => frameHashFor(actions.slice(0, i)));
     return {
@@ -50,7 +51,7 @@ export function honestEpisode(actions: Action[] = ["FORWARD", "FORWARD", "FORWAR
     decisions,
   };
   return {
-    mission: { missionId: MISSION, seedCommitment: log.header.seedCommitment, stepBudget: 15, difficultyClass: "medium", riskWeight: 0.5, maxBounty: 10_000_000n },
+    mission: { missionId: MISSION, seedCommitment: log.header.seedCommitment, difficultyClass: "medium", riskWeight: 0.5, maxBounty: 10_000_000n },
     bid: { worker: WORKER, policyHash: policyHash(POLICY) },
     reveal: { seed: SEED, salt: SALT },
     policy: POLICY,

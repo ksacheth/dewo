@@ -1,5 +1,5 @@
 import type { Hex } from "viem";
-import type { Policy, EpisodeLog } from "./formats.js";
+import type { EpisodeLog, Policy } from "@dewo/agents/formats";
 import type { BoardPort, EpisodeRegistryPort, EpisodeSource, EscrowPort, LoadedEpisode, SeedPort, StoragePort } from "./ports.js";
 
 export interface EpisodeSourceDeps {

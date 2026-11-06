@@ -1,5 +1,5 @@
 import { keccak256, toBytes, type Address, type Hex } from "viem";
-import { canonicalJson } from "../formats.js";
+import { canonicalJson } from "@dewo/agents/formats";
 import { verifyEpisode } from "../checks/index.js";
 import { classifyTimeline } from "../deadlines.js";
 import type { EpisodeSource, EventSink, SimPort, VerdictSink, ZeroGPort } from "../ports.js";
@@ -21,8 +21,7 @@ export async function handleReplay(deps: ReplayDeps, missionId: Hex): Promise<Re
 
   let outcome: Outcome;
   let evidenceHash: Hex;
-  let steps = 0;
-  let collisions = 0;
+  let metrics = { pathCost: 0, optimalPathCost: 0, pathQuality: 0, collisions: 0 };
   const episodeLogRoot = loaded.episode?.episodeLogRoot ?? null;
 
   if (byDeadline !== null) {
@@ -30,13 +29,15 @@ export async function handleReplay(deps: ReplayDeps, missionId: Hex): Promise<Re
     evidenceHash = keccak256(toBytes(canonicalJson({ missionId, outcome })));
   } else if (loaded.episode) {
     const result = await verifyEpisode(deps, { mission: loaded.mission, ...loaded.episode });
-    ({ outcome, evidenceHash, steps, collisions } = result);
+    const { pathCost, optimalPathCost, pathQuality, collisions } = result;
+    ({ outcome, evidenceHash } = result);
+    metrics = { pathCost, optimalPathCost, pathQuality, collisions };
   } else {
     throw new PendingError(`mission ${missionId} is pending: no Verdict can be signed yet`);
   }
 
   const signature = await signVerdict(deps.key, deps.escrow, { missionId, outcome, evidenceHash });
-  await deps.verdicts.writeVerdict({ missionId, worker: loaded.worker, outcome, steps, collisions, signature, evidenceHash, episodeLogRoot });
+  await deps.verdicts.writeVerdict({ missionId, worker: loaded.worker, outcome, ...metrics, signature, evidenceHash, episodeLogRoot });
   await deps.events.emit(missionId, "verdict.signed", { outcome, evidenceHash });
   return { verdict: outcome, signature, evidenceHash };
 }

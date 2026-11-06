@@ -1,4 +1,5 @@
-import { buildRequest, canonicalJson, parseAction, type Decision, type Policy } from "../formats.js";
+import { canonicalJson, parseAction, type Decision, type Policy } from "@dewo/agents/formats";
+import { buildRequest } from "../request.js";
 import type { ReplayResult, ZeroGPort } from "../ports.js";
 
 export interface DecisionsResult { ok: boolean; gaps: string[] }

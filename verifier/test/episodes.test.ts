@@ -3,7 +3,7 @@ import type { Hex } from "viem";
 import { createEpisodeSource } from "../src/episodes.js";
 import type { BoardPort } from "../src/ports.js";
 import { SEED, SALT, MISSION, WORKER, POLICY, honestEpisode } from "./fixtures/builders.js";
-import { policyHash } from "../src/formats.js";
+import { policyHash } from "@dewo/agents/formats";
 
 const LOG_ROOT = ("0x" + "33".repeat(32)) as Hex;
 const POLICY_ROOT = ("0x" + "22".repeat(32)) as Hex;

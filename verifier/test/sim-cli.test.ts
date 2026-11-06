@@ -11,7 +11,7 @@ function fakeRunner(calls: string[][], files: Record<string, unknown> = {}) {
     calls.push(args);
     const arg = (name: string) => args[args.indexOf(name) + 1]!;
     if (args[0] === "course") { (await import("node:fs")).writeFileSync(arg("--out"), JSON.stringify(COURSE)); return ""; }
-    if (args[0] === "plan") { files.course = JSON.parse(readFileSync(arg("--course"), "utf8")); return JSON.stringify({ solvable: false, minSteps: -1 }); }
+    if (args[0] === "plan") { files.course = JSON.parse(readFileSync(arg("--course"), "utf8")); return JSON.stringify({ solvable: true, optimalPathCost: 12 }); }
     files.actions = JSON.parse(readFileSync(arg("--actions"), "utf8"));
     files.course = JSON.parse(readFileSync(arg("--course"), "utf8"));
     return JSON.stringify({ frameHashes: ["0xaa", "0xbb"], collisions: 0, atGoal: true, steps: 2 });
@@ -26,13 +26,13 @@ describe("cliSim (I1 over the sim CLI)", () => {
     expect(course).toMatchObject({ seed: SEED, goal: { r: 0.3 } });
   });
 
-  it("asks `sim plan --course --step-budget` and returns the planner verdict", async () => {
+  it("asks `sim plan --course` and returns solvable and optimalPathCost", async () => {
     const calls: string[][] = [];
     const files: Record<string, unknown> = {};
-    const res = await cliSim(fakeRunner(calls, files)).plan(COURSE as never, 15);
-    expect(calls[0]).toEqual(["plan", "--course", expect.any(String), "--step-budget", "15"]);
+    const res = await cliSim(fakeRunner(calls, files)).plan(COURSE as never);
+    expect(calls[0]).toEqual(["plan", "--course", expect.any(String)]);
     expect(files.course).toEqual(COURSE);
-    expect(res).toEqual({ solvable: false, minSteps: -1 });
+    expect(res).toEqual({ solvable: true, optimalPathCost: 12 });
   });
 
   it("replays an Action list through `sim replay --course --actions`", async () => {
@@ -46,7 +46,7 @@ describe("cliSim (I1 over the sim CLI)", () => {
 
   it("cleans up its temp files", async () => {
     const calls: string[][] = [];
-    await cliSim(fakeRunner(calls)).plan(COURSE as never, 5);
+    await cliSim(fakeRunner(calls)).plan(COURSE as never);
     expect(existsSync(calls[0]![2]!)).toBe(false);
   });
 });

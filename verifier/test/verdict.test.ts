@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { verifyEpisode } from "../src/checks/index.js";
 import { Outcome } from "../src/sign.js";
 import { FakeSim, honestEpisode, zeroG, frameHashFor } from "./fixtures/builders.js";
-import { buildRequest } from "../src/formats.js";
+import { buildRequest } from "../src/request.js";
 
 const deps = (sim = new FakeSim(), g = zeroG()) => ({ sim, zeroG: g });
 
@@ -10,8 +10,51 @@ describe("verifyEpisode", () => {
   it("passes an honest Episode that reaches the goal with no collisions", async () => {
     const v = await verifyEpisode(deps(), honestEpisode());
     expect(v.outcome).toBe(Outcome.Pass);
-    expect(v.steps).toBe(3);
+    expect(v.pathCost).toBe(3);
+    expect(v.optimalPathCost).toBe(3);
+    expect(v.pathQuality).toBe(1);
     expect(v.collisions).toBe(0);
+  });
+
+  describe("Path Allowance and Decision Cap (spec 4.6, ADR 0003)", () => {
+    const turns = (n: number) => Array<"TURN_RIGHT">(n).fill("TURN_RIGHT");
+
+    it("passes a detour and records its Path Quality, which never changes the Outcome", async () => {
+      const v = await verifyEpisode(deps(), honestEpisode(["FORWARD", "TURN_RIGHT", "FORWARD", "FORWARD"]));
+      expect(v.outcome).toBe(Outcome.Pass);
+      expect(v.pathCost).toBe(4);
+      expect(v.pathQuality).toBe(0.75);
+    });
+
+    it("does not count STOP towards Path Cost", async () => {
+      const v = await verifyEpisode(deps(), honestEpisode(["FORWARD", "FORWARD", "FORWARD", "STOP"]));
+      expect(v.outcome).toBe(Outcome.Pass);
+      expect(v.pathCost).toBe(3);
+    });
+
+    it("passes at exactly the Path Allowance (2 x optimal + 2) and fails one above it", async () => {
+      const atLimit = await verifyEpisode(deps(), honestEpisode(["FORWARD", "FORWARD", "FORWARD", ...turns(5)])); // cost 8 = 2*3+2
+      expect(atLimit.outcome).toBe(Outcome.Pass);
+      const over = await verifyEpisode(deps(), honestEpisode(["FORWARD", "FORWARD", "FORWARD", ...turns(6)])); // cost 9
+      expect(over.outcome).toBe(Outcome.Fail);
+      expect(over.failedCheck).toBe("replay");
+      expect(over.pathCost).toBe(9);
+    });
+
+    it("allows more Decisions than the allowance when the extras are STOP, up to the Decision Cap of 60", async () => {
+      const sim = new FakeSim({ optimalPathCost: 29 });
+      const sixty = honestEpisode(["FORWARD", "FORWARD", "FORWARD", ...turns(56), "STOP"]); // 60 Decisions, cost 59 <= 60
+      expect((await verifyEpisode(deps(sim), sixty)).outcome).toBe(Outcome.Pass);
+      const sixtyOne = honestEpisode(["FORWARD", "FORWARD", "FORWARD", ...turns(57), "STOP"]); // 61 Decisions, cost 60 <= 60
+      const v = await verifyEpisode(deps(sim), sixtyOne);
+      expect(v.outcome).toBe(Outcome.Fail);
+      expect(v.failedCheck).toBe("replay");
+    });
+
+    it("is Invalid Course when the shortest path is 30 (allowance 62 would exceed the Decision Cap), solvable at 29", async () => {
+      expect((await verifyEpisode(deps(new FakeSim({ optimalPathCost: 30 })), honestEpisode())).outcome).toBe(Outcome.InvalidCourse);
+      expect((await verifyEpisode(deps(new FakeSim({ optimalPathCost: 29 })), honestEpisode())).outcome).toBe(Outcome.Pass);
+    });
   });
 
   it("returns Invalid Course when the planner finds no path, before judging the Worker", async () => {
@@ -64,22 +107,6 @@ describe("verifyEpisode", () => {
       const v = await verifyEpisode(deps(), ep);
       expect(v.outcome).toBe(Outcome.Fail);
       expect(v.failedCheck).toBe("decisions");
-    });
-
-    it("fails when the Episode uses more Decisions than the Step Budget", async () => {
-      const ep = honestEpisode(["FORWARD", "FORWARD", "FORWARD"]);
-      ep.mission.stepBudget = 2;
-      const v = await verifyEpisode(deps(), ep);
-      expect(v.outcome).toBe(Outcome.Fail);
-      expect(v.failedCheck).toBe("replay");
-    });
-
-    it("rejects an over-budget log even if the sim reports fewer steps (it stops at the goal)", async () => {
-      const ep = honestEpisode(["FORWARD", "FORWARD", "FORWARD", "FORWARD"]);
-      ep.mission.stepBudget = 3;
-      const sim = new FakeSim();
-      const capped = { ...sim, course: sim.course.bind(sim), plan: sim.plan.bind(sim), replay: async (c: never, a: never[]) => ({ ...(await sim.replay(c, a)), steps: 3 }) };
-      expect((await verifyEpisode(deps(capped as never), ep)).failedCheck).toBe("replay");
     });
   });
 

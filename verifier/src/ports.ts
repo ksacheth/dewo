@@ -1,3 +1,4 @@
+import type { Action, EpisodeLog, Policy } from "@dewo/agents/formats";
 import type { Address, Hex } from "viem";
 import type { Outcome } from "./sign.js";
 
@@ -9,11 +10,11 @@ export interface MissionRecord {
   riskWeight: number; // w in [0, 1]
   maxBounty: bigint; // USDC base units (6 decimals)
   seedCommitment: Hex;
-  stepBudget: number;
   difficultyClass: Difficulty;
 }
 export interface SealedBid { worker: Address; policyHash: Hex }
-export interface VerdictRecord { worker: Address; outcome: Outcome; timestamp: number }
+/** `pathQuality` (0..1) weights a Pass in Reliability; it is 0 for every other Outcome. */
+export interface VerdictRecord { worker: Address; outcome: Outcome; pathQuality: number; timestamp: number }
 
 export interface BoardPort {
   getMission(missionId: Hex): Promise<MissionRecord>;
@@ -24,19 +25,20 @@ export interface BoardPort {
 }
 
 /** I1 simulator surface (sim CLI). Mocked until M1 ships its stub or the dewo-sim image. */
-export type Action = "FORWARD" | "TURN_LEFT" | "TURN_RIGHT" | "STOP";
 export interface Course { seed: Hex; difficulty: Difficulty; [k: string]: unknown }
 export interface ReplayResult {
   frameHashes: Hex[];
   collisions: number;
   atGoal: boolean;
+  /** Decisions the sim executed; it stops at the goal. */
   steps: number;
   /** Frame payloads (e.g. data URLs) for the request-rebuild check. Not in I1 today; see open question for M1. */
   frames?: string[];
 }
 export interface SimPort {
   course(seed: Hex, difficulty: Difficulty): Promise<Course>;
-  plan(course: Course, stepBudget: number): Promise<{ solvable: boolean; minSteps: number }>;
+  /** `optimalPathCost`: the lowest count of non-STOP Actions to the goal (spec 4.6). Meaningless when not solvable. */
+  plan(course: Course): Promise<{ solvable: boolean; optimalPathCost: number }>;
   replay(course: Course, actions: Action[]): Promise<ReplayResult>;
 }
 
@@ -58,15 +60,15 @@ export interface LoadedEpisode {
   episode?: {
     bid: SealedBid;
     reveal: { seed: Hex; salt: Hex };
-    policy: import("./formats.js").Policy;
-    log: import("./formats.js").EpisodeLog;
+    policy: Policy;
+    log: EpisodeLog;
     episodeLogRoot: Hex;
     decisionCount: number;
   };
 }
 
 export interface VerdictEntity {
-  missionId: Hex; worker: Address; outcome: Outcome; steps: number; collisions: number;
+  missionId: Hex; worker: Address; outcome: Outcome; pathCost: number; optimalPathCost: number; pathQuality: number; collisions: number;
   signature: Hex; evidenceHash: Hex; episodeLogRoot: Hex | null;
 }
 export interface VerdictSink { writeVerdict(v: VerdictEntity): Promise<void> }

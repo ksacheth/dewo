@@ -6,7 +6,10 @@ const ALPHA = 2;
 const BETA = 1;
 const LAMBDA = 0.9;
 
-/** Reliability (spec 4.1): recent-weighted, smoothed pass rate. Invalid Course and No Seed Release are excluded. */
+/** What a Pass is worth in Reliability: 0.5 + 0.5 x Path Quality (spec 4.1). A Fail is worth 0. */
+const passValue = (v: VerdictRecord): number => (v.outcome === Outcome.Pass ? 0.5 + 0.5 * v.pathQuality : 0);
+
+/** Reliability (spec 4.1): recent-weighted, smoothed, quality-weighted pass rate. Invalid Course and No Seed Release are excluded. */
 export function reliability(verdicts: VerdictRecord[]): number {
   const counted = verdicts
     .filter((v) => v.outcome !== Outcome.InvalidCourse && v.outcome !== Outcome.NoSeedRelease)
@@ -16,7 +19,7 @@ export function reliability(verdicts: VerdictRecord[]): number {
   counted.forEach((v, i) => {
     const weight = LAMBDA ** i;
     weightSum += weight;
-    if (v.outcome === Outcome.Pass) passSum += weight;
+    passSum += weight * passValue(v);
   });
   return (ALPHA + passSum) / (ALPHA + BETA + weightSum);
 }

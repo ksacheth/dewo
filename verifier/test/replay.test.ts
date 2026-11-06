@@ -35,7 +35,7 @@ describe("handleReplay", () => {
     });
     expect(signer).toBe(privateKeyToAccount(KEY).address);
     expect(written).toHaveLength(1);
-    expect(written[0]).toMatchObject({ missionId: MISSION, outcome: Outcome.Pass, signature: res.signature });
+    expect(written[0]).toMatchObject({ missionId: MISSION, outcome: Outcome.Pass, signature: res.signature, pathCost: 3, optimalPathCost: 3, pathQuality: 1 });
     expect(events).toContain("verdict.signed");
   });
 

@@ -1,6 +1,7 @@
 # Verifier image: built ON the pinned sim image so Replay runs the exact MuJoCo build Workers used (spike #4).
 # Build the sim image first: docker build --platform linux/amd64 -t dewo-sim:0.1.0 sim/
-# Then: docker build --platform linux/amd64 --build-arg SIM_VERSION=0.1.0 -t dewo-verifier verifier/
+# Then, from the repo root (the build needs ../agents for @dewo/agents/formats):
+#   docker build --platform linux/amd64 --build-arg SIM_VERSION=0.1.0 -f verifier/Dockerfile -t dewo-verifier .
 ARG SIM_VERSION=0.1.0
 FROM dewo-sim:${SIM_VERSION}
 
@@ -11,10 +12,14 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s /usr/local/lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
     && corepack enable
 
-WORKDIR /verifier
-COPY package.json ./
-RUN pnpm install --prod=false
-COPY . .
+WORKDIR /app
+COPY pnpm-workspace.yaml package.json ./
+COPY agents/package.json agents/
+COPY verifier/package.json verifier/
+RUN pnpm install --filter verifier... --prod=false
+COPY agents agents
+COPY verifier verifier
+WORKDIR /app/verifier
 
 # Replay runs the bundled `sim` binary directly (no Docker socket inside the container).
 ENV SIM_CMD=sim \

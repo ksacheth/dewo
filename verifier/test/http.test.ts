@@ -55,7 +55,7 @@ describe("Verifier HTTP API (I6)", () => {
     const base = app();
     const a = createApp({ ...base.deps, board: { ...base.deps.board, listVerdicts: async () => verdicts } });
     const first = await (await post(a, "/award")).json();
-    verdicts = Array.from({ length: 6 }, (_, i) => ({ worker: WORKER, outcome: Outcome.Pass, timestamp: i }));
+    verdicts = Array.from({ length: 6 }, (_, i) => ({ worker: WORKER, outcome: Outcome.Pass, pathQuality: 1, timestamp: i }));
     const second = await (await post(a, "/award")).json();
     expect(second).toEqual(first);
   });

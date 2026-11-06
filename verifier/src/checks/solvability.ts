@@ -1,6 +1,11 @@
+import { MAX_OPTIMAL_PATH_COST } from "@dewo/agents/formats";
 import type { Course, SimPort } from "../ports.js";
 
-/** Check 2: a deterministic planner must find a path within the Step Budget, else Invalid Course. */
-export async function isSolvable(sim: SimPort, course: Course, stepBudget: number): Promise<boolean> {
-  return (await sim.plan(course, stepBudget)).solvable;
+/**
+ * Check 2: the planner's Optimal Path Cost on the revealed Course.
+ * Returns null (Invalid Course) when no path exists or the Path Allowance would exceed the Decision Cap.
+ */
+export async function optimalPathCostOf(sim: SimPort, course: Course): Promise<number | null> {
+  const plan = await sim.plan(course);
+  return plan.solvable && plan.optimalPathCost <= MAX_OPTIMAL_PATH_COST ? plan.optimalPathCost : null;
 }

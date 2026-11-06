@@ -3,7 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { Action, Course, Difficulty, ReplayResult, SimPort } from "../ports.js";
+import type { Action } from "@dewo/agents/formats";
+import type { Course, Difficulty, ReplayResult, SimPort } from "../ports.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,8 +47,8 @@ export function cliSim(run: SimRunner): SimPort {
         await run(["course", "--seed", seed, "--difficulty", difficulty, "--out", out], dir);
         return JSON.parse(await readFile(out, "utf8")) as Course;
       }),
-    plan: (course, stepBudget) =>
-      withDir(async (dir) => JSON.parse(await run(["plan", "--course", await writeCourse(dir, course), "--step-budget", String(stepBudget)], dir))),
+    plan: (course) =>
+      withDir(async (dir) => JSON.parse(await run(["plan", "--course", await writeCourse(dir, course)], dir))),
     replay: (course, actions: Action[]) =>
       withDir(async (dir) => {
         const actionsPath = join(dir, "actions.json");
