@@ -88,9 +88,9 @@ it("pending challenges are per message: another challenge or a bad login cannot 
   await expect(auth.login(operator.address, mine, await operator.signMessage({ message: mine }))).resolves.toMatchObject({ address: operator.address.toLowerCase() })
 })
 
-it("caps pending challenges per wallet, leaving other wallets unaffected", () => {
+it("challenges requested by others for a wallet cannot lock that wallet out", async () => {
   const auth = new Auth(secret, null)
-  for (let i = 0; i < 5; i++) auth.challenge(operator.address)
-  expect(() => auth.challenge(operator.address)).toThrow(/too many/)
-  expect(() => auth.challenge(stranger.address)).not.toThrow()
+  for (let i = 0; i < 10; i++) auth.challenge(operator.address)
+  const mine = auth.challenge(operator.address)
+  await expect(auth.login(operator.address, mine, await operator.signMessage({ message: mine }))).resolves.toMatchObject({ address: operator.address.toLowerCase() })
 })

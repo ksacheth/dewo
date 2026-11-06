@@ -12,7 +12,6 @@ export const COOKIE = "dewo_session"
 export const SESSION_TTL_S = 8 * 3600
 const CHALLENGE_TTL_MS = 5 * 60_000
 const MAX_PENDING = 1000
-const MAX_PENDING_PER_ADDRESS = 5
 
 export class AuthError extends Error {
   constructor(readonly code: number, message: string) { super(message) }
@@ -58,8 +57,8 @@ export class Auth {
     if (!isAddress(address)) throw new AuthError(400, "bad address")
     for (const [k, v] of this.pending) if (v.expires < this.now()) this.pending.delete(k)
     if (this.pending.size >= MAX_PENDING) throw new AuthError(429, "too many sign-in attempts")
+    // No per-wallet cap: anyone may ask for a wallet's challenge, so such a cap would let a stranger lock that wallet out.
     const key = address.toLowerCase()
-    if ([...this.pending.values()].filter((v) => v.address === key).length >= MAX_PENDING_PER_ADDRESS) throw new AuthError(429, "too many sign-in attempts for this wallet")
     const message = loginMessage(address, randomBytes(16).toString("hex"), new Date(this.now()).toISOString())
     this.pending.set(message, { address: key, expires: this.now() + CHALLENGE_TTL_MS })
     return message
