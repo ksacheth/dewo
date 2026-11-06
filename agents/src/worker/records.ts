@@ -78,9 +78,10 @@ export class FileRecordStore<T extends Keyed = MissionRecord> extends MemoryReco
 
   override put(record: T): void {
     super.put(record);
-    mkdirSync(dirname(this.path), { recursive: true });
+    // Private: the Requester's records hold the secret Course Seed.
+    mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     const temp = `${this.path}.tmp`;
-    writeFileSync(temp, JSON.stringify(this.all(), null, 2));
+    writeFileSync(temp, JSON.stringify(this.all(), null, 2), { mode: 0o600 });
     renameSync(temp, this.path);
   }
 }
