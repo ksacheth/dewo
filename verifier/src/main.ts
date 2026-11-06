@@ -13,6 +13,7 @@ import { indexerAt, zeroGStorage } from "./adapters/zerog-storage.js";
 import { createEpisodeSource } from "./episodes.js";
 import { boardEvents } from "./events.js";
 import { createApp } from "./server.js";
+import { trustedVerifiersFrom } from "./verifier-set.js";
 import { createX402Gate } from "./x402.js";
 
 const env = (name: string): string => {
@@ -45,6 +46,7 @@ function listenerIdentity(): { port: number; name: string } {
 async function main() {
   const key = env("VERIFIER_KEY") as Hex;
   const { port, name } = listenerIdentity();
+  const trustedVerifiers = trustedVerifiersFrom(process.env.VERIFIER_ADDRESSES, privateKeyToAccount(key).address);
   const escrowAddress = deployedAddress("MISSION_ESCROW_ADDRESS", "hedera-testnet.json");
   const registryAddress = deployedAddress("EPISODE_REGISTRY_ADDRESS", "0g-galileo.json");
   const hederaRpc = process.env.HEDERA_RPC_URL ?? "https://testnet.hashio.io/api";
@@ -66,7 +68,7 @@ async function main() {
 
   const app = createApp({
     key, escrow: escrowAddress, gate, now: () => Math.floor(Date.now() / 1000),
-    board, chain, sim, zeroG: zeroGCompute(broker), verdicts,
+    board, chain, sim, zeroG: zeroGCompute(broker), verdicts, trustedVerifiers,
     events: boardEvents(name),
     source: createEpisodeSource({
       board, chain, seeds,

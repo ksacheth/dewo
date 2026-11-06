@@ -105,6 +105,7 @@ describe("workerSettings", () => {
       publicKey: me.publicKey,
       policy,
       verifierPubKeys: accounts.map((a) => a.publicKey),
+      verifierAddresses: accounts.map((a) => a.address),
       strategy: { costPerDecision: 0.05, expectedDecisions: 15, txFees: 0.05, margin: 1.6, zeroGPerDecision: 0.0001 },
     });
   });

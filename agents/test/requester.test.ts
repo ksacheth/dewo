@@ -248,8 +248,8 @@ describe("Requester: crash safety", () => {
     const s = setupRequester();
     const create = s.escrow.createMission.bind(s.escrow);
     // The Mission is created on-chain, then the process dies before it learns the id.
-    s.escrow.createMission = async (t) => {
-      await create(t);
+    s.escrow.createMission = async (t, v) => {
+      await create(t, v);
       throw new Error("crash");
     };
     await expect(s.post()).rejects.toThrow("crash");
@@ -289,7 +289,7 @@ describe("Requester: crash safety", () => {
     const s = setupRequester();
     let release = () => {};
     const create = s.escrow.createMission.bind(s.escrow);
-    s.escrow.createMission = (t) => new Promise((resolve) => (release = () => resolve(create(t))));
+    s.escrow.createMission = (t, v) => new Promise((resolve) => (release = () => resolve(create(t, v))));
     const posting = s.post();
     s.clock.t += CREATE_RETRY_SECONDS + 1;
     await s.requester.tick();
@@ -458,7 +458,7 @@ describe("Requester: idempotent posting (#37)", () => {
     const s = setupRequester();
     let release = () => {};
     const create = s.escrow.createMission.bind(s.escrow);
-    s.escrow.createMission = (t) => new Promise((resolve) => (release = () => resolve(create(t))));
+    s.escrow.createMission = (t, v) => new Promise((resolve) => (release = () => resolve(create(t, v))));
     const first = s.requester.postOnce(request, "k1");
 
     expect(await s.requester.postOnce(request, "k1")).toEqual({ pending: true, ref: seedCommitment(SEED, SALT) });
@@ -471,8 +471,8 @@ describe("Requester: idempotent posting (#37)", () => {
     const s = setupRequester();
     const create = s.escrow.createMission.bind(s.escrow);
     // An RPC timeout: the transaction lands, the caller only sees the error.
-    s.escrow.createMission = async (t) => {
-      await create(t);
+    s.escrow.createMission = async (t, v) => {
+      await create(t, v);
       throw new Error("rpc timeout");
     };
     await expect(s.requester.postOnce(request, "k1")).rejects.toThrow("rpc timeout");

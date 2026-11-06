@@ -91,13 +91,14 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
 
   constructor(private readonly clock: FakeClock) {}
 
-  open(missionId: string, missionTerms = terms()): void {
-    this.missions.set(missionId, { terms: missionTerms, award: null, stakedAt: null, settled: false });
+  /** Opens a Mission on the trusted Verifiers unless the test names others (ADR 0005). */
+  open(missionId: string, missionTerms = terms(), verifiers: readonly Hex[] = VERIFIER_ADDRESSES): void {
+    this.missions.set(missionId, { terms: missionTerms, verifiers, award: null, stakedAt: null, settled: false });
   }
 
-  async createMission(missionTerms: MissionTerms): Promise<{ missionId: string } & TxResult> {
+  async createMission(missionTerms: MissionTerms, verifiers: readonly Hex[]): Promise<{ missionId: string } & TxResult> {
     const missionId = `m${this.missions.size + 1}`;
-    this.open(missionId, missionTerms);
+    this.open(missionId, missionTerms, verifiers);
     return { missionId, ...fakeTx() };
   }
 
@@ -397,6 +398,7 @@ export function workerIn(w: World, options: { address?: Hex; answers?: string[];
     publicKey: "0x04ab",
     policy: options.policy ?? policy,
     verifierPubKeys: ["0x01", "0x02", "0x03"],
+    verifierAddresses: VERIFIER_ADDRESSES,
     strategy: {
       costPerDecision: 0.05,
       zeroGPerDecision: 0.05,
@@ -423,8 +425,8 @@ export function setup(options: { answers?: string[]; goalAt?: number } = {}) {
   const me = workerIn(w, options);
 
   /** Posts a Mission on both Arkiv and the escrow. */
-  const post = (missionId = "m1", missionTerms = terms()) => {
-    w.escrow.open(missionId, missionTerms);
+  const post = (missionId = "m1", missionTerms = terms(), verifiers: readonly Hex[] = VERIFIER_ADDRESSES) => {
+    w.escrow.open(missionId, missionTerms, verifiers);
     w.board.open.push(missionId);
   };
   const release = (missionId = "m1", seed = SEED) =>
