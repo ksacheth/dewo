@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { policyHash } from "../src/formats";
 import { payouts } from "../src/requester/payouts";
 import { OUTCOMES } from "../src/requester/ports";
+import type { EventType } from "../src/shared/events";
 import { hederaTxUrl, zeroGTxUrl } from "../src/shared/tx-links";
 import { BIDDING_CLOSES_AFTER, REPLAY_PRICE, RIVAL, VERIFIER_ADDRESSES, policy, requesterIn, workerIn, world } from "./fakes";
 
@@ -89,6 +90,25 @@ describe("I8 payloads", () => {
     for (const { data } of w.events) {
       for (const [key, value] of Object.entries(data as Record<string, unknown>)) expect(typeof value, key).not.toBe("bigint");
     }
+  });
+});
+
+describe("I8 event types", () => {
+  it("mirrors all 11 types of @dewo/board's EventData (a missing or extra key fails typecheck)", () => {
+    const all: Record<EventType, true> = {
+      "mission.posted": true,
+      "bid.sealed": true,
+      "bids.revealed": true,
+      "award.signed": true,
+      "stake.deposited": true,
+      "seed.released": true,
+      "decision.made": true,
+      "episode.submitted": true,
+      "replay.paid": true,
+      "verdict.signed": true,
+      settled: true,
+    };
+    expect(Object.keys(all)).toHaveLength(11);
   });
 });
 

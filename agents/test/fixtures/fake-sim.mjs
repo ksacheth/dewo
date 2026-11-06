@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
+const ACTIONS = ["FORWARD", "TURN_LEFT", "TURN_RIGHT", "STOP"];
 const [command, ...rest] = process.argv.slice(2);
 const flag = (name) => rest[rest.indexOf(`--${name}`) + 1];
 
@@ -17,25 +18,41 @@ if (command === "course") {
   let step = 0;
   let position = 0;
   let ended = false;
+  const pose = () => ({ x: position, y: 0, yaw: 0 });
   createInterface({ input: process.stdin }).on("line", (line) => {
-    const message = JSON.parse(line);
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch (error) {
+      // Like the real sim: bad input gets an {"error"} reply, the session keeps going.
+      return console.log(JSON.stringify({ error: String(error.message) }));
+    }
     if (message.cmd === "observe") {
       const frame = join(framesDir, `frame_${String(step).padStart(4, "0")}.png`);
       const bytes = Buffer.from([position]);
       writeFileSync(frame, bytes);
       const frameHash = `0x${createHash("sha256").update(bytes).digest("hex")}`;
-      console.log(JSON.stringify({ step, frame, frameHash, atGoal: position >= goalAt, collisions: 0 }));
-    } else if (message.action === "DIE") {
+      console.log(JSON.stringify({ step, frame, frameHash, pose: pose(), atGoal: position >= goalAt, collisions: 0 }));
+    } else if (message.cmd === "act" && message.action === "DIE") {
       process.exit(3); // test hook: the sim dies mid-session
-    } else if (ended) {
-      // Like the real sim: Actions after the Episode ended are rejected, not executed.
-      console.log(JSON.stringify({ error: "episode already ended" }));
+    } else if (message.cmd === "act") {
+      if (!ACTIONS.includes(message.action)) {
+        console.log(JSON.stringify({ error: `unknown action ${JSON.stringify(message.action)}` }));
+      } else if (ended) {
+        // Like the real sim: Actions after the Episode ended are rejected, not executed.
+        console.log(JSON.stringify({ error: "episode is over" }));
+      } else if (message.action === "STOP") {
+        ended = true; // STOP ends the Episode and uses no step
+        console.log(JSON.stringify({ step, collision: false, atGoal: position >= goalAt, pose: pose() }));
+      } else {
+        step += 1;
+        if (message.action === "FORWARD") position += 1;
+        const collision = message.action === "TURN_LEFT" || message.action === "TURN_RIGHT";
+        ended = collision || position >= goalAt;
+        console.log(JSON.stringify({ step, collision, atGoal: position >= goalAt, pose: pose() }));
+      }
     } else {
-      step += 1;
-      if (message.action === "FORWARD") position += 1;
-      const collision = message.action === "TURN_LEFT" || message.action === "TURN_RIGHT";
-      ended = collision || position >= goalAt || message.action === "STOP";
-      console.log(JSON.stringify({ step, collision, atGoal: position >= goalAt, pose: { x: position, y: 0, yaw: 0 } }));
+      console.log(JSON.stringify({ error: `unknown cmd in ${line}` }));
     }
   });
 } else {
