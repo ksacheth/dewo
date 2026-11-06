@@ -1,4 +1,5 @@
 // The Requester's settings from its env (agents/.env.example, "Requester agent").
+import { LIFETIME_MS } from "@dewo/board";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "../formats";
 import { numberFromEnv, privateKeyFromEnv, requiredEnv, verifiersFromEnv, wholeNumber, type Env } from "../shared/config";
@@ -53,6 +54,11 @@ function windowsFromEnv(env: Env): Windows {
   const needed = windows.biddingSeconds + windows.biddingSlackSeconds + windows.stakeWindow + windows.seedReleaseWindow + windows.episodeWindow;
   if (windows.rescueSeconds <= needed) {
     throw new Error(`REQUESTER_RESCUE_SECONDS (${windows.rescueSeconds}) must exceed bidding + slack + stake + seed release + episode (${needed})`);
+  }
+  // The Verifiers read the winning Bid at Replay; once it expires they can only answer "pending" and the Mission ends in rescue.
+  const bidLifetime = LIFETIME_MS.bid / 1000;
+  if (needed >= bidLifetime) {
+    throw new Error(`bidding + slack + stake + seed release + episode (${needed} s) must stay under the Arkiv Bid lifetime (${bidLifetime} s): the Verifiers read the Bid at Replay`);
   }
   return windows;
 }

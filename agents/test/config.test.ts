@@ -154,6 +154,13 @@ describe("requesterSettings", () => {
     expect(() => requesterSettings({ ...env, REQUESTER_STAKE_SECONDS: "0" })).toThrow(/REQUESTER_STAKE_SECONDS/);
   });
 
+  it("refuses windows that outlast the Arkiv Bid, which the Verifiers read at Replay", () => {
+    // 150 + 15 + 300 + 240 + 3000 = 3705 s, past the 3600 s Bid lifetime, although the rescue is later still.
+    const long = { ...env, REQUESTER_BIDDING_SECONDS: "150", REQUESTER_STAKE_SECONDS: "300", REQUESTER_SEED_RELEASE_SECONDS: "240", REQUESTER_EPISODE_SECONDS: "3000", REQUESTER_RESCUE_SECONDS: "4000" };
+    expect(() => requesterSettings(long)).toThrow(/Bid lifetime/);
+    expect(requesterSettings({ ...long, REQUESTER_EPISODE_SECONDS: "1200" }).config.windows.episodeWindow).toBe(1200);
+  });
+
   it("rejects a malformed Hedera account id or spending cap", () => {
     expect(() => requesterSettings({ ...env, REQUESTER_HEDERA_ACCOUNT_ID: "11333729" })).toThrow(/REQUESTER_HEDERA_ACCOUNT_ID/);
     expect(() => requesterSettings({ ...env, MAX_REPLAY_PRICE_UNITS: "0.1" })).toThrow(/MAX_REPLAY_PRICE_UNITS/);
