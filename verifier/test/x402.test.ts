@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createX402Gate } from "../src/x402.js";
+import { HEDERA_TESTNET_USDC, HEDERA_USDC_DECIMALS } from "@x402/hedera";
+import { DEFAULT_ASSET } from "../../agents/src/requester/verifier-client.js";
+import { TESTNET_USDC, createX402Gate } from "../src/x402.js";
 import type { GateChallenge as Challenge, GatePaid as Paid } from "../src/server.js";
 
 // A fake facilitator: advertises Hedera exact on testnet, accepts every payment.
@@ -10,12 +12,17 @@ const facilitator = {
 };
 
 describe("x402 gate", () => {
+  it("charges in the project's USDC by default: the spec, the escrow, @x402/hedera and the Requester agree on 0.0.429274", () => {
+    expect(TESTNET_USDC).toEqual({ id: HEDERA_TESTNET_USDC, decimals: HEDERA_USDC_DECIMALS });
+    expect(TESTNET_USDC.id).toBe(DEFAULT_ASSET);
+  });
+
   it("answers 402 with exact-scheme Hedera requirements paying the Verifier account", async () => {
     const gate = await createX402Gate({ facilitator: facilitator as never, payTo: "0.0.5555" });
     const res = await gate(new Request("http://v/replay", { method: "POST" })) as Challenge;
     expect(res.status).toBe(402);
     const accepts = (res.body as { accepts: Array<{ scheme: string; network: string; payTo: string; asset: string }> }).accepts;
-    expect(accepts[0]).toMatchObject({ scheme: "exact", network: "hedera:testnet", payTo: "0.0.5555", asset: "0.0.5449" });
+    expect(accepts[0]).toMatchObject({ scheme: "exact", network: "hedera:testnet", payTo: "0.0.5555", asset: "0.0.429274" });
     expect(res.headers?.["PAYMENT-REQUIRED"]).toBeTruthy();
   });
 

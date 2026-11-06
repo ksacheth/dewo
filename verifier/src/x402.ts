@@ -7,17 +7,20 @@ import type { PaymentGate } from "./server.js";
 
 export interface X402Options {
   facilitator: FacilitatorClient;
-  /** Hedera account id receiving Replay fees (must be associated with testnet USDC 0.0.5449, or auto-associate). */
+  /** Hedera account id receiving Replay fees (must be associated with the charge asset, or auto-associate). */
   payTo: string;
   network?: `${string}:${string}`;
   /** Price per Replay, e.g. "$0.05". */
   price?: string;
-  /** HTS token to charge in. Defaults to Circle's testnet USDC, the one its faucet mints. */
+  /** HTS token to charge in. Defaults to Circle's testnet USDC. Must equal the Requester's VERIFIER_PAYMENT_ASSET, which refuses any other asset. */
   asset?: { id: string; decimals: number };
 }
 
-/** Circle's Hedera testnet USDC (what faucet.circle.com mints). The project settles in this token. */
-export const TESTNET_USDC = { id: "0.0.5449", decimals: 6 };
+/**
+ * Circle's Hedera testnet USDC, 0.0.429274: the settlement asset of the spec, MissionEscrow, the Requester agent
+ * (`DEFAULT_ASSET` in agents/src/requester/verifier-client.ts) and `HEDERA_TESTNET_USDC` in @x402/hedera.
+ */
+export const TESTNET_USDC = { id: "0.0.429274", decimals: 6 };
 
 /** Build the x402 payment gate for POST /replay: 402 until a valid payment is verified and settled through the facilitator. */
 export async function createX402Gate(opts: X402Options): Promise<PaymentGate> {

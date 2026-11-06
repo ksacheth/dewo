@@ -4,7 +4,7 @@ M5: the Verifier service, run as 3 instances (ports 7101 to 7103). It signs Awar
 
 ## API (I6)
 - `POST /award { missionId }` returns a signed Award `{ worker, price, stake, signature }` (amounts as base-unit strings), or `null` when no Bid can win. Free.
-- `POST /replay { missionId }` returns 402 (x402, USDC `0.0.5449` on Hedera testnet), then `{ verdict, signature, evidenceHash }` where `verdict` is the Outcome name (`"Pass"`, `"Fail"`, `"NoShow"`, `"InvalidCourse"`, `"NoSeedRelease"`). It returns 409 while the Mission is not ready (winner has not staked, or the Episode is not due yet). The fee is charged only after a Verdict exists.
+- `POST /replay { missionId }` returns 402 (x402, Circle testnet USDC `0.0.429274` on `hedera:testnet`, 0.05 USDC), then `{ verdict, signature, evidenceHash }` where `verdict` is the Outcome name (`"Pass"`, `"Fail"`, `"NoShow"`, `"InvalidCourse"`, `"NoSeedRelease"`). It returns 409 while the Mission is not ready (winner has not staked, or the Episode is not due yet). The fee is charged only after a Verdict exists.
 - Events go to `runs/<missionId>/events.verifier-<n>.ndjson` through `@dewo/board`'s `emit` (I8): `award.signed`, `verdict.signed`, `replay.paid` (with the HashScan link as `txUrl`).
 
 ## What it reads, from where
@@ -38,8 +38,8 @@ Run `pnpm install` at the repo root first (the workspace links `@dewo/agents` an
 `pnpm spike:x402` paid one Replay end to end through Blocky402: an unpaid `/replay` returned 402 (0.05 USDC, token `0.0.5449`), the paid retry returned a signed Verdict, and the payment settled only after the Verdict was produced. Transaction `0.0.7162784@1793947550.708183124` ([HashScan](https://hashscan.io/testnet/transaction/0.0.7162784@1793947550.708183124)): `CRYPTOTRANSFER`, SUCCESS, 50000 units of `0.0.5449` from `0.0.11329527` to `0.0.11333729`.
 
 Notes for integration:
-- Circle's faucet mints `0.0.5449`, not `0.0.429274`, so the Verifier charges in `0.0.5449` by default (`X402_ASSET` overrides). The escrow settlement asset and the Requester's `DEFAULT_ASSET` (`agents/src/requester/verifier-client.ts`) should match.
-- The x402 client refuses tokens it does not recognise as defaults. Any client that pays a Verifier (the M4 Requester) must allow it, e.g. `spendControls: { allowedAssets: [{ network: "hedera:testnet", asset: "0.0.5449", maxAmountPerPayment: "1000000" }] }`.
+- The spike ran with the charge asset set to `0.0.5449`, a different HTS token than the project's. The Verifier now charges in Circle's testnet USDC `0.0.429274` by default, the asset of the spec, MissionEscrow, `@x402/hedera` (`HEDERA_TESTNET_USDC`) and the Requester (`DEFAULT_ASSET` in `agents/src/requester/verifier-client.ts`). `X402_ASSET` overrides it, but the value must equal the Requester's `VERIFIER_PAYMENT_ASSET`: the Requester refuses to pay any other asset.
+- The x402 client in `@x402/fetch` only pays tokens it recognises; the Requester allows `0.0.429274` (its default asset) and nothing else unless `VERIFIER_PAYMENT_ASSET` is set.
 - The receiving account needs the token associated or auto-association enabled, and the payer needs the token plus some HBAR.
 
 ## Spike #2 lead (anti-cheat request binding)
