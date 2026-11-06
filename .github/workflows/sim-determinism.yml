@@ -72,4 +72,5 @@ jobs:
         with:
           name: replay-check-output
           path: sim/.replay-check/
-          if-no-files-found: warn
+          include-hidden-files: true
+          if-no-files-found: error
