@@ -66,23 +66,28 @@ export function dewoServer(): Plugin {
       let board: Promise<Record<string, any>> | undefined
       const loadBoard = () => (board ??= server.ssrLoadModule(mode === "mock" ? "@dewo/board/mock" : "@dewo/board") as Promise<Record<string, any>>)
 
-      const auth = authFromEnv()
-      const difficultyOf = (id: string) => listRuns(RUNS).find((r) => r.missionId === id)?.posted?.difficultyClass as string | undefined
+      const auth = authFromEnv(process.env, join(RUNS, "operators.json"))
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? "/", "http://x")
         try {
           // Posting a Mission needs an operator wallet when OPERATOR_ADDRESSES is set (also guards the proxied Requester API).
           if (req.method === "POST" && (url.pathname === "/api/mock/missions" || url.pathname.startsWith("/requester")) && !auth.canPost(req.headers.cookie))
-            return send(res, 401, { error: "sign in with an operator wallet to post a Mission" })
-          if (url.pathname === "/api/auth/me") { const a = auth.session(req.headers.cookie); return send(res, 200, { address: a, open: auth.open }) }
+            return send(res, 401, { error: "sign in as a Requester to post a Mission" })
+          if (url.pathname === "/api/auth/me") { const a = auth.session(req.headers.cookie); return send(res, 200, { address: a, open: auth.open, role: auth.roleOf(a) }) }
+          if (url.pathname === "/api/onboard") {
+            const a = auth.session(req.headers.cookie)
+            return a ? send(res, 200, await onboardProfile(a, auth.roleOf(a), await loadBoard())) : send(res, 401, { error: "sign in first" })
+          }
+          if (url.pathname === "/api/config") return send(res, 200, { stakeWindowSeconds: Number(process.env.STAKE_WINDOW_SECONDS) || 30 })
           if (url.pathname === "/api/auth/message") return send(res, 200, { message: auth.challenge(url.searchParams.get("address") ?? "") })
-          if (url.pathname === "/api/auth/login" || url.pathname === "/api/auth/logout") {
+          if (url.pathname === "/api/auth/login" || url.pathname === "/api/auth/logout" || url.pathname === "/api/auth/role") {
             if (req.method !== "POST") return send(res, 405, { error: "POST only" })
             const refused = guardMockPost(req.headers)
             if (refused) return send(res, refused.code, { error: refused.message })
             if (url.pathname.endsWith("logout")) { res.setHeader("set-cookie", auth.clearCookie()); return send(res, 200, { address: null }) }
             let b: any
             try { b = JSON.parse(await readBody(req)) } catch (e) { if (e instanceof HttpError) throw e; return send(res, 400, { error: "invalid JSON" }) }
+            if (url.pathname.endsWith("role")) return send(res, 200, { role: auth.setRole(req.headers.cookie, String(b?.role)) })
             const { address, cookie } = await auth.login(String(b?.address), String(b?.message), String(b?.signature))
             res.setHeader("set-cookie", cookie)
             return send(res, 200, { address })
@@ -94,7 +99,7 @@ export function dewoServer(): Plugin {
           const course = /^\/api\/missions\/([^/]+)\/course$/.exec(url.pathname)
           if (course) {
             if (!MISSION_ID.test(course[1])) return send(res, 400, { error: "bad missionId" })
-            return send(res, 200, await loadCourse({ missionId: course[1], runs: RUNS, difficulty: difficultyOf(course[1]), board: (await loadBoard()) as never }))
+            return send(res, 200, await loadCourse({ missionId: course[1], runs: RUNS, board: (await loadBoard()) as never }))
           }
           if (url.pathname === "/api/events") return sse(url, req, res, RUNS)
           if (url.pathname === "/api/runs") return send(res, 200, listRuns(RUNS))
@@ -202,6 +207,22 @@ function settlements(RUNS: string) {
   for (const d of readdirSync(RUNS).filter((x) => MISSION_ID.test(x)))
     for (const f of files(join(RUNS, d))) for (const e of lines(join(RUNS, d, f))) if (e.type === "settled" && e.txUrl) out[d] = e.txUrl
   return out
+}
+
+/**
+ * What onboarding shows a signed-in wallet. A Worker sees the Reliability it starts with (the board's prior when it has
+ * no Verdicts yet), its XP and Level, and the Bid Stake that Reliability implies. A Verifier sees whether it is in the
+ * trusted set every Worker and Verifier pins (ADR 0005).
+ */
+export async function onboardProfile(address: string, role: string | null, b: Record<string, any>) {
+  const trusted: string[] = b.trustedVerifiers().map((a: string) => a.toLowerCase())
+  const row = (await b.leaderboard()).find((r: { worker: string }) => r.worker.toLowerCase() === address)
+  const reliability: number = row?.reliability ?? b.reliability([], trusted)
+  return {
+    address, role,
+    worker: { reliability, xp: row?.xp ?? 0, level: row?.level ?? 0, missions: row?.missions.length ?? 0, passes: row?.missions.filter((m: { outcome: string }) => m.outcome === "Pass").length ?? 0, stakeFraction: Number(b.bidStake(1_000_000n, reliability)) / 1e6 },
+    verifier: { trusted: trusted.includes(address), trustedSet: trusted },
+  }
 }
 
 function deployments(server: ViteDevServer) {

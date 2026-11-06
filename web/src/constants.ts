@@ -12,16 +12,3 @@ export const DRONE_SEED_PREFIX = "0x64726f6e"
 export type Task = "rover" | "drone"
 export const taskOf = (courseSeed: string): Task => (courseSeed.toLowerCase().startsWith(DRONE_SEED_PREFIX) ? "drone" : "rover")
 
-/** Decision Cap: 60 Decisions per Episode for every Mission (spec 4.6, ADR 0003). */
-export const DECISION_CAP = 60
-
-/** Hedera EVM testnet: the chain the MissionEscrow lives on. */
-export const HEDERA_TESTNET = { id: 296, hex: "0x128", name: "Hedera testnet", rpc: "https://testnet.hashio.io/api", explorer: "https://hashscan.io/testnet" }
-
-/** The agents an Operator onboards in the demo. Workers are named after their Policy file. */
-export const DEMO_AGENTS = [
-  { id: "requester", role: "Requester", name: "Requester agent", note: "Posts Missions and pays Verifiers per Replay." },
-  { id: "worker-careful", role: "Worker", name: "Careful", note: "Reliable, priced high." },
-  { id: "worker-cheap-and-blind", role: "Worker", name: "Cheap and Blind", note: "Cheap, reckless." },
-  { id: "worker-gambler", role: "Worker", name: "Gambler", note: "Lowest price, worst Reliability." },
-] as const

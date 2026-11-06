@@ -3,7 +3,7 @@ import type { MissionState } from "./feed"
 
 export const STAGES = [
   { id: "bidding", label: "Bidding" },
-  { id: "awarded", label: "Award" },
+  { id: "awarded", label: "Stake" },
   { id: "running", label: "Run" },
   { id: "verifying", label: "Verify" },
   { id: "result", label: "Result" },

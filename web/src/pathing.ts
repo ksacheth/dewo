@@ -16,6 +16,3 @@ export function pathFromActions(start: Pose, actions: string[]): Pose[] {
   }
   return poses
 }
-
-/** Path Cost: moving Actions, so every turn counts (GLOSSARY). */
-export const pathCostOf = (actions: string[]) => actions.filter((a) => a !== "STOP").length

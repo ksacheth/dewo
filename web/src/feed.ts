@@ -12,6 +12,8 @@ export type MissionState = {
   sealedBids: Of<"bid.sealed">[]
   revealed?: Of<"bids.revealed">
   award?: Of<"award.signed"> & { txUrl?: string }
+  /** When the Award landed (ms): the stake window runs from here. */
+  awardedAt?: number
   stake?: Of<"stake.deposited"> & { txUrl?: string }
   decisions: (Of<"decision.made"> & { ts: string })[]
   moves: Of<"rover.moved">[]
@@ -37,7 +39,7 @@ export function foldEvents(missionId: string, events: DewoEvent[]): MissionState
       case "mission.posted": s.posted = d; s.postedAt = Date.parse(e.ts); break
       case "bid.sealed": s.sealedBids.push(d); break
       case "bids.revealed": s.revealed = d; break
-      case "award.signed": s.award = { ...(d as object), txUrl: e.txUrl } as never; break
+      case "award.signed": s.award = { ...(d as object), txUrl: e.txUrl } as never; s.awardedAt = Date.parse(e.ts); break
       case "stake.deposited": s.stake = { ...(d as object), txUrl: e.txUrl } as never; break
       case "decision.made": s.decisions.push({ ...(d as object), ts: e.ts } as never); break
       case "rover.moved": s.moves.push(d); break

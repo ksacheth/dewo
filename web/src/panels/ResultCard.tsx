@@ -4,19 +4,16 @@ import type { Course, Verdict } from "../api"
 import { CourseMap } from "../components/CourseMap"
 import { Placeholder } from "../components/Placeholder"
 import { ReplayPlayer } from "../components/ReplayPlayer"
-import { DECISION_CAP } from "../constants"
+import { DEFAULT_MAX_STEPS } from "../constants"
 import { agreement } from "../feed"
 import type { MissionState } from "../feed"
 import { useCountUp } from "../hooks"
 import { arkivEntity, short, usdc } from "../links"
-import { pathCostOf } from "../pathing"
 
 const PLAIN: Record<string, string> = {
   Pass: "Work verified. The Worker is paid.",
-  Fail: "The Worker did not reach the goal cleanly. Its stake is slashed.",
+  Fail: "The Worker did not reach the goal within the Mission Limits. Its stake is slashed.",
   NoShow: "The Worker did not submit in time. Its stake is slashed.",
-  InvalidCourse: "No valid path exists, so the Worker is refunded.",
-  NoSeedRelease: "The Requester never released the seed, so the Worker is refunded.",
 }
 
 function Metric({ label, value, hint, animate, digits = 0, suffix = "" }: { label: string; value: number | null; hint?: string; animate: boolean; digits?: number; suffix?: string }) {
@@ -39,6 +36,8 @@ export function ResultCard({ state, animate, onReplay }: { state: MissionState; 
   const outcome = state.settled?.outcome ?? verdict?.outcome ?? Object.values(state.verifiers).find((v) => v.outcome)?.outcome ?? "Pending"
   const pass = outcome === "Pass"
   const actions = state.decisions.map((d) => d.action)
+  const maxSteps = state.posted?.maxSteps ?? DEFAULT_MAX_STEPS
+  const maxCollisions = state.posted?.maxCollisions ?? 0
   return (
     <section className="panel stage-hero" aria-label="Result">
       <div className="row" style={{ justifyContent: "space-between" }}>
@@ -51,19 +50,17 @@ export function ResultCard({ state, animate, onReplay }: { state: MissionState; 
       </div>
 
       <div className="metrics">
-        <Metric animate={animate} label="Decisions" value={state.decisions.length} hint={`of ${DECISION_CAP} allowed`} />
-        <Metric animate={animate} label="Path Cost" value={verdict?.pathCost ?? (actions.length ? pathCostOf(actions) : null)} hint={verdict ? "from the Verdict" : "counted from Actions"} />
-        <Metric animate={animate} label="Optimal Path Cost" value={verdict?.optimalPathCost ?? null} hint={verdict ? "planner's best" : "needs the Verdict"} />
-        <Metric animate={animate} label="Path Quality" value={verdict ? verdict.pathQuality * 100 : null} suffix="%" hint={verdict ? "optimal ÷ actual" : "needs the Verdict"} />
-        <Metric animate={animate} label="Collisions" value={verdict?.collisions ?? null} hint={verdict ? "in the Replay" : "needs the Verdict"} />
+        <Metric animate={animate} label="Decisions" value={state.decisions.length} hint={`Max Steps ${maxSteps}`} />
+        <Metric animate={animate} label="Moves" value={verdict?.steps ?? null} hint={verdict ? "moving Actions in the Replay" : "needs the Verdict"} />
+        <Metric animate={animate} label="Collisions" value={verdict?.collisions ?? null} hint={verdict ? `Max Collisions ${maxCollisions}` : "needs the Verdict"} />
       </div>
       {!verdict && <Placeholder title="Verdict details" endpoint="GET /api/board/verdicts?missionId=…" note="Shown as soon as a Verifier's Verdict entity is on the board." />}
 
       <div className="two">
-        <div><h3 className="sub">The run</h3><ReplayPlayer decisions={state.decisions} /></div>
+        <div><h3 className="sub">The run</h3><ReplayPlayer decisions={state.decisions} maxSteps={maxSteps} /></div>
         <div>
           <h3 className="sub">The Course</h3>
-          {course ? <CourseMap course={course} actions={actions} /> : <Placeholder title="Top-down map" endpoint="GET /api/missions/:id/course" note="Drawn after the Episode, once the Course Seed is revealed and the sim is reachable." />}
+          {course ? <CourseMap course={course} actions={actions} /> : <Placeholder title="Top-down map" endpoint="GET /api/missions/:id/course" note="Drawn from the public Course Seed on the Mission entity, when the sim is reachable." />}
         </div>
       </div>
 

@@ -1,16 +1,33 @@
 // Browser wallet (any injected EIP-1193 wallet, e.g. MetaMask). The wallet only proves identity and shows an address:
-// nothing in the UI moves money. One shared store, so the header and the Onboarding cards agree.
+// nothing in the UI moves money. One shared store for the whole app.
 import { useEffect, useSyncExternalStore } from "react"
-import { HEDERA_TESTNET } from "./constants"
 
 type Eth = { request(a: { method: string; params?: unknown[] }): Promise<any>; on?(e: string, f: (x: any) => void): void }
-const eth = () => (typeof window === "undefined" ? undefined : ((window as any).ethereum as Eth | undefined))
+type Announced = { info: { rdns: string; name: string }; provider: Eth }
+
+// EIP-6963: with several wallet extensions installed they fight over window.ethereum, so connecting can reach one wallet
+// and signing another. Each announces itself here; we use one provider for every call, preferring MetaMask.
+const announced: Announced[] = []
+if (typeof window !== "undefined") {
+  window.addEventListener("eip6963:announceProvider", (ev) => { announced.push((ev as CustomEvent<Announced>).detail) })
+  window.dispatchEvent(new Event("eip6963:requestProvider"))
+}
+let chosen: Eth | undefined
+const eth = (): Eth | undefined => {
+  if (typeof window === "undefined") return undefined
+  return (chosen ??= (announced.find((a) => a.info.rdns === "io.metamask") ?? announced[0])?.provider ?? (window as any).ethereum)
+}
 
 export type WalletState = { address: string | null; chainId: number | null; error: string | null }
 let state: WalletState = { address: null, chainId: null, error: null }
 const subs = new Set<() => void>()
 const set = (p: Partial<WalletState>) => { state = { ...state, ...p }; subs.forEach((f) => f()) }
-const message = (e: unknown) => (e as { code?: number; message?: string }).code === 4001 ? "Request cancelled in the wallet" : (e as Error).message ?? String(e)
+const message = (e: unknown) => {
+  const code = (e as { code?: number }).code
+  if (code === 4001) return "Request cancelled in the wallet"
+  if (code === 4100) return "The wallet has not authorised this site for that account. Open the wallet, connect this site to the account you want, and sign in again."
+  return (e as Error).message ?? String(e)
+}
 
 export const hasWallet = () => Boolean(eth())
 
@@ -33,43 +50,31 @@ export function useWallet(): WalletState {
 
 async function chain(e: Eth) { set({ chainId: parseInt(await e.request({ method: "eth_chainId" }), 16) }) }
 
-/** Connects the wallet (prompts if needed). Returns the address, or null with `error` set. */
+/** Connects the wallet (prompts if needed). Returns the address (lowercase), or null with `error` set. */
 export async function connectWallet(): Promise<string | null> {
   const e = eth()
   if (!e) { set({ error: "No browser wallet found. Install MetaMask or another EVM wallet." }); return null }
   try {
     const [a] = await e.request({ method: "eth_requestAccounts" })
+    if (!a) throw new Error("The wallet returned no account")
     set({ address: a.toLowerCase(), error: null }); await chain(e)
     return a.toLowerCase()
   } catch (err) { set({ error: message(err) }); return null }
 }
 
-/** Opens the wallet's account picker, so each agent can be bound to a different account. */
-export async function pickAccount(): Promise<string | null> {
-  const e = eth()
-  if (!e) return connectWallet()
-  try {
-    await e.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] })
-    const [a] = await e.request({ method: "eth_accounts" })
-    if (!a) return null
-    set({ address: a.toLowerCase(), error: null }); await chain(e)
-    return a.toLowerCase()
-  } catch (err) { set({ error: message(err) }); return null }
-}
+const hex = (text: string) => `0x${Array.from(new TextEncoder().encode(text), (b) => b.toString(16).padStart(2, "0")).join("")}`
 
-export async function switchToHedera(): Promise<void> {
-  const e = eth()
-  if (!e) return
-  try {
-    await e.request({ method: "wallet_switchEthereumChain", params: [{ chainId: HEDERA_TESTNET.hex }] })
-  } catch (err) {
-    if ((err as { code?: number }).code !== 4902) return set({ error: message(err) })
-    await e.request({ method: "wallet_addEthereumChain", params: [{ chainId: HEDERA_TESTNET.hex, chainName: HEDERA_TESTNET.name, rpcUrls: [HEDERA_TESTNET.rpc], nativeCurrency: { name: "HBAR", symbol: "HBAR", decimals: 18 }, blockExplorerUrls: [HEDERA_TESTNET.explorer] }] }).catch((x) => set({ error: message(x) }))
-  }
-}
-
+/**
+ * personal_sign with the account exactly as the wallet spells it: some wallets only authorise that exact string (often
+ * checksummed) and answer 4100 for a lowercased one. The message goes hex-encoded, the form wallets document.
+ */
 export async function signMessage(address: string, text: string): Promise<string> {
   const e = eth()
   if (!e) throw new Error("No browser wallet found")
-  return e.request({ method: "personal_sign", params: [text, address] })
+  const find = (list: string[]) => list.find((a) => a.toLowerCase() === address.toLowerCase())
+  const account = find(await e.request({ method: "eth_accounts" })) ?? find(await e.request({ method: "eth_requestAccounts" }))
+  if (!account) throw new Error(`The wallet is no longer connected to ${address}. Switch to that account in the wallet, or sign in again.`)
+  try {
+    return await e.request({ method: "personal_sign", params: [hex(text), account] })
+  } catch (err) { throw new Error(message(err)) }
 }

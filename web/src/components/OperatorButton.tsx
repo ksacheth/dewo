@@ -1,18 +1,19 @@
+import { Link, useNavigate } from "react-router-dom"
 import { short } from "../links"
 import { useOperator } from "../operator"
 import { hasWallet } from "../wallet"
 
-/** Sign in as an Operator: the wallet signs a message, no gas and no payment. */
+/** The one sign-in button: the wallet signs a message (no gas, no payment), then onboarding asks for a role. */
 export function OperatorButton() {
-  const { operator, signIn, signOut, busy, error } = useOperator()
+  const { operator, signedIn, role, signIn, signOut, busy, error } = useOperator()
+  const navigate = useNavigate()
   if (!operator) return null
   return (
     <div className="row" style={{ gap: 8 }}>
-      {operator.address
-        ? <><span className="pill eyebrow" title="Signed in as an Operator">{short(operator.address, 4)}</span><button type="button" className="chip" onClick={signOut}>Sign out</button></>
-        : <button type="button" className="chip" disabled={busy || !hasWallet()} onClick={signIn} title={hasWallet() ? (operator.open ? "Optional: anyone may post on this server" : "Required to post Missions") : "No browser wallet found"}>
-            {busy ? "Signing…" : "Sign in"}
-          </button>}
+      {signedIn
+        ? <><Link className="pill eyebrow" to="/app/onboard" title="Your role">{role ?? "choose role"} · {short(operator.address!, 4)}</Link><button type="button" className="chip" onClick={() => void signOut()}>Sign out</button></>
+        : <button type="button" className="chip" disabled={busy || !hasWallet()} title={hasWallet() ? "Sign in with your wallet" : "No browser wallet found"}
+            onClick={async () => { if (await signIn()) navigate("/app/onboard") }}>{busy ? "Signing…" : "Sign in"}</button>}
       {error && <span className="bad" role="alert" style={{ fontSize: 11 }}>{error}</span>}
     </div>
   )

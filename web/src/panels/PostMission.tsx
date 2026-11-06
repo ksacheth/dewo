@@ -1,4 +1,5 @@
 import { useRef, useState } from "react"
+import { Link } from "react-router-dom"
 import { API } from "../api"
 import { DEFAULT_MAX_COLLISIONS, DEFAULT_MAX_STEPS, MAX_STEPS } from "../constants"
 import { useOperator } from "../operator"
@@ -32,7 +33,7 @@ export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: 
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
   const idempotency = useIdempotencyKey()
-  const { operator, canPost, signIn, busy: signing } = useOperator()
+  const { signedIn, canPost, signIn, busy: signing } = useOperator()
 
   async function submit() {
     setBusy(true); setError(null); setPending(null)
@@ -77,8 +78,10 @@ export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: 
         <label>Max collisions
           <input type="number" min={0} step={1} value={maxCollisions} onChange={(e) => setMaxCollisions(Number(e.target.value))} />
         </label>
-        {operator && !canPost
-          ? <button type="button" className="primary" disabled={signing} onClick={signIn}>{signing ? "Signing…" : "Sign in to post"}</button>
+        {!signedIn
+          ? <button type="button" className="primary" disabled={signing} onClick={() => void signIn()}>{signing ? "Signing…" : "Sign in to post"}</button>
+          : !canPost
+          ? <Link to="/app/onboard" className="primary-link">Onboard as a Requester to post</Link>
           : <button className="primary" disabled={busy || !(maxBounty > 0) || !limitsValid(maxSteps, maxCollisions)}>{busy ? "Posting…" : "Post Mission"}</button>}
         {error && <span className="bad" role="alert">{error}</span>}
         {pending && <span role="status">{pending}</span>}

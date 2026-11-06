@@ -1,7 +1,12 @@
 // Operator sign-in: a wallet signs a one-time message, the server checks the signature and (optionally) an allow-list,
 // then hands back a signed, HttpOnly session cookie. No payments and no keys: the wallet only proves who is clicking Post.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { isAddress, verifyMessage } from "viem"
+
+/** What an Operator onboards as. Chosen once after sign-in; only a Requester posts Missions. */
+export const ROLES = ["requester", "worker", "verifier"] as const
+export type Role = (typeof ROLES)[number]
 
 export const COOKIE = "dewo_session"
 export const SESSION_TTL_S = 8 * 3600
@@ -12,7 +17,7 @@ export class AuthError extends Error {
   constructor(readonly code: number, message: string) { super(message) }
 }
 
-/** OPERATOR_ADDRESSES: comma-separated. Unset or empty means open: anyone may sign in and posting is not gated. */
+/** OPERATOR_ADDRESSES: comma-separated. Unset or empty means open: any wallet may sign in. */
 export function parseAllowList(value: string | undefined): string[] | null {
   const list = (value ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
   return list.length ? list : null
@@ -23,11 +28,28 @@ export const loginMessage = (address: string, nonce: string, issuedAt: string) =
 
 export class Auth {
   private pending = new Map<string, { message: string; expires: number }>()
+  private roles: Record<string, Role>
 
-  constructor(private readonly secret: Buffer, private readonly allowed: string[] | null, private readonly now = () => Date.now()) {}
+  /** `rolesFile` keeps each wallet's chosen role across restarts; without it roles live in memory only. */
+  constructor(private readonly secret: Buffer, private readonly allowed: string[] | null, private readonly now = () => Date.now(), private readonly rolesFile?: string) {
+    this.roles = {}
+    if (rolesFile && existsSync(rolesFile)) try { this.roles = JSON.parse(readFileSync(rolesFile, "utf8")) } catch { /* corrupt: start empty */ }
+  }
 
-  /** No allow-list configured: posting is not gated. */
+  /** No allow-list configured: any wallet may sign in. */
   get open(): boolean { return this.allowed === null }
+
+  roleOf(address: string | null): Role | null { return (address && this.roles[address]) || null }
+
+  /** Records the role a signed-in wallet onboarded as. */
+  setRole(cookieHeader: string | undefined, role: string): Role {
+    const address = this.session(cookieHeader)
+    if (!address) throw new AuthError(401, "sign in first")
+    if (!ROLES.includes(role as Role)) throw new AuthError(400, "role must be requester, worker or verifier")
+    this.roles[address] = role as Role
+    if (this.rolesFile) writeFileSync(this.rolesFile, JSON.stringify(this.roles, null, 2))
+    return role as Role
+  }
 
   /** A fresh message for `address` to sign. Single use, valid for 5 minutes. */
   challenge(address: string): string {
@@ -63,15 +85,15 @@ export class Auth {
     return got.length === want.length && timingSafeEqual(got, want) ? address : null
   }
 
-  /** May this request post a Mission? Everyone may when open; otherwise only a signed-in allow-listed wallet. */
-  canPost(cookieHeader: string | undefined): boolean { return this.open || this.session(cookieHeader) !== null }
+  /** May this request post a Mission? Only a signed-in wallet that onboarded as a Requester. */
+  canPost(cookieHeader: string | undefined): boolean { return this.roleOf(this.session(cookieHeader)) === "requester" }
 
   clearCookie = () => `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`
 
   private mac(address: string, exp: number) { return createHmac("sha256", this.secret).update(`${address}.${exp}`).digest("hex") }
 }
 
-export function authFromEnv(env = process.env): Auth {
+export function authFromEnv(env = process.env, rolesFile?: string): Auth {
   const secret = env.SESSION_SECRET ? Buffer.from(env.SESSION_SECRET) : randomBytes(32) // unset: sessions end when the server restarts
-  return new Auth(secret, parseAllowList(env.OPERATOR_ADDRESSES))
+  return new Auth(secret, parseAllowList(env.OPERATOR_ADDRESSES), undefined, rolesFile)
 }

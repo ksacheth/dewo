@@ -19,12 +19,16 @@ export const API = {
   authMessage: (address: string) => `/api/auth/message?address=${address}`,
   authLogin: "/api/auth/login",
   authLogout: "/api/auth/logout",
+  authRole: "/api/auth/role",
+  onboard: "/api/onboard",
+  config: "/api/config",
 } as const
 
 export type { Bid, Leader, Mission }
 export type RunSummary = { missionId: string; mtime: number; posted?: { difficultyClass: string; maxBounty: string; riskWeight: number; biddingClosesAt: number } }
+/** A Verifier's Verdict entity. `steps` counts moving Actions in the Replay (every Decision except STOP). */
 export type Verdict = {
-  missionId: string; worker: string; outcome: string; pathCost: number; optimalPathCost: number; pathQuality: number
+  missionId: string; worker: string; outcome: string; steps: number
   collisions: number; difficultyClass: string; evidenceHash: string; episodeLogRoot: string; $key: string
 }
 export type Course = {
@@ -32,7 +36,14 @@ export type Course = {
   start: { x: number; y: number; yaw: number }; goal: { x: number; y: number; r: number }
   obstacles: { x: number; y: number; w: number; h: number }[]
 }
-export type Operator = { address: string | null; open: boolean }
+export type Role = "requester" | "worker" | "verifier"
+export type Operator = { address: string | null; open: boolean; role: Role | null }
+export type OnboardProfile = {
+  address: string; role: Role | null
+  worker: { reliability: number; xp: number; level: number; missions: number; passes: number; stakeFraction: number }
+  verifier: { trusted: boolean; trustedSet: string[] }
+}
+export type Config = { stakeWindowSeconds: number }
 
 export async function postJson(url: string, body: unknown): Promise<Response> {
   return fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })

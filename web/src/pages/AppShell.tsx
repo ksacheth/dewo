@@ -3,7 +3,7 @@ import { usePoll } from "../arkiv"
 import { API } from "../api"
 import { OperatorButton } from "../components/OperatorButton"
 
-const NAV = [{ to: "/app", label: "Missions", end: true }, { to: "/app/leaderboard", label: "Leaderboard" }, { to: "/app/onboard", label: "Onboard agents" }]
+const NAV = [{ to: "/app", label: "Missions", end: true }, { to: "/app/leaderboard", label: "Leaderboard" }]
 
 /** Header and page frame shared by every /app page. */
 export default function AppShell() {

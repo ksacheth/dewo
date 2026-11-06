@@ -18,13 +18,25 @@ it("parses the allow-list; empty means open", () => {
   expect(parseAllowList("0xAB, 0xcd")).toEqual(["0xab", "0xcd"])
 })
 
-it("an allow-listed wallet signs in, and its cookie opens the posting gate", async () => {
+it("an allow-listed wallet signs in, and only the Requester role opens the posting gate", async () => {
   const auth = new Auth(secret, [operator.address.toLowerCase()])
   expect(auth.canPost(undefined)).toBe(false)
   const { address, cookie } = await signIn(auth, operator)
   expect(address).toBe(operator.address.toLowerCase())
   expect(cookie).toContain("HttpOnly")
+  expect(auth.canPost(cookieOf(cookie))).toBe(false) // signed in, no role yet
+  auth.setRole(cookieOf(cookie), "worker")
+  expect(auth.canPost(cookieOf(cookie))).toBe(false)
+  auth.setRole(cookieOf(cookie), "requester")
+  expect(auth.roleOf(address)).toBe("requester")
   expect(auth.canPost(cookieOf(cookie))).toBe(true)
+})
+
+it("a role needs a session and must be one of the three", async () => {
+  const auth = new Auth(secret, null)
+  expect(() => auth.setRole(undefined, "requester")).toThrow(/sign in/)
+  const c = cookieOf((await signIn(auth, operator)).cookie)
+  expect(() => auth.setRole(c, "admin")).toThrow(/role must be/)
 })
 
 it("refuses a wallet that is not on the allow-list, even with a valid signature", async () => {
@@ -52,6 +64,10 @@ it("rejects a tampered or expired session cookie", async () => {
   expect(auth.session(c)).toBeNull()
 })
 
-it("in open mode anyone may post without signing in", () => {
-  expect(new Auth(secret, null).canPost(undefined)).toBe(true)
+it("in open mode any wallet signs in, but posting still needs the Requester role", async () => {
+  const auth = new Auth(secret, null)
+  expect(auth.canPost(undefined)).toBe(false)
+  const c = cookieOf((await signIn(auth, stranger)).cookie)
+  auth.setRole(c, "requester")
+  expect(auth.canPost(c)).toBe(true)
 })

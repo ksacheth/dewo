@@ -1,5 +1,5 @@
 // Emits a plausible full Mission through the real emit(): the test fixture, and a way to build the UI before M4/M5 exist.
-// pnpm --filter web fake-run [delayMs]   (default 800 ms between Decisions)
+// pnpm --filter web fake-run [delayMs] [missionId]   (default 800 ms between Decisions; pass the id of a Mission posted from the UI to drive it)
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
@@ -48,21 +48,23 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const hs = (id: string) => `https://hashscan.io/testnet/transaction/${id}`
 
 /** Writes one complete winning Mission to <dir>/<missionId>/ and returns its id. */
-export async function fakeRun({ dir = runsDir(), delayMs = 800, missionId = `0x${randomBytes(32).toString("hex")}` }: { dir?: string; delayMs?: number; missionId?: string } = {}) {
+/** `stageMs` is the pause before the Award, the stake and the first Decision, so a watched run shows each stage. */
+export async function fakeRun({ dir = runsDir(), delayMs = 800, stageMs = 2, missionId = `0x${randomBytes(32).toString("hex")}` }: { dir?: string; delayMs?: number; stageMs?: number; missionId?: string } = {}) {
   process.env.RUNS_DIR = dir
+  const posted = existsSync(join(dir, missionId)) // a Mission already posted from the UI keeps its own mission.posted
   mkdirSync(join(dir, missionId, "frames"), { recursive: true })
   const course = fixture("course_medium.json")
   if (course) writeFileSync(join(dir, missionId, "course.json"), JSON.stringify(course))
   const e = emit
-  e(missionId, "requester", { type: "mission.posted", data: { difficultyClass: "medium", task: "rover", maxBounty: "10000000", riskWeight: 0.5, maxSteps: 60, maxCollisions: 0, biddingClosesAt: Math.floor(Date.now() / 1000) + 60, arkivKey: addr(0xa1) }, txUrl: hs("0.0.1001@1.1") })
-  for (const w of WORKERS) { e(missionId, `worker-${w.name.toLowerCase().replace(/ /g, "-")}`, { type: "bid.sealed", data: { worker: w.worker, workerName: w.name, policyHash: `0x${w.name.length}abc`, arkivKey: addr(0xb0 + w.name.length) } }); await sleep(Math.max(2, delayMs / 4)) }
+  if (!posted) e(missionId, "requester", { type: "mission.posted", data: { difficultyClass: "medium", task: "rover", maxBounty: "10000000", riskWeight: 0.5, maxSteps: 60, maxCollisions: 0, biddingClosesAt: Math.floor(Date.now() / 1000) + 60, arkivKey: addr(0xa1) }, txUrl: hs("0.0.1001@1.1") })
+  for (const w of WORKERS) { e(missionId, `worker-${w.name.toLowerCase().replace(/ /g, "-")}`, { type: "bid.sealed", data: { worker: w.worker, workerName: w.name, policyHash: `0x${w.name.length}abc`, arkivKey: addr(0xb0 + w.name.length) } }); await sleep(Math.max(2, stageMs / 2)) }
   const winner = WORKERS[1]
   e(missionId, "verifier-1", { type: "bids.revealed", data: { bids: WORKERS.map((w) => ({ worker: w.worker, workerName: w.name, price: w.price, R: w.R, score: w.R ** 0.5 / (Number(w.price) / 1e6) ** 0.5 })), winner: winner.worker } })
-  await sleep(2) // distinct timestamps, so replay order is unambiguous
+  await sleep(stageMs) // distinct timestamps, so replay order is unambiguous
   e(missionId, "verifier-1", { type: "award.signed", data: { worker: winner.worker, price: winner.price, stake: "790000", verifier: VERIFIERS[0] }, txUrl: hs("0.0.1002@2.2") })
-  await sleep(2) // distinct timestamps, so replay order is unambiguous
+  await sleep(stageMs) // distinct timestamps, so replay order is unambiguous
   e(missionId, "worker-cheap-and-blind", { type: "stake.deposited", data: { worker: winner.worker, stake: "790000" }, txUrl: hs("0.0.1003@3.3") })
-  await sleep(2) // distinct timestamps, so replay order is unambiguous
+  await sleep(stageMs) // distinct timestamps, so replay order is unambiguous
   for (let i = 0; i < 15; i++) {
     writeFileSync(join(dir, missionId, "frames", `${String(i + 1).padStart(3, "0")}.png`), png(i))
     e(missionId, "worker-cheap-and-blind", { type: "decision.made", data: { step: i, frame: `${missionId}/frames/${String(i + 1).padStart(3, "0")}.png`, chatID: `chat-${randomBytes(6).toString("hex")}`, action: ACTIONS[i] } })
@@ -88,28 +90,30 @@ async function seedBoard(missionId: string, dir: string) {
   process.env.RUNS_DIR = dir
   const { seedMock } = await import("@dewo/board/mock")
   const hex = (n = 32) => `0x${randomBytes(n).toString("hex")}`
-  const row = (worker: string, id: string, outcome: string, pathCost: number, optimalPathCost: number, collisions: number, owner: string, ago: number, evidenceHash: string, episodeLogRoot: string) => ({
-    missionId: id, worker, outcome, pathCost, optimalPathCost, collisions, difficultyClass: "medium", signature: hex(65), evidenceHash, episodeLogRoot,
-    pathQuality: pathCost ? Math.min(1, optimalPathCost / pathCost) : 0,
+  const row = (worker: string, id: string, outcome: string, steps: number, collisions: number, owner: string, ago: number, evidenceHash: string, episodeLogRoot: string) => ({
+    missionId: id, worker, outcome, steps, collisions, difficultyClass: "medium", signature: hex(65), evidenceHash, episodeLogRoot,
     $key: hex(), $owner: owner, $createdAt: Date.now() - ago, $expiresAt: Date.now() + 86_400_000,
   })
   // Two Verifiers sign the same evidence, which is what makes a Quorum.
-  const pair = (worker: string, id: string, outcome: string, pc: number, opt: number, col: number, ago: number) => {
+  const pair = (worker: string, id: string, outcome: string, steps: number, col: number, ago: number) => {
     const evidence = hex(), log = hex()
-    return verifiers.slice(0, 2).map((v) => row(worker, id, outcome, pc, opt, col, v, ago, evidence, log))
+    return verifiers.slice(0, 2).map((v) => row(worker, id, outcome, steps, col, v, ago, evidence, log))
   }
   seedMock({
     verdicts: [
-      ...pair(WORKERS[1].worker, missionId, "Pass", 15, 15, 0, 0),
-      ...pair(WORKERS[0].worker, hex(), "Pass", 12, 11, 0, 60_000), ...pair(WORKERS[0].worker, hex(), "Pass", 14, 12, 0, 120_000),
-      ...pair(WORKERS[2].worker, hex(), "Fail", 9, 11, 1, 90_000), ...pair(WORKERS[2].worker, hex(), "Pass", 17, 12, 0, 150_000),
-      ...pair(WORKERS[1].worker, hex(), "Pass", 13, 12, 0, 180_000),
+      ...pair(WORKERS[1].worker, missionId, "Pass", 15, 0, 0),
+      ...pair(WORKERS[0].worker, hex(), "Pass", 12, 0, 60_000), ...pair(WORKERS[0].worker, hex(), "Pass", 14, 0, 120_000),
+      ...pair(WORKERS[2].worker, hex(), "Fail", 9, 1, 90_000), ...pair(WORKERS[2].worker, hex(), "Pass", 17, 0, 150_000),
+      ...pair(WORKERS[1].worker, hex(), "Pass", 13, 0, 180_000),
     ] as never,
   })
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const id = await fakeRun({ delayMs: Number(process.argv[2] ?? 800) })
+  const delayMs = Number(process.argv[2] ?? 800)
+  const missionId = process.argv[3]
+  if (missionId && !/^0x[0-9a-fA-F]{64}$/.test(missionId)) throw new Error("missionId must be a 0x-prefixed 32-byte hex")
+  const id = await fakeRun({ delayMs, stageMs: delayMs * 4, ...(missionId && { missionId }) })
   await seedBoard(id, runsDir())
   console.log(`fake Mission ${id} written to ${runsDir()}`)
 }
