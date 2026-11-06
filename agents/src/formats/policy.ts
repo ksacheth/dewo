@@ -45,9 +45,13 @@ export function policyProblems(policy: Policy): string[] {
 function requestOptionsProblems(policy: Policy, at: string): string[] {
   const options = policy.requestOptions;
   if (options === undefined) return [];
-  if (options === null || typeof options !== "object" || Array.isArray(options)) return [`${at}: requestOptions must be a JSON object`];
+  if (!isPlainObject(options)) return [`${at}: requestOptions must be a JSON object`];
   const reserved = Object.keys(options).filter((key) => (RESERVED_REQUEST_FIELDS as readonly string[]).includes(key));
   return reserved.map((key) => `${at}: requestOptions cannot set "${key}" (buildRequest sets it from the Policy)`);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Throws with every problem at once; run at Worker startup so a half-filled demo Policy never reaches a Bid. */

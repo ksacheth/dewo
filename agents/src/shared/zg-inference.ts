@@ -24,26 +24,30 @@ export interface ComputeAdapters {
 
 type Env = Record<string, string | undefined>;
 
-/** Reads and checks the 0G Compute settings; throws with every missing setting named. */
+/** Reads and checks the 0G Compute settings; throws naming the missing setting. */
 export function inferenceConfig(env: Env): InferenceConfig {
-  const kind = (env.ZG_INFERENCE ?? "router").trim() || "router";
-  if (kind === "router") {
-    const apiKey = env.ZG_ROUTER_API_KEY;
-    if (!apiKey) throw new Error("ZG_INFERENCE=router needs ZG_ROUTER_API_KEY (this Worker's pc.0g.ai key, trust mode Private)");
-    return {
-      kind,
-      routerUrl: env.ZG_ROUTER_URL || ZG_ROUTER_URL,
-      apiKey,
-      managementKey: env.ZG_ROUTER_MANAGEMENT_KEY || undefined,
-      mainnetRpcUrl: env.ZG_MAINNET_RPC_URL || ZG_MAINNET.rpc,
-    };
-  }
-  if (kind === "broker") {
-    const privateKey = env.WORKER_PRIVATE_KEY;
-    if (!privateKey) throw new Error("ZG_INFERENCE=broker needs WORKER_PRIVATE_KEY (a Galileo wallet with a funded 0G Compute ledger)");
-    return { kind, rpcUrl: env.ZG_RPC_URL || ZG_TESTNET.rpc, privateKey };
-  }
+  const kind = env.ZG_INFERENCE?.trim() || "router";
+  if (kind === "router") return routerConfig(env);
+  if (kind === "broker") return brokerConfig(env);
   throw new Error(`ZG_INFERENCE must be "router" or "broker", not ${JSON.stringify(kind)}`);
+}
+
+function routerConfig(env: Env): InferenceConfig {
+  const apiKey = env.ZG_ROUTER_API_KEY;
+  if (!apiKey) throw new Error("ZG_INFERENCE=router needs ZG_ROUTER_API_KEY (this Worker's pc.0g.ai key, trust mode Private)");
+  return {
+    kind: "router",
+    routerUrl: env.ZG_ROUTER_URL || ZG_ROUTER_URL,
+    apiKey,
+    managementKey: env.ZG_ROUTER_MANAGEMENT_KEY || undefined,
+    mainnetRpcUrl: env.ZG_MAINNET_RPC_URL || ZG_MAINNET.rpc,
+  };
+}
+
+function brokerConfig(env: Env): InferenceConfig {
+  const privateKey = env.WORKER_PRIVATE_KEY;
+  if (!privateKey) throw new Error("ZG_INFERENCE=broker needs WORKER_PRIVATE_KEY (a Galileo wallet with a funded 0G Compute ledger)");
+  return { kind: "broker", rpcUrl: env.ZG_RPC_URL || ZG_TESTNET.rpc, privateKey };
 }
 
 /** The pure part of connectInference: the balance source a config implies (the broker one needs the live broker). */

@@ -128,11 +128,9 @@ export class RouterInference implements InferencePort {
     const url = `${endpoint}/signature/${encodeURIComponent(chatID)}?model=${encodeURIComponent(model)}`;
     const response = await fetch(url, { signal: AbortSignal.timeout(this.timeoutMs) });
     if (!response.ok) throw new Error(`0G receipt for chat ${chatID} unavailable: ${response.status}`);
-    const { text, signature } = (await response.json()) as { text?: unknown; signature?: unknown };
-    if (typeof text !== "string" || typeof signature !== "string" || !signature.startsWith("0x")) {
-      throw new Error(`0G receipt for chat ${chatID} is malformed`);
-    }
-    return { text, signature: signature as Hex };
+    const body: unknown = await response.json();
+    if (!isReceipt(body)) throw new Error(`0G receipt for chat ${chatID} is malformed`);
+    return { text: body.text, signature: body.signature };
   }
 
   /** The SDK calls take no AbortSignal, so they are raced against the same timeout as the HTTP calls. */
@@ -151,4 +149,10 @@ function assertServedBy(pinned: Hex, reported: (string | null | undefined)[]): v
   if (present.length === 0) throw new Error("0G Router response does not say which provider served it");
   const other = present.find((p) => p.toLowerCase() !== pinned.toLowerCase());
   if (other) throw new Error(`0G Router served the request from ${other}, not the Policy's provider ${pinned}`);
+}
+
+/** The provider's `{ text, signature, signing_address }`; only text and signature are kept. */
+function isReceipt(body: unknown): body is ChatReceipt {
+  const { text, signature } = (body ?? {}) as { text?: unknown; signature?: unknown };
+  return typeof text === "string" && typeof signature === "string" && signature.startsWith("0x");
 }
