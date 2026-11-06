@@ -48,7 +48,9 @@ const reply = await inference.complete(policy.providerAddress, request);
 console.log(`reply in ${Date.now() - started} ms, chatID ${reply.chatID}`);
 console.log("served by the pinned provider; processResponse on mainnet: true");
 console.log("rawResponse:", JSON.stringify(reply.rawResponse), "-> action", parseAction(reply.rawResponse));
-console.log("Verifier rebuild matches:", canonicalJson(buildRequest(policy, png, [])) === canonicalJson(request));
+// What a Verifier does: read the request back from the logged JSON and compare it with a fresh rebuild.
+const logged = JSON.parse(JSON.stringify(request)) as unknown;
+console.log("Verifier rebuild matches the logged request:", canonicalJson(logged) === canonicalJson(buildRequest(policy, png, [])));
 
 if (!reply.receipt) {
   console.log("no receipt fetched (optional; the Decision would be kept without it)");
