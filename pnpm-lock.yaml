@@ -73,6 +73,55 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
 
+  verifier:
+    dependencies:
+      '@0gfoundation/0g-compute-ts-sdk':
+        specifier: ^0.9.0
+        version: 0.9.0(@types/circomlibjs@0.1.6)(@types/crypto-js@4.2.2)(circomlibjs@0.1.7(bufferutil@4.1.0)(utf-8-validate@5.0.10))(crypto-js@4.2.0)(ethers@6.17.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))
+      '@0gfoundation/0g-storage-ts-sdk':
+        specifier: ^1.2.13
+        version: 1.2.13(bufferutil@4.1.0)(ethers@6.17.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(utf-8-validate@5.0.10)
+      '@arkiv-network/sdk':
+        specifier: ^1.0.1
+        version: 1.0.1(typescript@5.9.3)(viem@2.57.16(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.7))
+      '@dewo/agents':
+        specifier: workspace:*
+        version: link:../agents
+      '@dewo/board':
+        specifier: workspace:*
+        version: link:../board
+      '@hono/node-server':
+        specifier: ^1.13.0
+        version: 1.19.18(hono@4.13.16)
+      '@x402/core':
+        specifier: ^2.30.0
+        version: 2.30.0
+      '@x402/hedera':
+        specifier: ^2.30.0
+        version: 2.30.0(bufferutil@4.1.0)(protobufjs@8.6.6)(utf-8-validate@5.0.10)
+      ethers:
+        specifier: ^6.17.0
+        version: 6.17.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
+      hono:
+        specifier: ^4.6.0
+        version: 4.13.16
+      viem:
+        specifier: ^2.21.0
+        version: 2.57.16(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.7)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      tsx:
+        specifier: ^4.19.0
+        version: 4.23.15
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
+
   web:
     dependencies:
       '@dewo/board':
@@ -651,6 +700,12 @@ packages:
   '@hiero-ledger/sdk@2.90.1':
     resolution: {integrity: sha512-BLBGDoTkRutkgbHteSVjWL8NebP6QUbcruwelzJK9OUDw1PKmaoB3dt6Q7q55Npw9m+qG7asHKNWgUlBl6t1LA==}
     engines: {node: '>=18.0.0'}
+
+  '@hono/node-server@1.19.18':
+    resolution: {integrity: sha512-609kppIP9GITS+EwPyB6Kiq8z2yXONaYD1VHpo7MMP9celRJYbkFr9KakJncHwK0EK/XYtlogqmrLchDv5HX5w==}
+    engines: {node: '>=18.14.1'}
+    peerDependencies:
+      hono: ^4
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1861,6 +1916,10 @@ packages:
 
   hmac-drbg@1.0.1:
     resolution: {integrity: sha512-Tti3gMqLdZfhOQY1Mzf/AanLiqh1WTiJgEj26ZuYQ9fbkLomzGchCws4FyrSd4VkpBfiNhaE1On+lOz894jvXg==}
+
+  hono@4.13.16:
+    resolution: {integrity: sha512-AOLOEhvrV+iH92xXCnFr/5+3KjPKcI3xP63XJtX5spAnkznPdHijlIsUTpi7/9EhWqrTCekw5c5zh1K+YsVw7A==}
+    engines: {node: '>=16.9.0'}
 
   http-errors@2.0.1:
     resolution: {integrity: sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==}
@@ -3526,6 +3585,10 @@ snapshots:
       - expo-crypto
       - utf-8-validate
 
+  '@hono/node-server@1.19.18(hono@4.13.16)':
+    dependencies:
+      hono: 4.13.16
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
@@ -4763,6 +4826,8 @@ snapshots:
       hash.js: 1.1.7
       minimalistic-assert: 1.0.1
       minimalistic-crypto-utils: 1.0.1
+
+  hono@4.13.16: {}
 
   http-errors@2.0.1:
     dependencies:

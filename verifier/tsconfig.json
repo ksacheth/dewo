@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    // noUncheckedIndexedAccess stays off: @dewo/board is imported as raw .ts and fails it (bids.ts, scoring.ts), 7 errors outside verifier/.
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["src", "test", "scripts"]
+}
