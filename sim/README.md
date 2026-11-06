@@ -9,8 +9,8 @@ Deterministic rover simulator that Workers drive live and Verifiers Replay bit f
 | Stub (`stub/sim_stub.py`) | done, same CLI, straight-line Course, fake hashes |
 | Course generator, rover, camera, session, replay, planner, CLI | done, 33 tests passing locally (Linux x86_64, OSMesa) |
 | `make replay-check` | passes locally (two runs identical and equal to the golden recording) |
-| Dockerfile | written, **not yet built** (no Docker on the dev machine) |
-| Cross-machine determinism (spike #4) | **not yet proven**: needs `make replay-check` on a second machine |
+| Dockerfile / image `dewo-sim:0.1.0` | built; `make replay-check DOCKER=1` passes (amd64) |
+| Cross-machine determinism (spike #4) | golden run matches on host Linux x86_64, in the Docker image (amd64), and in the image under **emulated arm64 (aarch64)**; still worth one run on a real Mac before the demo |
 
 ## Commands (I1)
 
