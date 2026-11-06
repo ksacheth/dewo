@@ -9,7 +9,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IHederaTokenService} from "./interfaces/IHederaTokenService.sol";
 import {Eip712Types} from "./lib/Eip712Types.sol";
 
-/// @notice Quorum-authorized Escrow. First version permits one Award per Mission.
+/// @notice Quorum-authorized Escrow. A lapsed Award (no stake in the stake window) can be replaced.
 contract MissionEscrow is EIP712, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -54,6 +54,8 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
     address public immutable asset;
     uint256 private nonce;
     mapping(bytes32 => Mission) private missions;
+    /// @dev Workers whose Award lapsed; blocks replaying their old Award signatures.
+    mapping(bytes32 => mapping(address => bool)) public lapsedWorker;
 
     error InvalidConfiguration();
     error InvalidState();
@@ -115,15 +117,22 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         nonReentrant
     {
         Mission storage mission = missions[missionId];
-        // Fail closed: a second Award needs the coordinated round amendment to I5.
-        if (mission.state != State.Created) revert InvalidState();
+        if (mission.state == State.Awarded) {
+            // Replacement Award: only once the current winner missed the stake window.
+            if (block.timestamp <= mission.awardedAt + mission.deadlines.stakeWindow) revert InvalidTime();
+            lapsedWorker[missionId][mission.worker] = true;
+        } else if (mission.state != State.Created) {
+            revert InvalidState();
+        }
         uint256 duration = uint256(mission.deadlines.stakeWindow) + mission.deadlines.seedReleaseWindow
             + mission.deadlines.episodeWindow;
         if (
             block.timestamp < mission.deadlines.biddingEndsAt
                 || block.timestamp + duration >= mission.deadlines.rescueAt
         ) revert InvalidTime();
-        if (worker == address(0) || worker == address(this)) revert InvalidConfiguration();
+        if (worker == address(0) || worker == address(this) || lapsedWorker[missionId][worker]) {
+            revert InvalidConfiguration();
+        }
         // Reliability is computed off-chain; only enforce its possible stake range.
         if (price == 0 || price > mission.maxBounty || bidStake > mission.maxBounty / 2) revert InvalidAmount();
         _checkQuorum(mission, awardDigest(missionId, worker, price, bidStake), sigs);

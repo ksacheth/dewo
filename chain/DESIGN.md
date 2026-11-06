@@ -49,10 +49,14 @@ submitted remain valid without a round. The frozen PRD lacks a round field and
 requires consumer agreement before changing I5. No GitHub messages have been
 posted by this implementation.
 
-**Initial implementation deliberately retains frozen I5 signatures and allows
-only one Award per Mission.** An expired unstaked Award must await rescue.
-Re-awarding remains incomplete until M4/M5 agree to the round amendment. This is
-a temporary fail-closed limitation, not a claim to satisfy the complete workflow.
+**Award replacement keeps frozen I5 signatures.** `award()` may be called again
+only while the Mission is `Awarded` (nobody staked) and
+`block.timestamp > awardedAt + stakeWindow`; any other second Award reverts. The
+lapsed winner is recorded in `lapsedWorker`, so their old Award signatures cannot
+be replayed to block the next-best Bid. `getMission` exposes `awardedAt` and
+`stakedAt` for the Requester's lapse check. Shortcut: without a round field, a
+never-submitted Award signature for a different worker stays valid until that
+worker lapses; add a round to I5 if verifiers can sign conflicting Awards.
 The deadline tuple and precise registry event fields are also proposed ABI details
 to communicate to consumers before integration.
 

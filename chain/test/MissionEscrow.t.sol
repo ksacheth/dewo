@@ -120,10 +120,50 @@ contract MissionEscrowTest is EscrowFixture {
         escrow.award(missionId, worker, PRICE, STAKE, signatures);
     }
 
-    function testReplacementAwardFailsClosedPendingRoundAmendment() public {
+    function testReplacementAwardRejectedInsideStakeWindow() public {
         _award();
-        vm.warp(1090);
         bytes[2] memory signatures = _sigs(escrow.awardDigest(missionId, address(0x300), PRICE, STAKE));
+        vm.warp(1090); // awardedAt + stakeWindow: not yet lapsed
+        vm.expectRevert(MissionEscrow.InvalidTime.selector);
+        escrow.award(missionId, address(0x300), PRICE, STAKE, signatures);
+    }
+
+    function testReplacementAwardAfterMissedStake() public {
+        _award();
+        address next = address(0x300);
+        bytes[2] memory signatures = _sigs(escrow.awardDigest(missionId, next, PRICE - 1, STAKE));
+        vm.warp(1091);
+        vm.prank(worker);
+        vm.expectRevert(MissionEscrow.InvalidTime.selector);
+        escrow.stake(missionId);
+        escrow.award(missionId, next, PRICE - 1, STAKE, signatures);
+        MissionEscrow.Mission memory m = escrow.getMission(missionId);
+        assertEq(m.worker, next);
+        assertEq(m.price, PRICE - 1);
+        assertEq(m.awardedAt, 1091);
+        assertEq(m.stakedAt, 0);
+        assertEq(uint256(m.state), uint256(MissionEscrow.State.Awarded));
+        vm.prank(worker);
+        vm.expectRevert(MissionEscrow.NotWorker.selector);
+        escrow.stake(missionId);
+    }
+
+    function testLapsedWinnerSignaturesCannotBeReplayed() public {
+        bytes[2] memory first = _sigs(escrow.awardDigest(missionId, worker, PRICE, STAKE));
+        _award();
+        address next = address(0x300);
+        vm.warp(1091);
+        escrow.award(missionId, next, PRICE, STAKE, _sigs(escrow.awardDigest(missionId, next, PRICE, STAKE)));
+        vm.warp(1122);
+        vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
+        escrow.award(missionId, worker, PRICE, STAKE, first);
+        assertTrue(escrow.lapsedWorker(missionId, worker));
+    }
+
+    function testReplacementAwardRejectedAfterStake() public {
+        _stake();
+        bytes[2] memory signatures = _sigs(escrow.awardDigest(missionId, address(0x300), PRICE, STAKE));
+        vm.warp(1200);
         vm.expectRevert(MissionEscrow.InvalidState.selector);
         escrow.award(missionId, address(0x300), PRICE, STAKE, signatures);
     }
