@@ -3,6 +3,7 @@
 // token, is open to one browser origin only, and caps the bounty and the body size.
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { toBaseUnits, USDC_DECIMALS } from "../formats";
 import type { MissionRequest } from "./requester";
 
 const DIFFICULTIES = new Set(["easy", "medium", "hard"]);
@@ -43,9 +44,20 @@ export function parseMissionRequest(body: unknown, maxBountyLimit = Infinity): M
   const { difficulty, maxBounty, riskWeight } = body as Record<string, unknown>;
   if (typeof difficulty !== "string" || !DIFFICULTIES.has(difficulty)) return "difficulty must be easy, medium or hard";
   if (typeof maxBounty !== "number" || !(maxBounty > 0)) return "maxBounty must be a positive number";
+  const decimalsError = bountyPrecisionError(maxBounty);
+  if (decimalsError) return decimalsError;
   if (maxBounty > maxBountyLimit) return `maxBounty must be at most ${maxBountyLimit} USDC`;
   if (typeof riskWeight !== "number" || riskWeight < 0 || riskWeight > 1) return "riskWeight must be between 0 and 1";
   return { difficulty: difficulty as MissionRequest["difficulty"], maxBounty, riskWeight };
+}
+
+/** USDC has 6 decimals: a maxBounty finer than that, or under 1 base unit, would lock nothing or something else than asked. */
+function bountyPrecisionError(maxBounty: number): string | null {
+  const units = toBaseUnits(maxBounty);
+  if (units < 1n) return `maxBounty must be at least 1 base unit (0.${"0".repeat(USDC_DECIMALS - 1)}1 USDC)`;
+  // Round-tripping through base units only reproduces the same number when it had at most 6 decimals.
+  if (Number(units) / 10 ** USDC_DECIMALS !== maxBounty) return `maxBounty must have at most ${USDC_DECIMALS} decimals`;
+  return null;
 }
 
 export function createRequesterServer(

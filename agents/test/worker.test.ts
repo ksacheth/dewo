@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { policyHash, type EpisodeLog } from "../src/formats";
-import { ME, RIVAL, policy, setup, terms } from "./fakes";
+import { ME, RIVAL, policy, setup, terms, workerIn, world } from "./fakes";
 
 describe("Worker: bidding", () => {
   it("seals its own price and commits to its Policy", async () => {
@@ -28,6 +28,16 @@ describe("Worker: bidding", () => {
     w.post("m1", terms({ maxBounty: 1_000_000n }));
     await w.worker.tick();
     expect(w.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "PRICE_ABOVE_MAX_BOUNTY" });
+    expect(w.board.bids).toHaveLength(0);
+  });
+
+  it("skips instead of bidding 0 when its strategy prices the Mission at zero", async () => {
+    const w = world();
+    const me = workerIn(w, { margin: 0 });
+    w.escrow.open("m1");
+    w.board.open.push("m1");
+    await me.worker.tick();
+    expect(me.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "PRICE_NOT_POSITIVE" });
     expect(w.board.bids).toHaveLength(0);
   });
 
