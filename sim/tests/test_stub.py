@@ -82,3 +82,57 @@ def test_replay_matches_session_and_is_deterministic(tmp_path):
     )
     live = [json.loads(l)["frameHash"] for l in out.splitlines() if "frameHash" in l]
     assert live == a["frameHashes"]
+
+
+def run_proc(*args, stdin=None):
+    return subprocess.run(
+        [sys.executable, str(STUB), *map(str, args)], input=stdin, capture_output=True, text=True
+    )
+
+
+def session(tmp_path, lines, difficulty="easy"):
+    course = make_course(tmp_path, difficulty)
+    out = run("session", "--course", course, "--frames-dir", tmp_path / "f", stdin="\n".join(lines) + "\n")
+    return [json.loads(line) for line in out.splitlines()]
+
+
+def test_replay_records_hash_for_stop_decision(tmp_path):
+    course = make_course(tmp_path, "easy")
+    actions = tmp_path / "actions.json"
+    actions.write_text(json.dumps(["FORWARD", "STOP", "FORWARD"]))
+    r = json.loads(run("replay", "--course", course, "--actions", actions))
+    assert len(r["frameHashes"]) == 2 and r["steps"] == 1 and r["atGoal"] is False
+
+
+def test_replay_ignores_actions_after_goal(tmp_path):
+    course = make_course(tmp_path, "easy")
+    actions = tmp_path / "actions.json"
+    actions.write_text(json.dumps(["FORWARD"] * 6))
+    r = json.loads(run("replay", "--course", course, "--actions", actions))
+    assert r["atGoal"] is True and r["steps"] == 4 and len(r["frameHashes"]) == 4
+
+
+def test_replay_bad_actions_is_json_error(tmp_path):
+    course = make_course(tmp_path, "easy")
+    for bad in ('["JUMP"]', '{"a": 1}'):
+        actions = tmp_path / "actions.json"
+        actions.write_text(bad)
+        p = run_proc("replay", "--course", course, "--actions", actions)
+        assert p.returncode != 0 and "Traceback" not in p.stderr
+        assert "error" in json.loads(p.stdout)
+
+
+def test_session_ends_episode_on_stop_and_goal(tmp_path):
+    act = lambda a: json.dumps({"cmd": "act", "action": a})
+    stop = session(tmp_path, [act("STOP"), act("FORWARD"), '{"cmd": "observe"}'])
+    assert stop[0]["step"] == 0 and "error" in stop[1] and "frameHash" in stop[2]
+    goal = session(tmp_path, [act("FORWARD")] * 5)
+    assert goal[3]["atGoal"] is True and "error" in goal[4]
+
+
+def test_session_bad_input_gets_error_reply(tmp_path):
+    replies = session(
+        tmp_path,
+        ["not json", "[1]", '{"cmd": "dance"}', '{"cmd": "act", "action": "JUMP"}', '{"cmd": "act"}'],
+    )
+    assert len(replies) == 5 and all(set(r) == {"error"} for r in replies)
