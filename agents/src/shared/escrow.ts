@@ -50,15 +50,35 @@ export function toEscrowMission(raw: RawMission): EscrowMission {
   };
 }
 
+export interface EscrowScanOptions {
+  /**
+   * First block to scan for MissionCreated events: the escrow's `deployBlock` from chain/deployments.
+   * Required: scanning from genesis on Hashio means hundreds of slow eth_getLogs calls.
+   */
+  fromBlock: bigint;
+  /**
+   * Most blocks per eth_getLogs call. Hashio rejects ranges spanning more than 7 days (about 302k blocks);
+   * the default stays well under that.
+   */
+  logChunk?: bigint;
+}
+
+const DEFAULT_LOG_CHUNK = 100_000n;
+
 export class EscrowContract implements EscrowPort, RequesterEscrowPort {
   private asset: Promise<Hex> | null = null;
+  private readonly fromBlock: bigint;
+  private readonly logChunk: bigint;
 
   constructor(
     private readonly clients: EvmClients,
     private readonly address: Hex,
-    /** First block to scan for MissionCreated events (the deployment block keeps RPC ranges small). */
-    private readonly fromBlock: bigint | "earliest" = "earliest",
-  ) {}
+    { fromBlock, logChunk = DEFAULT_LOG_CHUNK }: EscrowScanOptions,
+  ) {
+    if (logChunk < 1n) throw new Error("logChunk must be at least 1 block");
+    this.fromBlock = fromBlock;
+    this.logChunk = logChunk;
+  }
 
   async getMission(missionId: string): Promise<EscrowMission> {
     const raw = (await this.clients.public.readContract({
@@ -71,13 +91,28 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
     return toEscrowMission(raw);
   }
 
+  /**
+   * The Mission this Requester funded with `seedCommitment`, if any. Scans MissionCreated newest-first in
+   * bounded chunks, so crash recovery (a Mission created moments ago) usually costs one eth_getLogs call.
+   */
   async findMission(seedCommitment: Hex): Promise<string | null> {
+    const latest = await this.clients.public.getBlockNumber();
+    for (let toBlock = latest; toBlock >= this.fromBlock; toBlock -= this.logChunk) {
+      const fromBlock = maxBigint(this.fromBlock, toBlock - this.logChunk + 1n);
+      const found = await this.findMissionIn(seedCommitment, fromBlock, toBlock);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  private async findMissionIn(seedCommitment: Hex, fromBlock: bigint, toBlock: bigint): Promise<string | null> {
     const logs = await this.clients.public.getContractEvents({
       address: this.address,
       abi: missionEscrowAbi,
       eventName: "MissionCreated",
       args: { requester: this.clients.wallet.account.address },
-      fromBlock: this.fromBlock,
+      fromBlock,
+      toBlock,
     });
     for (const { args } of logs) {
       const raw = (await this.clients.public.readContract({
@@ -188,6 +223,8 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
 }
 
 const txResult = (receipt: TransactionReceipt): TxResult => ({ txHash: receipt.transactionHash });
+
+const maxBigint = (a: bigint, b: bigint): bigint => (a > b ? a : b);
 
 function twoSignatures(signatures: readonly Hex[]): readonly [Hex, Hex] {
   if (signatures.length < 2) throw new Error("the Quorum needs 2 signatures");
