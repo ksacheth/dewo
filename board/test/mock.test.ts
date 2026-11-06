@@ -28,7 +28,6 @@ const mission = (n: number, over: Partial<MissionInput> = {}): MissionInput => (
   missionId: mid(n),
   difficultyClass: "easy",
   bounty: 10_000_000n,
-  stepBudget: 15,
   biddingClosesAt: nowSec + 60,
   seedCommitment: "0xfeed",
   riskWeight: 0.5,
@@ -40,10 +39,10 @@ const verdict = (n: number, w: Hex, outcome: VerdictInput["outcome"], over: Part
   missionId: mid(n),
   worker: w,
   outcome,
-  steps: 10,
+  pathCost: 10,
+  optimalPathCost: 8,
   collisions: 0,
   difficultyClass: "medium",
-  stepBudget: 15,
   signature: "0xsig",
   evidenceHash: "0xev",
   episodeLogRoot: "0xroot",
@@ -182,7 +181,7 @@ describe("Verdicts and leaderboard", () => {
     const [row] = await board.leaderboard()
     expect(row.worker).toBe(w)
     expect(row.missions.map((m) => m.outcome).sort()).toEqual(["Fail", "Pass", "Pass"])
-    expect(row.xp).toBeCloseTo(2 * 100 * 1.5 * (1 + 5 / 15))
+    expect(row.xp).toBeCloseTo(2 * 100 * 1.5 * (1 + 8 / 10)) // q = optimal 8 / cost 10
     expect(row.level).toBe(board.level(row.xp))
     const verdicts = (await board.listVerdicts({ worker: w })) as VerdictRow[]
     expect(row.reliability).toBeCloseTo(board.reliability(verdicts))

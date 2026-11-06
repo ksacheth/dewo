@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { awardScore, bidStake, level, pickWinner, reliability, totalXp, xp } from "../src/scoring"
+import { awardScore, bidStake, level, pathQuality, pickWinner, reliability, totalXp, xp } from "../src/scoring"
 import type { DifficultyClass, Hex, Outcome, VerdictRow } from "../src/schemas"
 
 const mid = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as Hex
@@ -7,8 +7,8 @@ let seq = 0
 function verdict(m: number, outcome: Outcome, at: number, o: Partial<VerdictRow> = {}): VerdictRow {
   return {
     $key: mid(++seq), $owner: mid(1000 + (seq % 3)), $createdAt: at, $expiresAt: at + 1,
-    missionId: mid(m), worker: mid(999), outcome, steps: 10, collisions: 0,
-    difficultyClass: "medium", stepBudget: 15, signature: "", evidenceHash: "", episodeLogRoot: "", ...o,
+    missionId: mid(m), worker: mid(999), outcome, pathCost: 10, optimalPathCost: 10, pathQuality: 1, collisions: 0,
+    difficultyClass: "medium", signature: "", evidenceHash: "", episodeLogRoot: "", ...o,
   }
 }
 // three Verifiers, same Outcome
@@ -19,6 +19,19 @@ describe("reliability", () => {
   it("is 2/3 for a new Worker", () => expect(reliability([])).toBeCloseTo(0.667, 3))
   it("counts the three Verdicts of one Mission once", () => {
     expect(reliability(quorum(1, "Pass", 100))).toBeCloseTo(3 / 4, 5)
+  })
+  it("a sloppy Pass raises R less than a clean one (pass_i = 0.5 + 0.5 q)", () => {
+    const clean = reliability(quorum(1, "Pass", 100, { pathCost: 10, optimalPathCost: 10 }))
+    const sloppy = reliability(quorum(1, "Pass", 100, { pathCost: 20, optimalPathCost: 10 }))
+    expect(clean).toBeCloseTo(3 / 4, 5)
+    expect(sloppy).toBeCloseTo((2 + 0.75) / 4, 5)
+    expect(sloppy).toBeLessThan(clean)
+    expect(sloppy).toBeGreaterThan(2 / 3)
+  })
+  it("ignores a stored pathQuality that disagrees with the integers", () => {
+    const lying = quorum(1, "Pass", 100, { pathCost: 20, optimalPathCost: 10, pathQuality: 1 })
+    expect(reliability(lying)).toBeCloseTo((2 + 0.75) / 4, 5)
+    expect(totalXp(lying)).toBe(225)
   })
   it("uses the 2-of-3 Quorum Outcome and ignores a Mission without one", () => {
     const split = [verdict(1, "Pass", 1), verdict(1, "Fail", 2), verdict(1, "NoShow", 3)]
@@ -75,14 +88,26 @@ describe("bidStake", () => {
   })
 })
 
+describe("pathQuality", () => {
+  it("is optimal / cost, capped at 1", () => {
+    expect(pathQuality(10, 10)).toBe(1)
+    expect(pathQuality(10, 20)).toBe(0.5)
+    expect(pathQuality(12, 10)).toBe(1)
+  })
+  it("is 0 when the path cost is 0", () => expect(pathQuality(5, 0)).toBe(0))
+})
+
 describe("xp and level", () => {
-  it("medium Pass using 10 of 15 steps is 200", () => expect(xp(verdict(1, "Pass", 1))).toBe(200))
+  it("a clean medium Pass (q = 1) is 100 * 1.5 * 2 = 300", () => expect(xp(verdict(1, "Pass", 1))).toBe(300))
+  it("a sloppy medium Pass (q = 0.5) is 100 * 1.5 * 1.5 = 225", () => {
+    expect(xp(verdict(1, "Pass", 1, { pathCost: 20, optimalPathCost: 10 }))).toBe(225)
+  })
   it("difficulty multiplier is 1 / 1.5 / 2", () => {
-    const x = (d: DifficultyClass) => xp(verdict(1, "Pass", 1, { difficultyClass: d, steps: 15 }))
-    expect([x("easy"), x("medium"), x("hard")]).toEqual([100, 150, 200])
+    const x = (d: DifficultyClass) => xp(verdict(1, "Pass", 1, { difficultyClass: d, pathCost: 10, optimalPathCost: 5 }))
+    expect([x("easy"), x("medium"), x("hard")]).toEqual([150, 225, 300])
   })
   it("is 0 for anything but Pass", () => expect(xp(verdict(1, "Fail", 1))).toBe(0))
-  it("totalXp counts each Mission once", () => expect(totalXp(quorum(1, "Pass", 1))).toBe(200))
+  it("totalXp counts each Mission once", () => expect(totalXp(quorum(1, "Pass", 1))).toBe(300))
   it("level is floor(sqrt(xp / 100))", () => {
     expect(level(400)).toBe(2)
     expect(level(399)).toBe(1)

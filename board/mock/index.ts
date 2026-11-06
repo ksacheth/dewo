@@ -10,6 +10,7 @@ import { firstBidPerWorker } from "../src/bids"
 import { runsDir } from "../src/events"
 import { LIFETIME_MS } from "../src/schemas"
 import type { BidInput, BidRow, DifficultyClass, Hex, MissionInput, MissionRow, MissionStatus, SeedReleaseRow, SeedRevealRow, VerdictInput, VerdictRow, WalletLike } from "../src/schemas"
+import { pathQuality } from "../src/scoring"
 import { leaderboardFrom, trustedVerifiers } from "../src/verdicts"
 import type { LeaderboardRow, VerdictFilter } from "../src/verdicts"
 
@@ -134,7 +135,7 @@ export async function readSeedReveal(missionId: Hex, requester?: Hex): Promise<{
 
 export async function writeVerdict(wallet: WalletLike, v: VerdictInput): Promise<Written> {
   const owner = wallet.account.address
-  return write("verdicts", () => ({ ...v, ...meta(owner, LIFETIME_MS.verdict) }))
+  return write("verdicts", () => ({ ...v, pathQuality: pathQuality(v.optimalPathCost, v.pathCost), ...meta(owner, LIFETIME_MS.verdict) }))
 }
 
 export async function listVerdicts(filter: VerdictFilter = {}): Promise<VerdictRow[]> {

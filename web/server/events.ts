@@ -142,9 +142,9 @@ async function mockRequester(body: { difficultyClass: string; maxBounty: number;
   const wallet = mode === "real" && key ? b.makeClients({ privateKey: key }).wallet : { account: key ? privateKeyToAccount(key) : { address: `0x${"0".repeat(39)}1` } }
   const biddingClosesAt = Math.floor(Date.now() / 1000) + 60
   const { entityKey, txHash } = await b.postMission(wallet, {
-    missionId, difficultyClass: body.difficultyClass, bounty: BigInt(Math.round(body.maxBounty * 1e6)), stepBudget: 15, biddingClosesAt,
+    missionId, difficultyClass: body.difficultyClass, bounty: BigInt(Math.round(body.maxBounty * 1e6)), biddingClosesAt,
     seedCommitment: `0x${randomBytes(32).toString("hex")}`, riskWeight: body.riskWeight, verifiers: process.env.VERIFIER_ADDRESSES ?? "",
   })
-  b.emit(missionId, "web", { type: "mission.posted", data: { difficultyClass: body.difficultyClass, maxBounty: String(Math.round(body.maxBounty * 1e6)), stepBudget: 15, riskWeight: body.riskWeight, biddingClosesAt, arkivKey: entityKey }, txUrl: undefined })
+  b.emit(missionId, "web", { type: "mission.posted", data: { difficultyClass: body.difficultyClass, maxBounty: String(Math.round(body.maxBounty * 1e6)), riskWeight: body.riskWeight, biddingClosesAt, arkivKey: entityKey }, txUrl: undefined })
   send(res, 200, { missionId, mock: true, txHash })
 }

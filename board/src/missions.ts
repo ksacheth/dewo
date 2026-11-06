@@ -1,7 +1,7 @@
 import { ExpirationTime } from "@arkiv-network/sdk"
 import { and, asc, eq, gt } from "@arkiv-network/sdk/query"
 import type { Expression } from "@arkiv-network/sdk/query"
-import { addr, dec, i32, u64, u256 } from "@arkiv-network/sdk/schema"
+import { addr, dec, u64, u256 } from "@arkiv-network/sdk/schema"
 import { fetchAll, plain, readClient } from "./client"
 import type { Wallet, Written } from "./client"
 import { LIFETIME_MS, Mission } from "./schemas"
@@ -15,7 +15,6 @@ export async function postMission(wallet: Wallet, m: MissionInput): Promise<Writ
       missionId: m.missionId,
       difficultyClass: m.difficultyClass,
       bounty: u256(m.bounty),
-      stepBudget: i32(m.stepBudget),
       status: "open",
       requester: addr(wallet.account.address),
       biddingClosesAt: u64(BigInt(Math.floor(m.biddingClosesAt))),

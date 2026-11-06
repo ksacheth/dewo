@@ -12,7 +12,6 @@ export type MissionInput = {
   missionId: Hex // Escrow bytes32 (D2)
   difficultyClass: DifficultyClass
   bounty: bigint // USDC base units (D11)
-  stepBudget: number
   biddingClosesAt: number // unix seconds (D1)
   seedCommitment: string
   riskWeight: number
@@ -40,15 +39,16 @@ export type VerdictInput = {
   missionId: Hex
   worker: Hex
   outcome: Outcome
-  steps: number
+  pathCost: number // non-STOP Actions in the Replay (spec 4.6)
+  optimalPathCost: number // the planner's lowest Path Cost on the revealed Course
   collisions: number
   difficultyClass: DifficultyClass // D3
-  stepBudget: number // D3
   signature: string
   evidenceHash: string
   episodeLogRoot: string
 }
-export type VerdictRow = VerdictInput & EntityMeta
+/** pathQuality is derived from the two integers when the Verdict is written (see scoring.pathQuality); scoring never reads it back. */
+export type VerdictRow = VerdictInput & EntityMeta & { pathQuality: number }
 
 // ---- Arkiv schemas (docs/spec.md 5.3, board/DECISIONS.md) ----
 
@@ -59,7 +59,6 @@ export const Mission = defineSchema("dewo.mission", {
   missionId: str().indexed(), // D2: Escrow bytes32
   difficultyClass: str().indexed(),
   bounty: u256().indexed(),
-  stepBudget: i32().indexed(),
   status: str().indexed(),
   requester: addr().indexed(),
   biddingClosesAt: u64().indexed(), // D1
@@ -96,10 +95,11 @@ export const Verdict = defineSchema("dewo.verdict", {
   missionId: str().indexed(),
   worker: addr().indexed(),
   outcome: str().indexed(),
-  steps: i32().indexed(),
+  pathCost: i32().indexed(),
   collisions: i32().indexed(),
   difficultyClass: str().indexed(), // D3
-  stepBudget: i32(), // D3
+  optimalPathCost: i32(),
+  pathQuality: dec(), // optimalPathCost / pathCost, for display and queries; scoring recomputes it from the integers
   signature: bytes(), // 65-byte signature: same str limit
   evidenceHash: str(),
   episodeLogRoot: str(),

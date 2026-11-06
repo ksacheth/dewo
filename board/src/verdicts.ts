@@ -2,12 +2,12 @@ import { bytesToHex, hexToBytes } from "viem"
 import { ExpirationTime } from "@arkiv-network/sdk"
 import { and, asc, eq, or } from "@arkiv-network/sdk/query"
 import type { Expression } from "@arkiv-network/sdk/query"
-import { addr, i32 } from "@arkiv-network/sdk/schema"
+import { addr, dec, i32 } from "@arkiv-network/sdk/schema"
 import { fetchAll, plain, readClient } from "./client"
 import type { Wallet, Written } from "./client"
 import { LIFETIME_MS, Verdict } from "./schemas"
 import type { VerdictInput } from "./schemas"
-import { level, quorumResults, reliability, totalXp } from "./scoring"
+import { level, pathQuality, quorumResults, reliability, totalXp } from "./scoring"
 import type { DifficultyClass, Hex, Outcome, VerdictRow } from "./schemas"
 
 /** D5: Verdicts count only when written by one of these Verifier addresses (VERIFIER_ADDRESSES, comma-separated). */
@@ -24,7 +24,7 @@ export type LeaderboardRow = {
   reliability: number
   xp: number
   level: number
-  missions: { missionId: Hex; outcome: Outcome; steps: number; collisions: number; difficultyClass: DifficultyClass; entityKey: Hex }[]
+  missions: { missionId: Hex; outcome: Outcome; pathCost: number; optimalPathCost: number; pathQuality: number; collisions: number; difficultyClass: DifficultyClass; entityKey: Hex }[]
 }
 
 /** Groups trusted Verdicts per Worker; sorted by Level, then XP. Shared by the web UI, the query script and the mock. */
@@ -39,7 +39,7 @@ export function leaderboardFrom(verdicts: VerdictRow[]): LeaderboardRow[] {
       xp,
       level: level(xp),
       missions: quorumResults(vs).map(({ verdict: v }) => ({
-        missionId: v.missionId, outcome: v.outcome, steps: v.steps, collisions: v.collisions, difficultyClass: v.difficultyClass, entityKey: v.$key,
+        missionId: v.missionId, outcome: v.outcome, pathCost: v.pathCost, optimalPathCost: v.optimalPathCost, pathQuality: pathQuality(v.optimalPathCost, v.pathCost), collisions: v.collisions, difficultyClass: v.difficultyClass, entityKey: v.$key,
       })),
     }
   }).sort((a, b) => b.level - a.level || b.xp - a.xp)
@@ -49,7 +49,7 @@ export function leaderboardFrom(verdicts: VerdictRow[]): LeaderboardRow[] {
 export async function writeVerdict(wallet: Wallet, v: VerdictInput): Promise<Written> {
   return wallet.createEntity(
     Verdict,
-    { ...v, signature: hexToBytes(v.signature as `0x${string}`), worker: addr(v.worker), steps: i32(v.steps), collisions: i32(v.collisions), stepBudget: i32(v.stepBudget) },
+    { ...v, signature: hexToBytes(v.signature as `0x${string}`), worker: addr(v.worker), pathCost: i32(v.pathCost), optimalPathCost: i32(v.optimalPathCost), pathQuality: dec(pathQuality(v.optimalPathCost, v.pathCost).toFixed(4)), collisions: i32(v.collisions) },
     { expiration: ExpirationTime.fromSeconds(LIFETIME_MS.verdict / 1000), flags: { readonly: true } },
   )
 }

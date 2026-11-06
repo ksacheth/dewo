@@ -23,14 +23,14 @@ describe.skipIf(!enabled)("real Arkiv (Rabdi)", () => {
     const verifierKeys = [generatePrivateKey(), generatePrivateKey(), generatePrivateKey()]
 
     const { entityKey } = await board.postMission(wallet!, {
-      missionId, difficultyClass: "medium", bounty: 10_000_000n, stepBudget: 15,
+      missionId, difficultyClass: "medium", bounty: 10_000_000n,
       biddingClosesAt: Math.floor(Date.now() / 1000) + 600, seedCommitment: "0xfeed", riskWeight: 0.5, verifiers: me,
     })
     const open = await board.listOpenMissions({ difficultyClass: "medium" })
     expect(open.map((m) => m.missionId)).toContain(missionId)
     expect((await board.listOpenMissions({ difficultyClass: "hard", requester: me })).map((m) => m.missionId)).not.toContain(missionId)
     const got = await board.getMission(missionId)
-    expect(got).toMatchObject({ requester: me, bounty: 10_000_000n, riskWeight: 0.5, stepBudget: 15 })
+    expect(got).toMatchObject({ requester: me, bounty: 10_000_000n, riskWeight: 0.5 })
 
     await board.setMissionStatus(wallet!, entityKey, "awarded")
     expect((await board.getMission(missionId))?.status).toBe("awarded")
@@ -50,11 +50,11 @@ describe.skipIf(!enabled)("real Arkiv (Rabdi)", () => {
     expect(await board.readSeedReveal(missionId)).toEqual({ seed: "0x2a", salt: "0x5a17" })
 
     await board.writeVerdict(wallet!, {
-      missionId, worker: me, outcome: "Pass", steps: 10, collisions: 0, difficultyClass: "medium", stepBudget: 15,
+      missionId, worker: me, outcome: "Pass", pathCost: 10, optimalPathCost: 8, collisions: 0, difficultyClass: "medium",
       signature: "0x1234", evidenceHash: "0xev", episodeLogRoot: "0xroot",
     })
     const verdicts = await board.listVerdicts({ missionId })
     expect(verdicts).toHaveLength(1)
-    expect(verdicts[0]).toMatchObject({ outcome: "Pass", steps: 10, difficultyClass: "medium", signature: "0x1234" })
+    expect(verdicts[0]).toMatchObject({ outcome: "Pass", pathCost: 10, optimalPathCost: 8, pathQuality: 0.8, difficultyClass: "medium", signature: "0x1234" })
   }, T)
 })

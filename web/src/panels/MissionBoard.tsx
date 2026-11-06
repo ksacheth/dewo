@@ -22,7 +22,7 @@ export function MissionBoard({ selected, onSelect }: { selected: string | null; 
       {!error && open.length === 0 && <p className="dim">No open Missions.</p>}
       {open.map((m) => (
         <div key={m.$key} className="card" style={{ borderColor: m.missionId === selected ? "var(--accent)" : undefined, cursor: "pointer" }} onClick={() => onSelect(m.missionId)}>
-          <div className="row"><strong>{m.difficultyClass}</strong><span className="value">{usdc(m.bounty)}<small>USDC</small></span><span className="dim">{m.stepBudget} steps · w {m.riskWeight}</span>
+          <div className="row"><strong>{m.difficultyClass}</strong><span className="value">{usdc(m.bounty)}<small>USDC</small></span><span className="dim">w {m.riskWeight}</span>
             <span className="ok" style={{ marginLeft: "auto" }}>{clock(m.biddingClosesAt - now)}</span></div>
           <div className="mono dim">commit {short(m.seedCommitment)} · <a href={arkivEntity(m.$key)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>Arkiv entity</a></div>
         </div>

@@ -6,6 +6,15 @@ const BETA = 1
 const LAMBDA = 0.9
 const MULTIPLIER = { easy: 1, medium: 1.5, hard: 2 } as const
 
+/** Path Quality q = min(1, optimal / cost); 0 when the path cost is 0 (spec 4.6). */
+export function pathQuality(optimalPathCost: number, pathCost: number): number {
+  if (pathCost <= 0) return 0
+  return Math.min(1, Math.max(0, optimalPathCost) / pathCost)
+}
+
+/** Computed from the integers, never from the stored float. */
+const qualityOf = (v: VerdictRow) => pathQuality(v.optimalPathCost, v.pathCost)
+
 export type MissionResult = { missionId: Hex; outcome: Outcome; at: number; verdict: VerdictRow }
 
 /** One result per Mission: the Outcome at least 2 of the 3 Verifiers agree on (D4). Missions without a Quorum are dropped. */
@@ -24,7 +33,7 @@ export function quorumResults(verdicts: VerdictRow[]): MissionResult[] {
   return results.sort((a, b) => b.at - a.at)
 }
 
-/** R = (2 + sum 0.9^i pass_i) / (3 + sum 0.9^i), most recent Mission first. */
+/** R = (2 + sum 0.9^i pass_i) / (3 + sum 0.9^i), most recent Mission first. A Pass counts 0.5 + 0.5 q; Fail and NoShow count 0. */
 export function reliability(verdicts: VerdictRow[]): number {
   const counted = quorumResults(verdicts).filter((r) => r.outcome !== "InvalidCourse" && r.outcome !== "NoSeedRelease")
   let passes = 0
@@ -32,7 +41,7 @@ export function reliability(verdicts: VerdictRow[]): number {
   counted.forEach((r, i) => {
     const w = LAMBDA ** i
     weights += w
-    if (r.outcome === "Pass") passes += w
+    if (r.outcome === "Pass") passes += w * (0.5 + 0.5 * qualityOf(r.verdict))
   })
   return (ALPHA + passes) / (ALPHA + BETA + weights)
 }
@@ -57,11 +66,10 @@ export function bidStake(maxBounty: bigint, R: number): bigint {
   return (maxBounty * f) / 2_000_000n
 }
 
-/** XP for one Verdict: Pass only. 100 * m * (1 + unusedSteps / stepBudget). */
+/** XP for one Verdict: Pass only. 100 * m * (1 + q). */
 export function xp(v: VerdictRow): number {
   if (v.outcome !== "Pass") return 0
-  const unused = Math.max(0, v.stepBudget - v.steps)
-  return 100 * MULTIPLIER[v.difficultyClass] * (1 + unused / v.stepBudget)
+  return 100 * MULTIPLIER[v.difficultyClass] * (1 + qualityOf(v))
 }
 
 /** Total XP over Missions that reached a Quorum, each counted once. */

@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { DECISION_CAP } from "../constants"
 
 /** Starts a Mission. Calls the Requester API (I7) via the proxy; if it isn't configured or reachable, the clearly labelled mock requester stands in. */
 export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: boolean) => void }) {
@@ -35,7 +36,7 @@ export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: 
       <label>Risk Weight {riskWeight.toFixed(2)} <span>(0 cheapest, 1 most reliable)</span>
         <input type="range" min={0} max={1} step={0.05} value={riskWeight} onChange={(e) => setRisk(Number(e.target.value))} />
       </label>
-      <label>Step Budget<input value="15" readOnly style={{ width: 50 }} /></label>
+      <label>Decision Cap<input value={DECISION_CAP} readOnly style={{ width: 50 }} /></label>
       <button className="primary" disabled={busy || !(maxBounty > 0)}>{busy ? "Posting…" : "Post Mission"}</button>
       {error && <span className="bad" role="alert">{error}</span>}
     </form>
