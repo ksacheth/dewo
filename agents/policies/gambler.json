@@ -1,9 +1,14 @@
 {
   "name": "Gambler",
-  "model": "TBD-vision-cheapest",
-  "providerAddress": "0x0000000000000000000000000000000000000000",
+  "model": "0gm-1.0-35b-a3b",
+  "providerAddress": "0xf4FB8d2bD856e672b5f9848b0eD235A20079B250",
   "promptTemplate": "{{frame}} {{history}} Move: FORWARD, TURN_LEFT, TURN_RIGHT or STOP?",
   "memoryWindow": 0,
   "temperature": 0,
+  "requestOptions": {
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
   "version": "1"
 }

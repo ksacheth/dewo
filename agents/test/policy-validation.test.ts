@@ -18,6 +18,8 @@ describe("policyProblems", () => {
     ["a TBD model", { model: "TBD-vision-large" }, "model is a placeholder"],
     ["a lowercase tbd model", { model: "tbd" }, "model is a placeholder"],
     ["an empty model", { model: " " }, "model is a placeholder"],
+    ["requestOptions that override the model", { requestOptions: { model: "x" } }, 'cannot set "model"'],
+    ["requestOptions that are not an object", { requestOptions: ["x"] as unknown as Policy["requestOptions"] }, "requestOptions must be a JSON object"],
   ] as [string, Partial<Policy>, string][])("rejects %s", (_name, change, expected) => {
     expect(policyProblems({ ...policy, ...change }).join("\n")).toContain(expected);
   });
@@ -45,6 +47,14 @@ describe("Worker startup", () => {
 describe("the demo Policies in policies/*.json", () => {
   const dir = join(import.meta.dirname, "..", "policies");
   const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
+
+  it.each(files)("%s is usable: the ADR 0004 model and provider, thinking off", (file) => {
+    const demo = JSON.parse(readFileSync(join(dir, file), "utf8")) as Policy;
+    expect(policyProblems(demo)).toEqual([]);
+    expect(demo.model).toBe("0gm-1.0-35b-a3b");
+    expect(demo.providerAddress).toBe("0xf4FB8d2bD856e672b5f9848b0eD235A20079B250");
+    expect(demo.requestOptions).toEqual({ chat_template_kwargs: { enable_thinking: false } });
+  });
 
   it.each(files)("%s has the {{frame}} and {{history}} placeholders in its prompt", (file) => {
     const demo = JSON.parse(readFileSync(join(dir, file), "utf8")) as Policy;
