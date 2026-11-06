@@ -11,7 +11,7 @@ type Fields = Record<string, unknown>;
 const isObject = (v: unknown): v is Fields => typeof v === "object" && v !== null && !Array.isArray(v);
 const allStrings = (o: Fields, keys: readonly string[]) => keys.every((k) => typeof o[k] === "string");
 
-const HEADER_STRINGS = ["missionId", "worker", "policyRoot", "seedCommitment"] as const;
+const HEADER_STRINGS = ["missionId", "worker", "policyRoot", "courseSeed"] as const;
 const DECISION_STRINGS = ["frameHash", "chatID", "providerAddress", "rawResponse"] as const;
 const POLICY_STRINGS = ["name", "model", "providerAddress", "promptTemplate", "version"] as const;
 

@@ -34,9 +34,10 @@ describe("EIP-712 signing", () => {
     expect(signer).not.toBe(ADDRESS);
   });
 
-  it("signs a Verdict with outcome ordering Pass=0 .. NoSeedRelease=4", async () => {
-    expect([Outcome.Pass, Outcome.Fail, Outcome.NoShow, Outcome.InvalidCourse, Outcome.NoSeedRelease]).toEqual([0, 1, 2, 3, 4]);
-    const message = { missionId: MISSION as `0x${string}`, outcome: Outcome.InvalidCourse, evidenceHash: ("0x" + "ab".repeat(32)) as `0x${string}` };
+  it("signs a Verdict with outcome ordering Pass=0, Fail=1, NoShow=2", async () => {
+    expect([Outcome.Pass, Outcome.Fail, Outcome.NoShow]).toEqual([0, 1, 2]);
+    expect(Object.keys(Outcome)).toEqual(["Pass", "Fail", "NoShow"]);
+    const message = { missionId: MISSION as `0x${string}`, outcome: Outcome.NoShow, evidenceHash: ("0x" + "ab".repeat(32)) as `0x${string}` };
     const signature = await signVerdict(KEY, ESCROW, message);
     const signer = await recoverTypedDataAddress({ domain, types: verdictTypes, primaryType: "Verdict", message, signature });
     expect(signer).toBe(ADDRESS);

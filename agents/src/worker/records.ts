@@ -78,7 +78,7 @@ export class FileRecordStore<T extends Keyed = MissionRecord> extends MemoryReco
 
   override put(record: T): void {
     super.put(record);
-    // Private: the Requester's records hold the secret Course Seed.
+    // Private: an agent's own working state, readable only by it.
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     const temp = `${this.path}.tmp`;
     writeFileSync(temp, JSON.stringify(this.all(), null, 2), { mode: 0o600 });

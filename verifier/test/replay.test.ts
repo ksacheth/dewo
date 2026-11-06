@@ -12,7 +12,7 @@ const T = 1_000;
 
 function setup(load: Partial<LoadedEpisode> = {}, now = T + 1000) {
   const { mission, ...episode } = honestEpisode();
-  const loaded: LoadedEpisode = { mission, worker: WORKER, timeline: { stakedAt: T, seedReleasedAt: T + 10, episodeSubmittedAt: T + 100 }, episode, ...load };
+  const loaded: LoadedEpisode = { mission, worker: WORKER, timeline: { stakedAt: T, episodeSubmittedAt: T + 100 }, episode, ...load };
   const source: EpisodeSource = { load: async () => loaded };
   const written: VerdictEntity[] = [];
   const events: string[] = [];
@@ -35,30 +35,30 @@ describe("handleReplay", () => {
     });
     expect(signer).toBe(privateKeyToAccount(KEY).address);
     expect(written).toHaveLength(1);
-    expect(written[0]).toMatchObject({ missionId: MISSION, outcome: Outcome.Pass, signature: res.signature, difficultyClass: "medium", pathCost: 3, optimalPathCost: 3, collisions: 0, episodeLogRoot: honestEpisode().episodeLogRoot });
+    expect(written[0]).toMatchObject({ missionId: MISSION, outcome: Outcome.Pass, signature: res.signature, difficultyClass: "medium", steps: 3, collisions: 0, episodeLogRoot: honestEpisode().episodeLogRoot });
     expect(events).toContain("verdict.signed");
   });
 
   it("signs No-show without replaying when the Episode Submission was late", async () => {
-    const { deps } = setup({ timeline: { stakedAt: T, seedReleasedAt: T + 10, episodeSubmittedAt: T + 10 + 301 }, episode: undefined });
+    const { deps } = setup({ timeline: { stakedAt: T, episodeSubmittedAt: T + 301 }, episode: undefined });
     const res = await handleReplay(deps, MISSION);
     expect(res.verdict).toBe("NoShow");
   });
 
-  it("signs No Seed Release when the Requester never released the seed", async () => {
-    const { deps } = setup({ timeline: { stakedAt: T }, episode: undefined }, T + 100);
-    expect((await handleReplay(deps, MISSION)).verdict).toBe("NoSeedRelease");
+  it("signs No-show when nothing was submitted by stakedAt + episodeWindow", async () => {
+    const { deps } = setup({ timeline: { stakedAt: T }, episode: undefined }, T + 301);
+    expect((await handleReplay(deps, MISSION)).verdict).toBe("NoShow");
   });
 
   it("refuses to sign while the Mission is still pending", async () => {
-    const { deps } = setup({ timeline: { stakedAt: T, seedReleasedAt: T + 10 }, episode: undefined }, T + 50);
+    const { deps } = setup({ timeline: { stakedAt: T }, episode: undefined }, T + 50);
     await expect(handleReplay(deps, MISSION)).rejects.toThrow(/pending/);
   });
 
   it("the same non-replayed Outcome yields the same evidenceHash on every Verifier", async () => {
-    const a = await handleReplay(setup({ timeline: { stakedAt: T }, episode: undefined }, T + 100).deps, MISSION);
-    const b = await handleReplay(setup({ timeline: { stakedAt: T }, episode: undefined }, T + 200).deps, MISSION);
+    const a = await handleReplay(setup({ timeline: { stakedAt: T }, episode: undefined }, T + 400).deps, MISSION);
+    const b = await handleReplay(setup({ timeline: { stakedAt: T }, episode: undefined }, T + 500).deps, MISSION);
     expect(a.evidenceHash).toBe(b.evidenceHash);
-    expect(a.evidenceHash).toBe(keccak256(toBytes(`{"missionId":"${MISSION}","outcome":${Outcome.NoSeedRelease}}`)));
+    expect(a.evidenceHash).toBe(keccak256(toBytes(`{"missionId":"${MISSION}","outcome":${Outcome.NoShow}}`)));
   });
 });

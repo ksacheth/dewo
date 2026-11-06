@@ -35,7 +35,7 @@ async function main(): Promise<void> {
   const { wallet } = board.makeClients({ privateKey });
 
   const worker = new Worker(config, {
-    board: new WorkerArkivBoard(board, wallet!, { privateKey, verifierPubKeys: config.verifierPubKeys }),
+    board: new WorkerArkivBoard(board, wallet!, { verifierPubKeys: config.verifierPubKeys }),
     escrow,
     registry,
     storage,

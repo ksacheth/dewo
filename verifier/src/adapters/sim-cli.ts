@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { MAX_OPTIMAL_PATH_COST, type Action } from "@dewo/agents/formats";
+import type { Action } from "@dewo/agents/formats";
 import type { Course, Difficulty, ReplayResult, SimPort } from "../ports.js";
 
 const execFileAsync = promisify(execFile);
@@ -50,7 +50,7 @@ const safeParse = (text: string): { error?: unknown } | undefined => {
   }
 };
 
-/** SimPort over the frozen I1 CLI (`course | plan | replay`). Replay returns frame hashes, not frame payloads. */
+/** SimPort over the I1 CLI (`course | replay`; `plan` is advisory and no Verifier calls it). Replay returns frame hashes, not frame payloads. */
 export function cliSim(run: SimRunner): SimPort {
   const withDir = async <T>(fn: (dir: string) => Promise<T>): Promise<T> => {
     const dir = await mkdtemp(join(tmpdir(), "dewo-verifier-"));
@@ -73,9 +73,6 @@ export function cliSim(run: SimRunner): SimPort {
         await run(["course", "--seed", seed, "--difficulty", difficulty, "--out", out], dir);
         return JSON.parse(await readFile(out, "utf8")) as Course;
       }),
-    plan: (course) =>
-      // Above --max-cost the sim answers {"solvable": false, "optimalPathCost": -1}: the Invalid Course bound (spec 5.1 check 2).
-      withDir(async (dir) => simJson(run(["plan", "--course", await writeCourse(dir, course), "--max-cost", String(MAX_OPTIMAL_PATH_COST)], dir))),
     replay: (course, actions: Action[]) =>
       withDir(async (dir) => {
         const actionsPath = join(dir, "actions.json");

@@ -1,7 +1,7 @@
 // The Requester's settings from its env (agents/.env.example, "Requester agent").
 import { LIFETIME_MS } from "@dewo/board";
 import { privateKeyToAccount } from "viem/accounts";
-import type { Hex } from "../formats";
+import { limitsProblems, type Hex, type MissionLimits } from "../formats";
 import { numberFromEnv, privateKeyFromEnv, requiredEnv, verifiersFromEnv, wholeNumber, type Env } from "../shared/config";
 import { DEFAULT_WINDOWS, type RequesterConfig, type Windows } from "./requester";
 import { serverOptionsFromEnv, type ServerOptions } from "./server";
@@ -47,20 +47,32 @@ function windowsFromEnv(env: Env): Windows {
     biddingSeconds: seconds("REQUESTER_BIDDING_SECONDS", DEFAULT_WINDOWS.biddingSeconds),
     biddingSlackSeconds: seconds("REQUESTER_BIDDING_SLACK_SECONDS", DEFAULT_WINDOWS.biddingSlackSeconds),
     stakeWindow: seconds("REQUESTER_STAKE_SECONDS", DEFAULT_WINDOWS.stakeWindow),
-    seedReleaseWindow: seconds("REQUESTER_SEED_RELEASE_SECONDS", DEFAULT_WINDOWS.seedReleaseWindow),
     episodeWindow: seconds("REQUESTER_EPISODE_SECONDS", DEFAULT_WINDOWS.episodeWindow),
     rescueSeconds: seconds("REQUESTER_RESCUE_SECONDS", DEFAULT_WINDOWS.rescueSeconds),
   };
-  const needed = windows.biddingSeconds + windows.biddingSlackSeconds + windows.stakeWindow + windows.seedReleaseWindow + windows.episodeWindow;
+  const needed = windows.biddingSeconds + windows.biddingSlackSeconds + windows.stakeWindow + windows.episodeWindow;
   if (windows.rescueSeconds <= needed) {
-    throw new Error(`REQUESTER_RESCUE_SECONDS (${windows.rescueSeconds}) must exceed bidding + slack + stake + seed release + episode (${needed})`);
+    throw new Error(`REQUESTER_RESCUE_SECONDS (${windows.rescueSeconds}) must exceed bidding + slack + stake + episode (${needed})`);
   }
   // The Verifiers read the winning Bid at Replay; once it expires they can only answer "pending" and the Mission ends in rescue.
   const bidLifetime = LIFETIME_MS.bid / 1000;
   if (needed >= bidLifetime) {
-    throw new Error(`bidding + slack + stake + seed release + episode (${needed} s) must stay under the Arkiv Bid lifetime (${bidLifetime} s): the Verifiers read the Bid at Replay`);
+    throw new Error(`bidding + slack + stake + episode (${needed} s) must stay under the Arkiv Bid lifetime (${bidLifetime} s): the Verifiers read the Bid at Replay`);
   }
   return windows;
+}
+
+/** Default Mission Limits for a POST /missions body that leaves them out (ADR 0006); the web form always sends both. */
+export const DEFAULT_LIMITS: MissionLimits = { maxSteps: 60, maxCollisions: 0 };
+
+function limitsFromEnv(env: Env): MissionLimits {
+  const limits = {
+    maxSteps: numberFromEnv(env, "REQUESTER_MAX_STEPS", DEFAULT_LIMITS.maxSteps, wholeNumber(1)),
+    maxCollisions: numberFromEnv(env, "REQUESTER_MAX_COLLISIONS", DEFAULT_LIMITS.maxCollisions, wholeNumber(0)),
+  };
+  const problems = limitsProblems(limits);
+  if (problems.length > 0) throw new Error(`REQUESTER_MAX_STEPS / REQUESTER_MAX_COLLISIONS: ${problems.join("; ")}`);
+  return limits;
 }
 
 export function requesterSettings(env: Env): RequesterSettings {
@@ -72,6 +84,7 @@ export function requesterSettings(env: Env): RequesterSettings {
       address: privateKeyToAccount(privateKey).address,
       verifiers: verifiers.map(({ url, address }) => ({ url, address })),
       windows: windowsFromEnv(env),
+      defaultLimits: limitsFromEnv(env),
       maxPaidReplays: numberFromEnv(env, "MAX_PAID_REPLAYS", 3, wholeNumber(0)),
     },
     verifierPubKeys: verifiers.map((verifier) => verifier.publicKey),
