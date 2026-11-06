@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Same CLI as `sim`, but runs it in the pinned dewo-sim image so frame hashes and
+# PNG bytes match every Verifier Replay:
+#   sim-docker course|plan|session|replay ...
+# Every absolute path argument, and the value of --course/--actions/--out/--frames-dir
+# (relative ones are resolved against $PWD), is bind-mounted at the same path inside
+# the container, so paths in replies (e.g. `frame`) are valid on the host.
+# Env: DEWO_SIM_VERSION (image tag, default 0.1.0).
+set -euo pipefail
+
+IMAGE="dewo-sim:${DEWO_SIM_VERSION:-0.1.0}"
+
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  echo "sim-docker: image $IMAGE not found; build it with 'make image' in sim/" >&2
+  exit 1
+fi
+
+abs() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "$PWD/${1#./}" ;;
+  esac
+}
+
+args=()
+mounts=()
+
+add_mount() {
+  local dir="$1" m
+  for m in ${mounts[@]+"${mounts[@]}"}; do
+    [ "$m" = "$dir" ] && return 0
+  done
+  mounts+=("$dir")
+}
+
+# mount_path <path> <kind>: kind is dir (mount itself), parent (create and mount
+# the parent dir), or auto (an existing dir is mounted itself, anything else its parent).
+mount_path() {
+  local p="$1" kind="$2"
+  case "$kind" in
+    dir) mkdir -p "$p"; add_mount "$p" ;;
+    parent) mkdir -p "$(dirname "$p")"; add_mount "$(dirname "$p")" ;;
+    *) if [ -d "$p" ]; then add_mount "$p"; else add_mount "$(dirname "$p")"; fi ;;
+  esac
+}
+
+kind_for() {
+  case "$1" in
+    --frames-dir) echo dir ;;
+    --out) echo parent ;;
+    --course | --actions) echo auto ;;
+    *) echo "" ;;
+  esac
+}
+
+pending=""
+for a in "$@"; do
+  if [ -n "$pending" ]; then
+    a="$(abs "$a")"
+    mount_path "$a" "$pending"
+    pending=""
+  else
+    case "$a" in
+      --frames-dir | --out | --course | --actions)
+        pending="$(kind_for "$a")"
+        ;;
+      --frames-dir=* | --out=* | --course=* | --actions=*)
+        flag="${a%%=*}"
+        val="$(abs "${a#*=}")"
+        mount_path "$val" "$(kind_for "$flag")"
+        a="$flag=$val"
+        ;;
+      /*)
+        mount_path "$a" auto
+        ;;
+    esac
+  fi
+  args+=("$a")
+done
+
+vflags=()
+for m in ${mounts[@]+"${mounts[@]}"}; do
+  vflags+=(-v "$m:$m")
+done
+
+exec docker run --rm -i --platform linux/amd64 ${vflags[@]+"${vflags[@]}"} "$IMAGE" ${args[@]+"${args[@]}"}
