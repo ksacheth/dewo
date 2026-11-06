@@ -2,7 +2,17 @@
 // discover -> bid -> watch Award -> stake -> Seed Release -> Episode -> submit -> settled.
 // Every tick re-reads the chain before acting (check-then-act) and writes the local
 // record only after the action is confirmed. One attempt per Mission.
-import { canonicalJson, policyHash, seedCommitment, type EpisodeLog, type Hex, type Policy } from "../formats";
+import {
+  canonicalJson,
+  fromBaseUnits,
+  policyHash,
+  seedCommitment,
+  toBaseUnits,
+  type EpisodeLog,
+  type Hex,
+  type Policy,
+} from "../formats";
+import type { EventData } from "../shared/events";
 import { runEpisode } from "./episode";
 import type {
   BalancesPort,
@@ -20,8 +30,11 @@ import { expectedStake, price } from "./pricing";
 import { ACTIVE_STAGES, BUSY_STAGES, type MissionRecord, type RecordStore, type Stage } from "./records";
 import { shouldSkip } from "./skip";
 
+/** The Worker's own strategy, in decimal USDC (converted to base units only when sealing the Bid). */
 export interface PricingStrategy {
   costPerDecision: number;
+  /** 0G Compute cost of one Decision, in the unit BalancesPort.zeroG() reports. */
+  zeroGPerDecision: number;
   expectedDecisions: number;
   txFees: number;
   margin: number;
@@ -67,9 +80,20 @@ export class Worker {
   /** One polling round: bid on new Missions, then advance every tracked one. */
   async tick(): Promise<void> {
     for (const missionId of await this.deps.board.listOpenMissionIds()) {
-      if (!this.deps.records.get(missionId)) await this.consider(missionId);
+      if (!this.deps.records.get(missionId)) await this.isolated(missionId, () => this.consider(missionId));
     }
-    for (const { missionId } of this.deps.records.all()) await this.advanceUntilWaiting(missionId);
+    for (const { missionId } of this.deps.records.all()) {
+      await this.isolated(missionId, () => this.advanceUntilWaiting(missionId));
+    }
+  }
+
+  /** One bad Mission (a bogus Arkiv listing, an RPC hiccup) must not stop the others from being staked in time. */
+  private async isolated(missionId: string, work: () => Promise<void>): Promise<void> {
+    try {
+      await work();
+    } catch (error) {
+      console.error(`worker: mission ${missionId} failed this tick:`, error);
+    }
   }
 
   /** Keeps advancing one Mission within this tick (won -> staked -> flown) until it has to wait. */
@@ -88,38 +112,48 @@ export class Worker {
     if (record.stage === "BID_PLACED") return this.watchAward(record, mission);
     if (record.stage === "WON") return this.stake(record, mission);
     if (record.stage === "STAKED") return this.fly(record, mission);
+    if (record.stage === "EPISODE_DONE") return this.submitFinished(record);
     if (record.stage === "SUBMITTED" && mission.settled) this.move(record, "DONE");
   }
 
   private async consider(missionId: string): Promise<void> {
     const { board, escrow, balances, clock } = this.deps;
+    // A Bid on Arkiv without a record means a crash between placeBid and the record write.
+    if (await board.myBid(missionId, this.config.address)) return this.put({ missionId, stage: "BID_PLACED" });
     const { terms } = await escrow.getMission(missionId);
     const reliability = await board.reliabilityOf(this.config.address);
-    const stake = expectedStake(terms.maxBounty, reliability);
+    const maxBounty = fromBaseUnits(terms.maxBounty);
+    const stake = expectedStake(maxBounty, reliability);
     const bidPrice = price({ ...this.config.strategy, reliability, stake });
 
     const skip = shouldSkip({
       price: bidPrice,
-      maxBounty: terms.maxBounty,
+      maxBounty,
       secondsLeftToBid: terms.deadlines.biddingClosesAt - clock.now(),
       hasUnfinishedWin: this.isBusy(),
-      walletBalance: await balances.wallet(),
+      walletBalance: fromBaseUnits(await balances.wallet()),
       stake,
       txFees: this.config.strategy.txFees,
       zgBalance: await balances.zeroG(),
-      costPerDecision: this.config.strategy.costPerDecision,
+      zeroGPerDecision: this.config.strategy.zeroGPerDecision,
     });
     if (skip) return this.put({ missionId, stage: "SKIPPED", note: skip });
 
-    await board.placeBid({
+    const hash = policyHash(this.config.policy);
+    const { key } = await board.placeBid({
       missionId,
       worker: this.config.address,
-      policyHash: policyHash(this.config.policy),
+      policyHash: hash,
       workerPubKey: this.config.publicKey,
-      sealedPrice: await board.sealBid(bidPrice, this.config.verifierPubKeys),
+      sealedPrice: await board.sealBid(toBaseUnits(bidPrice), this.config.verifierPubKeys),
     });
     this.put({ missionId, stage: "BID_PLACED", price: bidPrice });
-    this.deps.events.emit(missionId, "bid.sealed", { worker: this.config.address });
+    this.deps.events.emit(missionId, "bid.sealed", {
+      worker: this.config.address,
+      workerName: this.config.policy.name,
+      policyHash: hash,
+      arkivKey: key,
+    });
   }
 
   /** Stays here while the Award may still move to this Bid (the winner can miss its stake window). */
@@ -140,7 +174,7 @@ export class Worker {
 
     await this.deps.escrow.stake(record.missionId, award.stake);
     this.move(record, "STAKED");
-    this.deps.events.emit(record.missionId, "stake.deposited", { worker: this.config.address, stake: award.stake });
+    this.deps.events.emit(record.missionId, "stake.deposited", { worker: this.config.address, stake: award.stake.toString() });
   }
 
   private async fly(record: MissionRecord, mission: EscrowMission): Promise<void> {
@@ -160,23 +194,47 @@ export class Worker {
     }
 
     this.move(record, "EPISODE_RUNNING");
+    let decisions: EpisodeLog["decisions"];
     try {
-      const log = await this.flyEpisode(record.missionId, release.seed, mission);
-      await this.submit(record.missionId, log);
-      this.move(record, "SUBMITTED");
+      ({ decisions } = await this.flyEpisode(record.missionId, release.seed, mission));
     } catch (error) {
-      this.move(record, "GAVE_UP", `Episode crashed: ${String(error)}`);
+      return this.move(record, "GAVE_UP", `Episode crashed: ${String(error)}`);
     }
+    // Keep the flown Episode: upload and submit are retried on later ticks, the Episode is never re-flown.
+    const deadline = release.releasedAt + terms.deadlines.episodeWindow;
+    this.put({ missionId: record.missionId, stage: "EPISODE_DONE", price: record.price, episode: { decisions, deadline } });
+  }
+
+  /** Uploads and submits a flown Episode; a failure leaves it for the next tick, until the deadline passes. */
+  private async submitFinished(record: MissionRecord): Promise<void> {
+    const { episode } = record;
+    if (!episode) return this.move(record, "GAVE_UP", "finished Episode was not kept");
+    if (await this.deps.registry.isSubmitted(record.missionId, this.config.address)) return this.submitted(record);
+    if (this.deps.clock.now() > episode.deadline) return this.move(record, "GAVE_UP", "Episode Submission deadline passed");
+    let payload: EventData["episode.submitted"];
+    try {
+      payload = await this.submit(record.missionId, episode);
+    } catch (error) {
+      return console.error(`worker: submitting the Episode of ${record.missionId} failed, will retry:`, error);
+    }
+    this.submitted(record);
+    this.deps.events.emit(record.missionId, "episode.submitted", payload);
+  }
+
+  private submitted(record: MissionRecord): void {
+    const { episode: _flown, ...rest } = record;
+    this.put({ ...rest, stage: "SUBMITTED", note: undefined });
   }
 
   private async flyEpisode(missionId: string, seed: Hex, mission: EscrowMission): Promise<Omit<EpisodeLog, "header">> {
-    const session = await this.deps.sim.openSession(seed, mission.terms.difficultyClass);
+    const session = await this.deps.sim.openSession(seed, mission.terms.difficultyClass, missionId);
     try {
       const { decisions } = await runEpisode({
         policy: this.config.policy,
         session,
         inference: this.deps.inference,
-        onDecision: (d) => this.deps.events.emit(missionId, "decision.made", { step: d.step, chatID: d.chatID, action: d.action }),
+        onDecision: (d, frame) =>
+          this.deps.events.emit(missionId, "decision.made", { step: d.step, frame, chatID: d.chatID, action: d.action }),
       });
       return { decisions };
     } finally {
@@ -184,7 +242,7 @@ export class Worker {
     }
   }
 
-  private async submit(missionId: string, episode: Omit<EpisodeLog, "header">): Promise<void> {
+  private async submit(missionId: string, episode: Omit<EpisodeLog, "header">): Promise<EventData["episode.submitted"]> {
     const { storage, registry, escrow } = this.deps;
     const { terms } = await escrow.getMission(missionId);
     const encode = (text: string) => new TextEncoder().encode(text);
@@ -196,7 +254,7 @@ export class Worker {
     };
     const episodeLogRoot = await storage.upload(encode(JSON.stringify(log)));
     await registry.submitEpisode(missionId, episodeLogRoot, policyRoot, log.decisions.length);
-    this.deps.events.emit(missionId, "episode.submitted", { episodeLogRoot, policyRoot });
+    return { episodeLogRoot, policyRoot, decisionCount: log.decisions.length };
   }
 
   private isAwardedToMe(mission: EscrowMission): boolean {

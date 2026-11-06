@@ -19,7 +19,8 @@ export interface SkipContext {
   stake: number;
   txFees: number;
   zgBalance: number;
-  costPerDecision: number;
+  /** 0G cost of one Decision, in the unit of zgBalance. */
+  zeroGPerDecision: number;
 }
 
 /** Returns the first reason to skip this Mission, or null if the Worker should bid. */
@@ -28,6 +29,6 @@ export function shouldSkip(context: SkipContext): SkipReason | null {
   if (context.secondsLeftToBid < MIN_SECONDS_LEFT_TO_BID) return "BIDDING_CLOSING";
   if (context.hasUnfinishedWin) return "BUSY_WITH_UNFINISHED_WIN";
   if (context.walletBalance < context.stake + context.txFees) return "WALLET_CANNOT_COVER_STAKE";
-  if (context.zgBalance < context.costPerDecision * DECISION_CAP) return "ZG_BALANCE_CANNOT_COVER_EPISODE";
+  if (context.zgBalance < context.zeroGPerDecision * DECISION_CAP) return "ZG_BALANCE_CANNOT_COVER_EPISODE";
   return null;
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { policyHash, type EpisodeLog } from "../src/formats";
 import { ME, RIVAL, policy, setup, terms } from "./fakes";
 
@@ -25,7 +25,7 @@ describe("Worker: bidding", () => {
 
   it("skips using the on-chain max bounty", async () => {
     const w = setup();
-    w.post("m1", terms({ maxBounty: 1 }));
+    w.post("m1", terms({ maxBounty: 1_000_000n }));
     await w.worker.tick();
     expect(w.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "PRICE_ABOVE_MAX_BOUNTY" });
     expect(w.board.bids).toHaveLength(0);
@@ -65,9 +65,9 @@ describe("Worker: Award and stake", () => {
     const w = setup();
     w.post();
     await w.worker.tick();
-    w.escrow.grant("m1", { stake: 0.7 });
+    w.escrow.grant("m1", { stake: 700_000n });
     await w.worker.tick();
-    expect(w.escrow.stakes).toEqual([{ missionId: "m1", amount: 0.7 }]);
+    expect(w.escrow.stakes).toEqual([{ missionId: "m1", amount: 700_000n }]);
     expect(w.stage()).toBe("STAKED");
   });
 
@@ -168,5 +168,121 @@ describe("Worker: Episode and submission", () => {
     await w.registry.submitEpisode("m1", "0x01", "0x02", 3);
     await w.worker.reconcile();
     expect(w.stage()).toBe("SUBMITTED");
+  });
+});
+
+describe("Worker: one bad Mission does not stop the others", () => {
+  it("stakes a won Mission even when another listing throws", async () => {
+    const w = setup();
+    w.post("m1");
+    await w.worker.tick();
+    w.escrow.grant("m1");
+    w.board.open.unshift("bogus"); // listed on Arkiv, unknown to the escrow
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await w.worker.tick();
+
+    expect(w.stage("m1")).toBe("STAKED");
+    expect(w.escrow.stakes).toHaveLength(1);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("bogus"), expect.anything());
+    errors.mockRestore();
+  });
+
+  it("keeps advancing the other tracked Missions when one record throws", async () => {
+    const w = setup();
+    w.records.put({ missionId: "ghost", stage: "BID_PLACED" }); // no such escrow Mission
+    w.post("m1");
+    w.records.put({ missionId: "m1", stage: "WON" });
+    w.escrow.grant("m1");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await w.worker.tick();
+
+    expect(w.stage("m1")).toBe("STAKED");
+    errors.mockRestore();
+  });
+});
+
+describe("Worker: restart after a crash while bidding", () => {
+  it("does not bid twice when the Bid is on Arkiv but the record was never written", async () => {
+    const w = setup();
+    w.post();
+    const crashing = vi.spyOn(w.records, "put").mockImplementationOnce(() => {
+      throw new Error("disk full");
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await w.worker.tick();
+    crashing.mockRestore();
+    errors.mockRestore();
+    expect(w.board.bids).toHaveLength(1);
+    expect(w.records.get("m1")).toBeUndefined();
+
+    await w.worker.tick(); // restart: no record, but the Bid exists
+    expect(w.board.bids).toHaveLength(1);
+    expect(w.stage()).toBe("BID_PLACED");
+  });
+});
+
+describe("Worker: retrying a flown Episode", () => {
+  async function flown() {
+    const w = setup();
+    w.post();
+    await w.worker.tick();
+    w.escrow.grant("m1");
+    await w.worker.tick();
+    w.release();
+    return w;
+  }
+
+  it("keeps the Episode when the upload fails and submits it on the next tick without re-flying", async () => {
+    const w = await flown();
+    vi.spyOn(w.storage, "upload").mockRejectedValueOnce(new Error("0G storage down"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await w.worker.tick();
+    expect(w.stage()).toBe("EPISODE_DONE");
+    expect(w.records.get("m1")?.episode?.decisions).toHaveLength(3);
+    expect(w.registry.submissions).toHaveLength(0);
+
+    await w.worker.tick();
+    expect(w.stage()).toBe("SUBMITTED");
+    expect(w.records.get("m1")?.episode).toBeUndefined();
+    expect(w.registry.submissions).toHaveLength(1);
+    expect(w.sim.sessions).toHaveLength(1);
+    errors.mockRestore();
+  });
+
+  it("gives up only once the Episode Submission deadline has passed", async () => {
+    const w = await flown();
+    vi.spyOn(w.registry, "submitEpisode").mockRejectedValue(new Error("chain down"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await w.worker.tick();
+    expect(w.stage()).toBe("EPISODE_DONE");
+    w.clock.t += 301;
+    await w.worker.tick();
+    expect(w.records.get("m1")).toMatchObject({ stage: "GAVE_UP", note: "Episode Submission deadline passed" });
+    errors.mockRestore();
+  });
+
+  it("recovers to SUBMITTED, without a second submit, when the chain already has the submission", async () => {
+    const w = await flown();
+    await w.worker.tick();
+    const [only] = w.registry.submissions;
+    w.records.put({ missionId: "m1", stage: "EPISODE_DONE", episode: { decisions: [], deadline: w.clock.now() + 100 } });
+    await w.worker.tick();
+    expect(w.stage()).toBe("SUBMITTED");
+    expect(w.registry.submissions).toEqual([only]);
+  });
+
+  it("stays busy while an Episode awaits submission", async () => {
+    const w = await flown();
+    vi.spyOn(w.storage, "upload").mockRejectedValue(new Error("down"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await w.worker.tick();
+    w.post("m2");
+    await w.worker.tick();
+    expect(w.records.get("m2")).toMatchObject({ stage: "SKIPPED", note: "BUSY_WITH_UNFINISHED_WIN" });
+    errors.mockRestore();
   });
 });

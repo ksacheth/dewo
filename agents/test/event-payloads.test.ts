@@ -1,0 +1,84 @@
+// The I8 payloads M4 emits, checked field by field against M3's EventData shapes.
+import { describe, expect, it } from "vitest";
+import { policyHash } from "../src/formats";
+import { payouts } from "../src/requester/payouts";
+import { OUTCOMES } from "../src/requester/ports";
+import { REPLAY_PRICE, RIVAL, VERIFIER_ADDRESSES, policy, requesterIn, workerIn, world } from "./fakes";
+
+async function fullMission() {
+  const w = world();
+  const requester = requesterIn(w);
+  const gambler = workerIn(w, { address: RIVAL, margin: 1.05 });
+  const everyone = async () => {
+    for (const agent of [requester.requester, gambler.worker]) await agent.tick();
+  };
+  const missionId = await requester.requester.post({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5 });
+  await everyone();
+  w.clock.t += 61;
+  for (let i = 0; i < 3; i++) await everyone();
+  const of = (type: string) => w.events.filter((e) => e.type === type).map((e) => e.data);
+  return { w, missionId, of };
+}
+
+describe("I8 payloads", () => {
+  it("emits complete payloads for every event type", async () => {
+    const { w, of } = await fullMission();
+    const [award] = w.escrow.awards;
+    const price = award!.award.price.toString();
+    const stake = award!.award.stake.toString();
+
+    expect(of("mission.posted")).toEqual([
+      { difficultyClass: "easy", maxBounty: "10000000", riskWeight: 0.5, biddingClosesAt: 1_060, arkivKey: "arkiv-mission-1" },
+    ]);
+    expect(of("bid.sealed")).toEqual([{ worker: RIVAL, workerName: "Careful", policyHash: policyHash(policy), arkivKey: "arkiv-bid-1" }]);
+    expect(of("award.signed")).toEqual([
+      { worker: RIVAL, price, stake, verifier: VERIFIER_ADDRESSES[0] },
+      { worker: RIVAL, price, stake, verifier: VERIFIER_ADDRESSES[1] },
+    ]);
+    expect(of("stake.deposited")).toEqual([{ worker: RIVAL, stake }]);
+    expect(of("seed.released")).toEqual([{ worker: RIVAL, arkivKey: "arkiv-seed-m1" }]);
+    expect(of("decision.made")).toMatchObject([
+      { step: 0, frame: "m1/frames/frame_0000.png", chatID: "chat-1", action: "FORWARD" },
+      { step: 1, frame: "m1/frames/frame_0001.png", chatID: "chat-2", action: "FORWARD" },
+      { step: 2, frame: "m1/frames/frame_0002.png", chatID: "chat-3", action: "FORWARD" },
+    ]);
+    const [episode] = w.registry.submissions;
+    expect(of("episode.submitted")).toEqual([
+      { episodeLogRoot: episode!.episodeLogRoot, policyRoot: episode!.policyRoot, decisionCount: 3 },
+    ]);
+    expect(of("replay.paid")).toEqual(
+      VERIFIER_ADDRESSES.flatMap((verifier) => [
+        { verifier, status: 402, amount: REPLAY_PRICE.toString() },
+        { verifier, status: "paid", amount: REPLAY_PRICE.toString() },
+      ]),
+    );
+    expect(of("settled")).toEqual([
+      { outcome: "Pass", workerPayout: (BigInt(price) + BigInt(stake)).toString(), requesterPayout: (10_000_000n - BigInt(price)).toString() },
+    ]);
+  });
+
+  it("types every amount as a string of base units", async () => {
+    const { w } = await fullMission();
+    for (const { data } of w.events) {
+      for (const [key, value] of Object.entries(data as Record<string, unknown>)) expect(typeof value, key).not.toBe("bigint");
+    }
+  });
+});
+
+describe("settlement payouts (spec Outcome table)", () => {
+  const maxBounty = 10_000_000n;
+  const price = 6_000_000n;
+  const stake = 1_700_000n;
+
+  it.each(["Pass", "InvalidCourse", "NoSeedRelease"] as const)("%s pays the Worker price + stake and refunds the rest of the bounty", (outcome) => {
+    expect(payouts(outcome, maxBounty, price, stake)).toEqual({ worker: 7_700_000n, requester: 4_000_000n });
+  });
+
+  it.each(["Fail", "NoShow"] as const)("%s pays the Worker nothing and the Requester bounty + stake", (outcome) => {
+    expect(payouts(outcome, maxBounty, price, stake)).toEqual({ worker: 0n, requester: 11_700_000n });
+  });
+
+  it("covers every Outcome", () => {
+    for (const outcome of OUTCOMES) expect(() => payouts(outcome, maxBounty, price, stake)).not.toThrow();
+  });
+});
