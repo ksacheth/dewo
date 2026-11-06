@@ -14,19 +14,16 @@ export interface EpisodeSourceDeps {
 export const UPLOAD_CLOCK_SKEW = 300;
 
 /**
- * The document under `root`. When 0G Storage cannot serve it, the Flow contract decides whose fault that is: a root with no
- * submission between the Worker's stake and its Episode Submission was never uploaded (NotUploaded, a Fail); a submitted one is
- * infrastructure, so the StorageUnavailableError stands (no Verdict). A Flow lookup that fails also leaves it as infrastructure.
+ * The Worker's two documents. Whether each was uploaded is decided from the chain alone: a root with no Flow submission between the
+ * Worker's stake and its Episode Submission is NotUploaded (a Fail) without downloading it, so a Verifier whose download would have
+ * worked and one whose download fails reach the same Verdict. A submitted root that 0G Storage cannot serve is infrastructure
+ * (StorageUnavailableError, no Verdict), and so is a Flow lookup that fails.
  */
-async function fetchDocument(deps: EpisodeSourceDeps, root: Hex, window: { from: number; to: number }): Promise<unknown> {
-  try {
-    return await deps.storage.downloadJson(root);
-  } catch (e) {
-    if (!(e instanceof StorageUnavailableError)) throw e;
-    const submitted = await deps.uploads.submittedBetween(root, window.from, window.to).catch(() => true);
-    if (submitted) throw e;
-    return new NotUploaded();
-  }
+async function fetchDocuments(deps: EpisodeSourceDeps, roots: [Hex, Hex], window: { from: number; to: number }): Promise<unknown[]> {
+  const submitted = await deps.uploads.submittedBetween(roots, window.from, window.to).catch((e: unknown) => {
+    throw new StorageUnavailableError(`0G Flow lookup failed: ${e instanceof Error ? e.message : String(e)}`);
+  });
+  return Promise.all(roots.map((root, i) => (submitted[i] ? deps.storage.downloadJson(root) : new NotUploaded())));
 }
 
 /**
@@ -53,10 +50,9 @@ export function createEpisodeSource(deps: EpisodeSourceDeps): EpisodeSource {
 
       // Content that is not JSON, not well formed or never uploaded is passed on for the checks to Fail; a 0G outage rejects (no Verdict).
       const window = { from: award.stakedAt - UPLOAD_CLOCK_SKEW, to: submission.timestamp };
-      const [log, policy] = (await Promise.all([
-        fetchDocument(deps, submission.episodeLogRoot, window),
-        fetchDocument(deps, submission.policyRoot, window),
-      ])) as [Fetched<EpisodeLog>, Fetched<Policy>];
+      const [log, policy] = (await fetchDocuments(deps, [submission.episodeLogRoot, submission.policyRoot], window)) as [
+        Fetched<EpisodeLog>, Fetched<Policy>,
+      ];
       return {
         mission, worker: award.worker, timeline,
         episode: { bid, reveal, policy, log, episodeLogRoot: submission.episodeLogRoot, decisionCount: submission.decisionCount },

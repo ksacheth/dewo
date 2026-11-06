@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { MemData } from "@0gfoundation/0g-storage-ts-sdk";
-import type { Hex } from "viem";
-import { fileRoot, zeroGFlow, type FlowReader, type SubmissionNode } from "../src/adapters/zerog-flow.js";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { encodeAbiParameters, encodeEventTopics, parseAbiItem, parseAbiParameters, type Hex } from "viem";
+import { GALILEO_FLOW, HEAD_MARGIN_SECONDS, fileRoot, viemFlowReader, zeroGFlow, type FlowReader, type SubmissionNode } from "../src/adapters/zerog-flow.js";
+
+const SUBMIT = parseAbiItem(
+  "event Submit(address indexed sender, bytes32 indexed identity, uint256 submissionIndex, uint256 startPos, uint256 length, (uint256 length, bytes tags, (bytes32 root, uint256 height)[] nodes) submission)",
+);
 
 const node = (byte: string, height = 1n): SubmissionNode => ({ root: `0x${byte.repeat(32)}` as Hex, height });
 
@@ -46,25 +52,31 @@ describe("zeroGFlow.submittedBetween", () => {
     return { reader, ranges };
   }
 
+  const one = (reader: FlowReader, root: Hex, from = 1_100, to = 1_200) => zeroGFlow(reader).submittedBetween([root], from, to).then(([found]) => found);
+
   it("finds a submission of the root inside the window", async () => {
     const { reader } = chain(10_000n, { 300: [node("01")], 310: [node("ab")] });
-    expect(await zeroGFlow(reader).submittedBetween(ROOT, 1_100, 1_200)).toBe(true);
+    expect(await one(reader, ROOT)).toBe(true);
+  });
+
+  it("answers for several roots from one scan, in order", async () => {
+    const { reader, ranges } = chain(10_000n, { 300: [node("01")], 310: [node("ab")] });
+    expect(await zeroGFlow(reader).submittedBetween([node("cd").root, ROOT, node("01").root], 1_100, 1_200)).toEqual([false, true, true]);
+    expect(ranges).toEqual([[200n, 400n]]);
   });
 
   it("finds a root uploaded as several subtrees by folding them", async () => {
     const parts = [node("01", 3n), node("02", 2n), node("03", 1n)];
-    const { reader } = chain(10_000n, { 310: parts });
-    expect(await zeroGFlow(reader).submittedBetween(fileRoot(parts)!, 1_100, 1_200)).toBe(true);
+    expect(await one(chain(10_000n, { 310: parts }).reader, fileRoot(parts)!)).toBe(true);
   });
 
   it("is false for a root never submitted", async () => {
-    const { reader } = chain(10_000n, { 300: [node("01")] });
-    expect(await zeroGFlow(reader).submittedBetween(ROOT, 1_100, 1_200)).toBe(false);
+    expect(await one(chain(10_000n, { 300: [node("01")] }).reader, ROOT)).toBe(false);
   });
 
   it("counts blocks stamped exactly at either end, and nothing outside them", async () => {
     // Blocks 200-201 are stamped 1100, block 400 is the last stamped 1200 (block 401 jumps to 1250).
-    const at = async (block: number) => zeroGFlow(chain(10_000n, { [block]: [node("ab")] }).reader).submittedBetween(ROOT, 1_100, 1_200);
+    const at = (block: number) => one(chain(10_000n, { [block]: [node("ab")] }).reader, ROOT);
     expect(await at(200)).toBe(true);
     expect(await at(400)).toBe(true);
     expect(await at(199)).toBe(false);
@@ -74,7 +86,7 @@ describe("zeroGFlow.submittedBetween", () => {
   it("scans the window in fixed chunks that cover exactly its blocks, whatever the chain head is", async () => {
     const scans = await Promise.all([5_000n, 90_000n].map(async (head) => {
       const { reader, ranges } = chain(head, {});
-      await zeroGFlow(reader, { chunk: 64n }).submittedBetween(ROOT, 1_100, 1_200);
+      await zeroGFlow(reader, { chunk: 64n }).submittedBetween([ROOT], 1_100, 1_200);
       return ranges;
     }));
     expect(scans[0]).toEqual(scans[1]);
@@ -83,8 +95,49 @@ describe("zeroGFlow.submittedBetween", () => {
     for (let i = 1; i < scans[0].length; i++) expect(scans[0][i][0]).toBe(scans[0][i - 1][1] + 1n);
   });
 
-  it("refuses to answer until the chain has a block after the window, so no later upload can split the Verifiers", async () => {
-    const { reader } = chain(400n, { 300: [node("ab")] }); // the head is stamped 1200, the end of the window
-    await expect(zeroGFlow(reader).submittedBetween(ROOT, 1_100, 1_200)).rejects.toThrow(/not passed/);
+  it(`refuses to answer until the head is ${HEAD_MARGIN_SECONDS} s past the window, so a lagging RPC node has seen all of it`, async () => {
+    // Block 540 is the first stamped 1320 = 1200 + the margin.
+    await expect(one(chain(539n, { 300: [node("ab")] }).reader, ROOT)).rejects.toThrow(/not 120 s past/);
+    expect(await one(chain(540n, { 300: [node("ab")] }).reader, ROOT)).toBe(true);
+  });
+
+  it("refuses to answer when the RPC head goes backwards during the scan (reads served by a node behind the first one)", async () => {
+    const { reader } = chain(10_000n, {});
+    const heads = [10_000n, 9_990n];
+    const lagging: FlowReader = { ...reader, latestBlock: async () => heads.shift() ?? 9_990n };
+    await expect(one(lagging, ROOT)).rejects.toThrow(/went backwards/);
+  });
+});
+
+describe("viemFlowReader", () => {
+  it("decodes the subtree roots of Flow Submit events from eth_getLogs", async () => {
+    const nodes = [node("3a", 8n), node("d8", 7n)];
+    const data = encodeAbiParameters(
+      parseAbiParameters("uint256, uint256, uint256, (uint256 length, bytes tags, (bytes32 root, uint256 height)[] nodes)"),
+      [7n, 0n, 93_776n, { length: 93_776n, tags: "0x", nodes }],
+    );
+    const topics = encodeEventTopics({ abi: [SUBMIT], eventName: "Submit", args: { sender: `0x${"11".repeat(20)}`, identity: node("ee").root } });
+    const requests: { method: string; params: unknown[] }[] = [];
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        const { id, method, params } = JSON.parse(body);
+        requests.push({ method, params });
+        const log = { address: GALILEO_FLOW, topics, data, blockNumber: "0x10", transactionHash: node("99").root, transactionIndex: "0x0", blockHash: node("98").root, logIndex: "0x0", removed: false };
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ jsonrpc: "2.0", id, result: method === "eth_getLogs" ? [log] : null }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    try {
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      const decoded = await viemFlowReader(url).submissions(16n, 20n);
+      expect(decoded).toEqual([nodes]);
+      expect(fileRoot(decoded[0])).toBe(fileRoot(nodes));
+      expect(requests[0]).toMatchObject({ method: "eth_getLogs", params: [{ address: GALILEO_FLOW, fromBlock: "0x10", toBlock: "0x14", topics: [topics[0]] }] });
+    } finally {
+      server.close();
+    }
   });
 });

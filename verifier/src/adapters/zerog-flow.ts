@@ -61,25 +61,38 @@ export interface FlowOptions {
 const DEFAULT_CHUNK = 5_000n; // about 40 minutes of Galileo blocks
 
 /**
+ * How far past the window the chain head must be before the Verifier answers. A load-balanced RPC can serve `eth_getLogs` from a
+ * node a little behind the head it reported, and that node answers an empty list rather than an error; this margin (a constant,
+ * so every Verifier applies the same one) keeps the window well inside what such a node has already seen.
+ */
+export const HEAD_MARGIN_SECONDS = 120;
+
+/** The roots (lowercased) with no Flow `Submit` in blocks [first, last], scanned in fixed chunks from `first`. */
+async function rootsNotSubmitted(reader: FlowReader, roots: readonly Hex[], first: bigint, last: bigint, chunk: bigint): Promise<Set<string>> {
+  const missing = new Set(roots.map((root) => root.toLowerCase()));
+  for (let start = first; start <= last && missing.size > 0; start += chunk) {
+    const end = start + chunk - 1n < last ? start + chunk - 1n : last;
+    for (const nodes of await reader.submissions(start, end)) missing.delete(fileRoot(nodes)?.toLowerCase() ?? "");
+  }
+  return missing;
+}
+
+/**
  * Proof of upload on 0G Galileo: every 0G Storage upload first submits its root to the Flow contract, so a root with no `Submit` in
  * the window was never uploaded in it. The window is mapped to blocks by timestamp alone, so all Verifiers scan the same blocks.
  */
 export function zeroGFlow(reader: FlowReader, { chunk = DEFAULT_CHUNK }: FlowOptions = {}): UploadRecordPort {
   return {
-    async submittedBetween(root, from, to) {
+    async submittedBetween(roots, from, to) {
       const stampOf = memoized((block) => reader.blockTimestamp(block));
       const head = await reader.latestBlock();
-      // A block after `to` must exist, or a submission still to come in a block stamped `to` could make Verifiers disagree.
-      if ((await stampOf(head)) <= to) throw new Error(`Galileo has not passed ${to} yet`);
+      if ((await stampOf(head)) < to + HEAD_MARGIN_SECONDS) throw new Error(`Galileo is not ${HEAD_MARGIN_SECONDS} s past ${to} yet`);
       const first = await firstBlockAtOrAfter(stampOf, from, 0n, head);
       const last = (await firstBlockAtOrAfter(stampOf, to + 1, first, head)) - 1n;
-      const wanted = root.toLowerCase();
-      for (let start = first; start <= last; start += chunk) {
-        const end = start + chunk - 1n < last ? start + chunk - 1n : last;
-        const found = (await reader.submissions(start, end)).some((nodes) => fileRoot(nodes)?.toLowerCase() === wanted);
-        if (found) return true;
-      }
-      return false;
+      const missing = await rootsNotSubmitted(reader, roots, first, last, chunk);
+      // A head that went backwards means the reads came from different nodes, and an empty answer may be a lagging one.
+      if ((await reader.latestBlock()) < head) throw new Error("Galileo RPC head went backwards during the Flow scan");
+      return roots.map((root) => !missing.has(root.toLowerCase()));
     },
   };
 }

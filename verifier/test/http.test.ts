@@ -223,7 +223,7 @@ describe("Verifier HTTP API (I6)", () => {
         if (root === LOG_ROOT) throw new StorageUnavailableError(`0G Storage download of ${root} failed: file not found`);
         return POLICY;
       } },
-      uploads: { submittedBetween: async () => submitted },
+      uploads: { submittedBetween: async (roots) => roots.map((root) => root !== LOG_ROOT || submitted) },
     });
 
     it("signs a Fail Verdict for a root never submitted to the 0G Flow contract, and charges for the Replay", async () => {

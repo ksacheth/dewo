@@ -19,7 +19,7 @@ interface Over {
 function world(over: Over = {}) {
   const ep = honestEpisode();
   const downloads: Hex[] = [];
-  const lookups: { root: Hex; from: number; to: number }[] = [];
+  const lookups: { roots: readonly Hex[]; from: number; to: number }[] = [];
   const asked: { releaseFor?: string; revealFor?: string } = {};
   const award = over.award === null ? undefined : () => ({ worker: WORKER, price: 5_000_000n, stake: 1n, awardedAt: 990, stakeWindow: 30, stakedAt: over.unstaked ? null : 1_000 });
   const source = createEpisodeSource({
@@ -31,7 +31,10 @@ function world(over: Over = {}) {
     },
     registry: { findSubmission: async (_m: Hex, worker: string) => (over.submission === null || worker !== WORKER ? null : { episodeLogRoot: LOG_ROOT, policyRoot: POLICY_ROOT, decisionCount: 3, timestamp: 1_100 }) },
     storage: { downloadJson: async (root: Hex) => { downloads.push(root); return over.stored ? over.stored(root) : root === LOG_ROOT ? ep.log : POLICY; } },
-    uploads: { submittedBetween: async (root, from, to) => { lookups.push({ root, from, to }); return over.submitted ? over.submitted(root) : true; } },
+    uploads: { submittedBetween: async (roots, from, to) => {
+      lookups.push({ roots, from, to });
+      return Promise.all(roots.map((root) => (over.submitted ? over.submitted(root) : true)));
+    } },
   });
   return { source, downloads, ep, asked, lookups };
 }
@@ -90,46 +93,48 @@ describe("createEpisodeSource", () => {
     await expect(down.source.load(MISSION)).rejects.toBeInstanceOf(StorageUnavailableError);
   });
 
-  describe("a root 0G Storage cannot serve (issue #64): the Flow contract decides whose fault it is", () => {
+  describe("proof of upload (issue #64): whether a root was uploaded is decided from the 0G Flow contract alone", () => {
     const unreachable = (roots: Hex[]) => async (root: Hex) => {
       if (roots.includes(root)) throw new StorageUnavailableError(`0G Storage download of ${root} failed: file not found`);
       return root === LOG_ROOT ? honestEpisode().log : POLICY;
     };
 
-    it("does not ask the Flow contract when the downloads work", async () => {
+    it("looks up both roots in one Flow scan over the window from the stake (less clock skew) to the Episode Submission", async () => {
       const { source, lookups } = world();
       await source.load(MISSION);
-      expect(lookups).toEqual([]);
+      expect(lookups).toEqual([{ roots: [LOG_ROOT, POLICY_ROOT], from: 1_000 - UPLOAD_CLOCK_SKEW, to: 1_100 }]);
     });
 
-    it("hands a never-submitted Episode Log to the checks as NotUploaded, so it ends in a Fail Verdict", async () => {
-      const { source, lookups } = world({ stored: unreachable([LOG_ROOT]), submitted: async () => false });
+    it("hands a never-submitted Episode Log to the checks as NotUploaded without downloading it, so it ends in a Fail", async () => {
+      const { source, downloads } = world({ submitted: async (root) => root !== LOG_ROOT });
       const loaded = await source.load(MISSION);
       expect(loaded.episode?.log).toBeInstanceOf(NotUploaded);
       expect(loaded.episode?.policy).toEqual(POLICY);
-      // The window runs from the stake (less clock skew) to the Episode Submission, both read from chain.
-      expect(lookups).toEqual([{ root: LOG_ROOT, from: 1_000 - UPLOAD_CLOCK_SKEW, to: 1_100 }]);
+      expect(downloads).toEqual([POLICY_ROOT]);
     });
 
     it("hands a never-submitted Policy to the checks as NotUploaded", async () => {
-      const loaded = await world({ stored: unreachable([POLICY_ROOT]), submitted: async () => false }).source.load(MISSION);
+      const loaded = await world({ submitted: async (root) => root !== POLICY_ROOT }).source.load(MISSION);
       expect(loaded.episode?.policy).toBeInstanceOf(NotUploaded);
       expect(loaded.episode?.log).not.toBeInstanceOf(NotUploaded);
     });
 
+    it("gives the same answer whether or not 0G Storage could serve the never-submitted root, so Verifiers cannot split", async () => {
+      const served = await world({ submitted: async (root) => root !== POLICY_ROOT }).source.load(MISSION);
+      const failed = await world({ submitted: async (root) => root !== POLICY_ROOT, stored: unreachable([POLICY_ROOT]) }).source.load(MISSION);
+      expect(served.episode?.policy).toBeInstanceOf(NotUploaded);
+      expect(failed.episode?.policy).toBeInstanceOf(NotUploaded);
+    });
+
     it("keeps a submitted root that cannot be downloaded as infrastructure: StorageUnavailableError, no Verdict", async () => {
-      const load = world({ stored: unreachable([LOG_ROOT]), submitted: async () => true }).source.load(MISSION);
+      const load = world({ stored: unreachable([LOG_ROOT]) }).source.load(MISSION);
       await expect(load).rejects.toBeInstanceOf(StorageUnavailableError);
     });
 
-    it("keeps it infrastructure when the Flow lookup itself fails", async () => {
-      const load = world({ stored: unreachable([LOG_ROOT]), submitted: async () => { throw new Error("Galileo RPC down"); } }).source.load(MISSION);
-      await expect(load).rejects.toBeInstanceOf(StorageUnavailableError);
-    });
-
-    it("is an outage, not a Fail, when one root was submitted even if the other was not", async () => {
-      const load = world({ stored: unreachable([LOG_ROOT, POLICY_ROOT]), submitted: async (root) => root === LOG_ROOT }).source.load(MISSION);
-      await expect(load).rejects.toBeInstanceOf(StorageUnavailableError);
+    it("keeps a failed Flow lookup as infrastructure, without downloading anything", async () => {
+      const { source, downloads } = world({ submitted: async () => { throw new Error("Galileo RPC down"); } });
+      await expect(source.load(MISSION)).rejects.toBeInstanceOf(StorageUnavailableError);
+      expect(downloads).toEqual([]);
     });
   });
 });
