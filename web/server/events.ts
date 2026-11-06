@@ -176,10 +176,14 @@ function deployments(server: ViteDevServer) {
  * board mock also gets a Mission entity: in real board mode a fake entity (no escrow) would pollute Arkiv, so none is
  * written. Labelled "mock requester" in the UI.
  */
-export async function mockRequester(body: { difficultyClass: string; maxBounty: number; riskWeight: number }, res: ServerResponse, loadBoard: () => Promise<Record<string, any>>, mode: string) {
+export async function mockRequester(body: { difficultyClass: string; maxBounty: number; riskWeight: number; maxSteps: number; maxCollisions: number }, res: ServerResponse, loadBoard: () => Promise<Record<string, any>>, mode: string) {
   const num = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x)
+  const uint32 = (x: unknown, min: number): x is number => Number.isInteger(x) && (x as number) >= min && (x as number) <= 0xffffffff
   if (!body || typeof body !== "object" || !["easy", "medium", "hard"].includes(body.difficultyClass) || !(num(body.maxBounty) && body.maxBounty > 0 && body.maxBounty <= 1000) || !(num(body.riskWeight) && body.riskWeight >= 0 && body.riskWeight <= 1))
     return send(res, 400, { error: "invalid difficultyClass, maxBounty or riskWeight" })
+  if (!uint32(body.maxSteps, 1) || !uint32(body.maxCollisions, 0))
+    return send(res, 400, { error: "maxSteps must be a whole number of at least 1 and maxCollisions a whole number of at least 0" })
+  const { maxSteps, maxCollisions } = body
   const b = await loadBoard()
   const missionId = `0x${randomBytes(32).toString("hex")}`
   const biddingClosesAt = Math.floor(Date.now() / 1000) + 60
@@ -191,9 +195,9 @@ export async function mockRequester(body: { difficultyClass: string; maxBounty: 
     const wallet = { account: key ? privateKeyToAccount(key) : { address: `0x${"0".repeat(39)}1` } }
     posted = await b.postMission(wallet, {
       missionId, difficultyClass: body.difficultyClass, bounty: maxBounty, biddingClosesAt,
-      seedCommitment: `0x${randomBytes(32).toString("hex")}`, riskWeight: body.riskWeight, verifiers: process.env.VERIFIER_ADDRESSES ?? "",
+      courseSeed: `0x${randomBytes(32).toString("hex")}`, maxSteps, maxCollisions, riskWeight: body.riskWeight, verifiers: process.env.VERIFIER_ADDRESSES ?? "",
     })
   }
-  b.emit(missionId, "web", { type: "mission.posted", data: { difficultyClass: body.difficultyClass, maxBounty: String(maxBounty), riskWeight: body.riskWeight, biddingClosesAt, ...(posted && { arkivKey: posted.entityKey }) }, txUrl: undefined })
+  b.emit(missionId, "web", { type: "mission.posted", data: { difficultyClass: body.difficultyClass, maxBounty: String(maxBounty), riskWeight: body.riskWeight, maxSteps, maxCollisions, biddingClosesAt, ...(posted && { arkivKey: posted.entityKey }) }, txUrl: undefined })
   send(res, 200, { missionId, mock: true, txHash: posted?.txHash })
 }

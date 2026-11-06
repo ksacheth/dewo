@@ -48,7 +48,7 @@ export async function fakeRun({ dir = runsDir(), delayMs = 800, missionId = `0x$
   process.env.RUNS_DIR = dir
   mkdirSync(join(dir, missionId, "frames"), { recursive: true })
   const e = emit
-  e(missionId, "requester", { type: "mission.posted", data: { difficultyClass: "medium", maxBounty: "10000000", riskWeight: 0.5, biddingClosesAt: Math.floor(Date.now() / 1000) + 60, arkivKey: addr(0xa1) }, txUrl: hs("0.0.1001@1.1") })
+  e(missionId, "requester", { type: "mission.posted", data: { difficultyClass: "medium", maxBounty: "10000000", riskWeight: 0.5, maxSteps: 60, maxCollisions: 0, biddingClosesAt: Math.floor(Date.now() / 1000) + 60, arkivKey: addr(0xa1) }, txUrl: hs("0.0.1001@1.1") })
   for (const w of WORKERS) { e(missionId, `worker-${w.name.toLowerCase().replace(/ /g, "-")}`, { type: "bid.sealed", data: { worker: w.worker, workerName: w.name, policyHash: `0x${w.name.length}abc`, arkivKey: addr(0xb0 + w.name.length) } }); await sleep(Math.max(2, delayMs / 4)) }
   const winner = WORKERS[1]
   e(missionId, "verifier-1", { type: "bids.revealed", data: { bids: WORKERS.map((w) => ({ worker: w.worker, workerName: w.name, price: w.price, R: w.R, score: w.R ** 0.5 / (Number(w.price) / 1e6) ** 0.5 })), winner: winner.worker } })
@@ -56,8 +56,6 @@ export async function fakeRun({ dir = runsDir(), delayMs = 800, missionId = `0x$
   e(missionId, "verifier-1", { type: "award.signed", data: { worker: winner.worker, price: winner.price, stake: "790000", verifier: VERIFIERS[0] }, txUrl: hs("0.0.1002@2.2") })
   await sleep(2) // distinct timestamps, so replay order is unambiguous
   e(missionId, "worker-cheap-and-blind", { type: "stake.deposited", data: { worker: winner.worker, stake: "790000" }, txUrl: hs("0.0.1003@3.3") })
-  await sleep(2) // distinct timestamps, so replay order is unambiguous
-  e(missionId, "requester", { type: "seed.released", data: { worker: winner.worker, arkivKey: addr(0xd1) } })
   await sleep(2) // distinct timestamps, so replay order is unambiguous
   for (let i = 0; i < 15; i++) {
     writeFileSync(join(dir, missionId, "frames", `${String(i + 1).padStart(3, "0")}.png`), png(i))

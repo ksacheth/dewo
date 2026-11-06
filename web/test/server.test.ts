@@ -43,7 +43,7 @@ it("mock requester in real board mode emits the event only, with no Mission enti
   const calls: any[] = []
   const board = { postMission: async () => { throw new Error("must not write") }, emit: (...a: any[]) => calls.push(a) }
   const res = fakeRes()
-  await mockRequester({ difficultyClass: "easy", maxBounty: 5, riskWeight: 0.5 }, res, async () => board, "real")
+  await mockRequester({ difficultyClass: "easy", maxBounty: 5, riskWeight: 0.5, maxSteps: 60, maxCollisions: 0 }, res, async () => board, "real")
   expect(res.statusCode).toBe(200)
   expect(calls).toHaveLength(1)
   expect(calls[0][2].type).toBe("mission.posted")
@@ -54,8 +54,10 @@ it("mock requester in mock board mode writes the Mission entity without a key", 
   const wrote: any[] = []
   const board = { postMission: async (w: any, m: any) => (wrote.push([w, m]), { entityKey: "0xk", txHash: "0xt" }), emit() {} }
   const res = fakeRes()
-  await mockRequester({ difficultyClass: "easy", maxBounty: 5, riskWeight: 0.5 }, res, async () => board, "mock")
+  await mockRequester({ difficultyClass: "easy", maxBounty: 5, riskWeight: 0.5, maxSteps: 40, maxCollisions: 1 }, res, async () => board, "mock")
   expect(wrote).toHaveLength(1)
+  expect(wrote[0][1]).toMatchObject({ maxSteps: 40, maxCollisions: 1 })
+  expect(wrote[0][1].courseSeed).toMatch(/^0x[0-9a-f]{64}$/)
   expect(JSON.parse(res.body).txHash).toBe("0xt")
 })
 
@@ -64,4 +66,13 @@ it("isUnreachable: 502/503/504 and an empty 500 only", () => {
   expect(isUnreachable(500, "")).toBe(true)
   expect(isUnreachable(500, '{"error":"boom"}')).toBe(false)
   expect(isUnreachable(400, "")).toBe(false)
+})
+
+it("mock requester rejects missing or invalid limits", async () => {
+  const board = { postMission: async () => { throw new Error("must not write") }, emit() { throw new Error("must not emit") } }
+  for (const limits of [{}, { maxSteps: 0, maxCollisions: 0 }, { maxSteps: 1.5, maxCollisions: 0 }, { maxSteps: 60, maxCollisions: -1 }]) {
+    const res = fakeRes()
+    await mockRequester({ difficultyClass: "easy", maxBounty: 5, riskWeight: 0.5, ...limits } as never, res, async () => board, "mock")
+    expect(res.statusCode).toBe(400)
+  }
 })
