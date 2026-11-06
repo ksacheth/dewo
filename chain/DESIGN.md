@@ -84,7 +84,19 @@ is possible. Rescue is not part of the signed Outcome enum.
 
 Keep `Pass=0, Fail=1, NoShow=2, InvalidCourse=3, NoSeedRelease=4` exactly.
 Use checks-effects-interactions and a reentrancy guard. Test each payout and
-conservation of funds across multiple Missions. No automatic payout to Verifiers:
+conservation of funds across multiple Missions.
+
+**Payout fallback.** settle and rescue push each payout directly (happy path
+unchanged), but a payout that cannot be delivered never reverts the call, because
+one unreachable party would otherwise lock both parties' funds, including through
+the unsigned rescue path. Native mode uses a call with 100,000 gas; token mode uses
+a low-level `transfer` and treats a revert, a `false` return, or a malformed return
+as failure (HTS's EVM facade can do either, for example an account that dissociated
+the token or is frozen). On failure the amount is credited to `owed[recipient]`,
+stays in the Escrow, and `PayoutDeferred(missionId, recipient, amount)` is emitted.
+The recipient claims with `withdraw()`, which zeroes the balance before paying and
+reverts if the transfer still fails, so they can fix their association and retry.
+Invariant: funds held = locked Mission funds + sum of `owed`. No automatic payout to Verifiers:
 x402 fees are outside Escrow.
 
 ## Episode Registry

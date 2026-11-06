@@ -7,7 +7,28 @@ import {MissionEscrow} from "../src/MissionEscrow.sol";
 import {IHederaTokenService} from "../src/interfaces/IHederaTokenService.sol";
 
 contract TestToken is ERC20 {
+    enum BlockMode {
+        Revert,
+        ReturnFalse
+    }
+
+    mapping(address => bool) public blocked;
+    BlockMode public blockMode;
+
     constructor() ERC20("Test USDC", "USDC") {}
+
+    function setBlocked(address account, bool isBlocked, BlockMode mode) external {
+        blocked[account] = isBlocked;
+        blockMode = mode;
+    }
+
+    function transfer(address to, uint256 value) public override returns (bool) {
+        if (blocked[to]) {
+            if (blockMode == BlockMode.Revert) revert("blocked");
+            return false;
+        }
+        return super.transfer(to, value);
+    }
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);

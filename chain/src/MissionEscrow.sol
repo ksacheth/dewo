@@ -58,6 +58,11 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
     mapping(bytes32 => Mission) private missions;
     /// @dev Workers whose Award lapsed; blocks replaying their old Award signatures.
     mapping(bytes32 => mapping(address => bool)) public lapsedWorker;
+    /// @notice Payouts a recipient could not receive during settle/rescue; claim with withdraw().
+    mapping(address => uint256) public owed;
+
+    /// @dev Gas forwarded to a native payout recipient during settle/rescue; failure defers the payout.
+    uint256 private constant PAYOUT_GAS = 100_000;
 
     error InvalidConfiguration();
     error InvalidState();
@@ -67,6 +72,7 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
     error NotWorker();
     error AssociationFailed(int64 responseCode);
     error NativeTransferFailed();
+    error NothingOwed();
 
     event MissionCreated(
         bytes32 indexed missionId,
@@ -79,6 +85,8 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
     event Staked(bytes32 indexed missionId, address indexed worker, uint256 amount);
     event Settled(bytes32 indexed missionId, Outcome outcome, bytes32 evidenceHash);
     event Rescued(bytes32 indexed missionId);
+    event PayoutDeferred(bytes32 indexed missionId, address indexed recipient, uint256 amount);
+    event Withdrawn(address indexed recipient, uint256 amount);
 
     /// @param settlementAsset HTS token address, or zero for a separate HBAR fallback deployment.
     constructor(address settlementAsset) EIP712("Dewo", "1") {
@@ -184,8 +192,8 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         bool payWorker = outcome == Outcome.Pass || outcome == Outcome.InvalidCourse || outcome == Outcome.NoSeedRelease;
         uint256 workerAmount = payWorker ? mission.price + mission.bidStake : 0;
         uint256 requesterAmount = mission.maxBounty + mission.bidStake - workerAmount;
-        _pay(mission.worker, workerAmount);
-        _pay(mission.requester, requesterAmount);
+        _pay(missionId, mission.worker, workerAmount);
+        _pay(missionId, mission.requester, requesterAmount);
         emit Settled(missionId, outcome, evidenceHash);
     }
 
@@ -195,9 +203,24 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         if (previous != State.Created && previous != State.Awarded && previous != State.Staked) revert InvalidState();
         if (block.timestamp < mission.deadlines.rescueAt) revert InvalidTime();
         mission.state = State.Rescued;
-        if (previous == State.Staked) _pay(mission.worker, mission.bidStake);
-        _pay(mission.requester, mission.maxBounty);
+        if (previous == State.Staked) _pay(missionId, mission.worker, mission.bidStake);
+        _pay(missionId, mission.requester, mission.maxBounty);
         emit Rescued(missionId);
+    }
+
+    /// @notice Claim payouts that could not be delivered during settle/rescue (for example an
+    /// unassociated or frozen HTS account). Reverts while delivery still fails so the caller can retry.
+    function withdraw() external nonReentrant {
+        uint256 amount = owed[msg.sender];
+        if (amount == 0) revert NothingOwed();
+        owed[msg.sender] = 0;
+        if (asset == address(0)) {
+            (bool sent,) = payable(msg.sender).call{value: amount}("");
+            if (!sent) revert NativeTransferFailed();
+        } else {
+            IERC20(asset).safeTransfer(msg.sender, amount);
+        }
+        emit Withdrawn(msg.sender, amount);
     }
 
     function getMission(bytes32 missionId) external view returns (Mission memory) {
@@ -238,13 +261,24 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         }
     }
 
-    function _pay(address recipient, uint256 amount) private {
+    /// @dev Push payment that never reverts: a recipient that cannot receive (HBAR-rejecting contract,
+    /// unassociated or frozen HTS account) must not lock the counterparty's funds. Failed amounts are
+    /// credited to `owed` and stay in the Escrow.
+    function _pay(bytes32 missionId, address recipient, uint256 amount) private {
         if (amount == 0) return;
-        if (asset == address(0)) {
-            (bool sent,) = payable(recipient).call{value: amount}("");
-            if (!sent) revert NativeTransferFailed();
-        } else {
-            IERC20(asset).safeTransfer(recipient, amount);
+        if (!_tryTransfer(recipient, amount)) {
+            owed[recipient] += amount;
+            emit PayoutDeferred(missionId, recipient, amount);
         }
+    }
+
+    function _tryTransfer(address recipient, uint256 amount) private returns (bool) {
+        if (asset == address(0)) {
+            (bool sent,) = payable(recipient).call{value: amount, gas: PAYOUT_GAS}("");
+            return sent;
+        }
+        // HTS's EVM facade may revert or return false; treat both (and an optional missing bool) per ERC-20.
+        (bool ok, bytes memory ret) = asset.call(abi.encodeCall(IERC20.transfer, (recipient, amount)));
+        return ok && (ret.length == 0 ? asset.code.length > 0 : ret.length >= 32 && abi.decode(ret, (bool)));
     }
 }
