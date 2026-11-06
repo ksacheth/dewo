@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Start the 3 Verifier instances (ports 7101-7103), each with its own key.
 # Usage: VERIFIER_KEY_1=0x.. VERIFIER_KEY_2=0x.. VERIFIER_KEY_3=0x.. scripts/run-quorum.sh
+# Also set ARKIV_ACCESS_KEY and VERIFIER_ADDRESSES (the 3 Verifier addresses, comma-separated), see .env.example.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 pids=()

@@ -10,7 +10,9 @@
     "spike:x402": "tsx --env-file=.env.spike scripts/x402-live.ts"
   },
   "dependencies": {
+    "@arkiv-network/sdk": "^1.0.1",
     "@dewo/agents": "workspace:*",
+    "@dewo/board": "workspace:*",
     "@0gfoundation/0g-compute-ts-sdk": "^0.9.0",
     "@0gfoundation/0g-storage-ts-sdk": "^1.2.13",
     "@hono/node-server": "^1.13.0",

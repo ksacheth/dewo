@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 import { isHex, type Address, type Hex } from "viem";
-import { computeAward } from "./routes/award.js";
-import { PendingError } from "./errors.js";
+import { privateKeyToAccount } from "viem/accounts";
+import { NoValidBidsError, PendingError } from "./errors.js";
+import { createAwarder } from "./routes/award.js";
 import { handleReplay } from "./routes/replay.js";
 import type { BoardPort, EpisodeSource, EscrowPort, EventSink, SimPort, VerdictSink, ZeroGPort } from "./ports.js";
 
 export interface GateChallenge { status: number; body: unknown; headers?: Record<string, string> }
-/** A payment that verified but has not been charged yet. */
-export interface GatePaid { settle(): Promise<{ transaction?: string; error?: string }> }
+/** A payment that verified but has not been charged yet. `amount` is in the asset's base units. */
+export interface GatePaid { amount: string; settle(): Promise<{ transaction?: string; error?: string }> }
 /** Either an x402 402 challenge to send back, or a verified payment to settle once the work is done. x402.ts supplies the real one. */
 export type PaymentGate = (req: Request) => Promise<GateChallenge | GatePaid>;
 
@@ -15,7 +16,7 @@ const HASHSCAN_TX = "https://hashscan.io/testnet/transaction/";
 
 export interface AppDeps {
   key: Hex; escrow: Address; gate: PaymentGate; now: () => number;
-  board: BoardPort; escrowState: EscrowPort; source: EpisodeSource; sim: SimPort; zeroG: ZeroGPort;
+  board: BoardPort; chain: EscrowPort; source: EpisodeSource; sim: SimPort; zeroG: ZeroGPort;
   verdicts: VerdictSink; events: EventSink;
 }
 
@@ -31,28 +32,19 @@ async function readMissionId(req: Request): Promise<Hex | null> {
 /** One Verifier instance: POST /award (free) and POST /replay (behind x402). */
 export function createApp(deps: AppDeps) {
   const app = new Hono();
-  // The Quorum needs 2 matching Award signatures, so an instance never re-signs a different Award for the same Mission,
-  // even if Verdict history moves on between calls.
-  const awards = new Map<Hex, Awaited<ReturnType<typeof computeAward>>>();
-  // Workers whose Award lapsed (no stake within the window). Every Verifier excludes them, so all three agree on the next-best Bid.
-  const lapsed = new Map<Hex, Set<Address>>();
-  const lapsedFor = (missionId: Hex) => lapsed.get(missionId) ?? lapsed.set(missionId, new Set()).get(missionId)!;
+  const verifier = privateKeyToAccount(deps.key).address;
+  const awardFor = createAwarder(deps);
 
   app.post("/award", async (c) => {
     const missionId = await readMissionId(c.req.raw);
     if (!missionId) return respond({ error: "missionId must be a 32-byte hex string" }, 400);
     try {
-      const onChain = await deps.escrowState.getAward(missionId);
-      if (onChain && onChain.stakedAt === null && deps.now() > onChain.awardedAt + onChain.stakeWindow) {
-        lapsedFor(missionId).add(onChain.worker.toLowerCase() as Address);
-      }
-      const cached = awards.get(missionId);
-      if (cached && !lapsedFor(missionId).has(cached.worker.toLowerCase() as Address)) return respond(cached);
-      const award = await computeAward({ board: deps.board, key: deps.key, escrow: deps.escrow }, missionId, { exclude: [...lapsedFor(missionId)] });
-      awards.set(missionId, award);
-      await deps.events.emit(missionId, "award.signed", { ...award });
+      const award = await awardFor(missionId);
+      await deps.events.emit(missionId, "award.signed", { worker: award.worker, price: award.price.toString(), stake: award.stake.toString(), verifier });
       return respond(award);
     } catch (e) {
+      // The Requester reads a null body as "no valid Bid to award" (agents/src/requester/verifier-client.ts).
+      if (e instanceof NoValidBidsError) return respond(null);
       return respond({ error: (e as Error).message }, 422);
     }
   });
@@ -72,7 +64,7 @@ export function createApp(deps: AppDeps) {
     }
     const settled = await gated.settle();
     if (settled.error !== undefined || !settled.transaction) return respond({ error: settled.error ?? "settlement failed" }, 402);
-    await deps.events.emit(missionId, "replay.paid", { transaction: settled.transaction }, HASHSCAN_TX + settled.transaction);
+    await deps.events.emit(missionId, "replay.paid", { verifier, status: "paid", amount: gated.amount }, HASHSCAN_TX + settled.transaction);
     return respond(result);
   });
 

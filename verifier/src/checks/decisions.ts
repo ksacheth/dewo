@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import { buildRequest, canonicalJson, parseAction, type Action, type Decision, type Policy } from "@dewo/agents/formats";
 import type { ReplayResult, ZeroGPort } from "../ports.js";
+import { frameHashOfPng } from "./frame.js";
 
 const PNG_DATA_URL = "data:image/png;base64,";
 
@@ -10,11 +10,10 @@ function attachedPng(request: unknown): Uint8Array | null {
     ?.messages?.[0]?.content?.[1]?.image_url?.url;
   return typeof url === "string" && url.startsWith(PNG_DATA_URL) ? Buffer.from(url.slice(PNG_DATA_URL.length), "base64") : null;
 }
-const sha256Hex = (bytes: Uint8Array): string => `0x${createHash("sha256").update(bytes).digest("hex")}`;
 
 /**
  * Check 4, per Decision:
- * - the PNG in the logged request hashes to the Replay frame hash, so it is the frame the rover really saw;
+ * - the PNG in the logged request has the Replay frame hash (the sim hashes raw pixels), so it is the frame the rover really saw;
  * - 0G vouches for the chat ID;
  * - the request rebuilt from Policy + that frame + history equals the logged request (anti-steering, spike #2);
  * - parse(rawResponse) == action.
@@ -31,7 +30,7 @@ export async function checkDecisions(
     if (!(await zeroG.verifyResponse(d.providerAddress, d.chatID))) return false;
 
     const png = attachedPng(d.request);
-    if (!png || sha256Hex(png) !== replayHash) return false;
+    if (!png || frameHashOfPng(png) !== replayHash) return false;
     if (canonicalJson(d.request) !== canonicalJson(buildRequest(policy, png, history))) return false;
 
     if (parseAction(d.rawResponse) !== d.action) return false;

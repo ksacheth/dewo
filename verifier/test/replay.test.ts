@@ -18,7 +18,7 @@ function setup(load: Partial<LoadedEpisode> = {}, now = T + 1000) {
   const events: string[] = [];
   const deps = {
     source, sim: new FakeSim(), zeroG: zeroG(), key: KEY, escrow: ESCROW, now: () => now,
-    verdicts: { writeVerdict: async (v: VerdictEntity) => { written.push(v); } },
+    verdicts: { writeVerdict: async (v: VerdictEntity) => { written.push(v); return { entityKey: ("0x" + "ab".repeat(32)) as Hex }; } },
     events: { emit: async (_m: Hex, type: string) => { events.push(type); } },
   };
   return { deps, written, events };
@@ -28,26 +28,26 @@ describe("handleReplay", () => {
   it("returns a signed Pass Verdict the escrow can recover to this Verifier, and writes it to Arkiv", async () => {
     const { deps, written, events } = setup();
     const res = await handleReplay(deps, MISSION);
-    expect(res.verdict).toBe(Outcome.Pass);
+    expect(res.verdict).toBe("Pass");
     const signer = await recoverTypedDataAddress({
       domain: eip712Domain(ESCROW), types: verdictTypes, primaryType: "Verdict",
-      message: { missionId: MISSION, outcome: res.verdict, evidenceHash: res.evidenceHash }, signature: res.signature,
+      message: { missionId: MISSION, outcome: Outcome.Pass, evidenceHash: res.evidenceHash }, signature: res.signature,
     });
     expect(signer).toBe(privateKeyToAccount(KEY).address);
     expect(written).toHaveLength(1);
-    expect(written[0]).toMatchObject({ missionId: MISSION, outcome: Outcome.Pass, signature: res.signature, pathCost: 3, optimalPathCost: 3, pathQuality: 1 });
+    expect(written[0]).toMatchObject({ missionId: MISSION, outcome: Outcome.Pass, signature: res.signature, difficultyClass: "medium", pathCost: 3, optimalPathCost: 3, collisions: 0, episodeLogRoot: honestEpisode().episodeLogRoot });
     expect(events).toContain("verdict.signed");
   });
 
   it("signs No-show without replaying when the Episode Submission was late", async () => {
     const { deps } = setup({ timeline: { stakedAt: T, seedReleasedAt: T + 10, episodeSubmittedAt: T + 10 + 301 }, episode: undefined });
     const res = await handleReplay(deps, MISSION);
-    expect(res.verdict).toBe(Outcome.NoShow);
+    expect(res.verdict).toBe("NoShow");
   });
 
   it("signs No Seed Release when the Requester never released the seed", async () => {
     const { deps } = setup({ timeline: { stakedAt: T }, episode: undefined }, T + 100);
-    expect((await handleReplay(deps, MISSION)).verdict).toBe(Outcome.NoSeedRelease);
+    expect((await handleReplay(deps, MISSION)).verdict).toBe("NoSeedRelease");
   });
 
   it("refuses to sign while the Mission is still pending", async () => {

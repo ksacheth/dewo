@@ -16,10 +16,10 @@ import { x402Client } from "@x402/core/client";
 import { HTTPFacilitatorClient, decodePaymentRequiredHeader, encodePaymentSignatureHeader } from "@x402/core/http";
 import { PrivateKey, createClientHederaSigner } from "@x402/hedera";
 import { ExactHederaScheme } from "@x402/hedera/exact/client";
-import { ndjsonEvents } from "../src/events.js";
+import { boardEvents } from "../src/events.js";
 import { createApp } from "../src/server.js";
 import { TESTNET_USDC, createX402Gate } from "../src/x402.js";
-import { FakeSim, MISSION, WORKER, honestEpisode, zeroG } from "../test/fixtures/builders.js";
+import { FakeSim, MISSION, WORKER, fakeBoard, fakeChain, honestEpisode, zeroG } from "../test/fixtures/builders.js";
 
 const env = (name: string): string => {
   const v = process.env[name];
@@ -35,14 +35,14 @@ const gate = await createX402Gate({
 
 const { mission, ...episode } = honestEpisode();
 const runs = mkdtempSync(join(tmpdir(), "x402-live-"));
+process.env.RUNS_DIR = runs; // where the board's event feed writes
 const app = createApp({
   key: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80", // throwaway test key, signs the fixture Verdict only
   escrow: "0x5FbDB2315678afecb367f032d93F642f64180aa3", gate, now: () => 5_000,
-  board: { getMission: async () => mission, listBids: async () => [], openBid: async () => 0n, listVerdicts: async () => [] },
-  escrowState: { getAward: async () => null },
+  board: fakeBoard({ prices: {} }), chain: fakeChain(),
   source: { load: async () => ({ mission, worker: WORKER, timeline: { stakedAt: 1_000, seedReleasedAt: 1_010, episodeSubmittedAt: 1_100 }, episode }) },
-  sim: new FakeSim(), zeroG: zeroG(), verdicts: { writeVerdict: async () => {} },
-  events: ndjsonEvents(runs, "verifier-spike"),
+  sim: new FakeSim(), zeroG: zeroG(), verdicts: { writeVerdict: async () => ({ entityKey: `0x${"00".repeat(32)}` as const }) },
+  events: boardEvents("verifier-spike"),
 });
 const call = (headers: Record<string, string> = {}) =>
   app.request("http://localhost/replay", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ missionId: MISSION }) });

@@ -5,14 +5,14 @@ import { createZGComputeNetworkBroker } from "@0gfoundation/0g-compute-ts-sdk";
 import { HTTPFacilitatorClient } from "@x402/core/http";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Address, Hex } from "viem";
-import { loadBoardAdapters } from "./adapters/board.js";
+import { arkivAdapters } from "./adapters/board.js";
+import { hederaEscrow, viemEscrowReader } from "./adapters/escrow-chain.js";
 import { cliSim, dockerRunner, localRunner } from "./adapters/sim-cli.js";
 import { zeroGCompute } from "./adapters/zerog-compute.js";
-import { zeroGRegistry } from "./adapters/zerog-registry.js";
-import { viemRegistryReader } from "./adapters/zerog-registry-viem.js";
-import { zeroGStorage } from "./adapters/zerog-storage.js";
+import { viemRegistryReader, zeroGRegistry } from "./adapters/zerog-registry.js";
+import { indexerAt, zeroGStorage } from "./adapters/zerog-storage.js";
 import { createEpisodeSource } from "./episodes.js";
-import { ndjsonEvents } from "./events.js";
+import { boardEvents } from "./events.js";
 import { createApp } from "./server.js";
 import { createX402Gate } from "./x402.js";
 
@@ -21,20 +21,31 @@ const env = (name: string): string => {
   if (!v) throw new Error(`missing env ${name}`);
   return v;
 };
-const deployments = (file: string) => JSON.parse(readFileSync(file, "utf8")) as Record<string, { address: Address; abi: never }>;
+
+/** A deployed contract's address: the env var wins, else `{ address }` from chain/deployments/<file> (written by chain/script/export_deployments.py). */
+function deployedAddress(envName: string, file: string): Address {
+  if (process.env[envName]) return process.env[envName] as Address;
+  const dir = process.env.CHAIN_DEPLOYMENTS_DIR ?? "../chain/deployments";
+  try {
+    return (JSON.parse(readFileSync(`${dir}/${file}`, "utf8")) as { address: Address }).address;
+  } catch {
+    throw new Error(`set ${envName}, or deploy and export chain/deployments/${file}`);
+  }
+}
 
 async function main() {
   const key = env("VERIFIER_KEY") as Hex;
   const port = Number(process.env.PORT ?? 7101);
   const name = process.env.VERIFIER_NAME ?? `verifier-${port - 7100}`;
-  const chainDir = process.env.CHAIN_DEPLOYMENTS_DIR ?? "../chain/deployments";
-  const hedera = deployments(`${chainDir}/hedera-testnet.json`);
-  const galileo = deployments(`${chainDir}/0g-galileo.json`);
+  const escrowAddress = deployedAddress("MISSION_ESCROW_ADDRESS", "hedera-testnet.json");
+  const registryAddress = deployedAddress("EPISODE_REGISTRY_ADDRESS", "0g-galileo.json");
+  const hederaRpc = process.env.HEDERA_RPC_URL ?? "https://testnet.hashio.io/api";
   const zgRpc = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
 
   const sim = cliSim(process.env.SIM_IMAGE ? dockerRunner(process.env.SIM_IMAGE) : localRunner((process.env.SIM_CMD ?? "uv run --project ../sim sim").split(" ")));
   const broker = await createZGComputeNetworkBroker(new Wallet(key, new JsonRpcProvider(zgRpc)));
-  const { board, escrow, seeds, verdicts } = loadBoardAdapters();
+  const { board, seeds, verdicts } = arkivAdapters(key);
+  const chain = hederaEscrow(viemEscrowReader(hederaRpc, escrowAddress));
   const gate = await createX402Gate({
     facilitator: new HTTPFacilitatorClient({ url: process.env.X402_FACILITATOR_URL ?? "https://api.testnet.blocky402.com" }),
     payTo: env("HEDERA_PAY_TO"),
@@ -42,13 +53,13 @@ async function main() {
   });
 
   const app = createApp({
-    key, escrow: hedera.MissionEscrow!.address, gate, now: () => Math.floor(Date.now() / 1000),
-    board, escrowState: escrow, sim, zeroG: zeroGCompute(broker), verdicts,
-    events: ndjsonEvents(process.env.RUNS_DIR ?? "../runs", name),
+    key, escrow: escrowAddress, gate, now: () => Math.floor(Date.now() / 1000),
+    board, chain, sim, zeroG: zeroGCompute(broker), verdicts,
+    events: boardEvents(name),
     source: createEpisodeSource({
-      board, escrow, seeds,
-      registry: zeroGRegistry(viemRegistryReader(zgRpc, galileo.EpisodeRegistry as never)),
-      storage: zeroGStorage(process.env.ZG_STORAGE_INDEXER ?? "https://indexer-storage-testnet-turbo.0g.ai"),
+      board, chain, seeds,
+      registry: zeroGRegistry(viemRegistryReader(zgRpc, registryAddress)),
+      storage: zeroGStorage(indexerAt(process.env.ZG_STORAGE_INDEXER ?? "https://indexer-storage-testnet-turbo.0g.ai")),
     }),
   });
   serve({ fetch: app.fetch, port });

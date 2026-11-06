@@ -5,6 +5,10 @@ import type { Address, Hex } from "viem";
 export const Outcome = { Pass: 0, Fail: 1, NoShow: 2, InvalidCourse: 3, NoSeedRelease: 4 } as const;
 export type Outcome = (typeof Outcome)[keyof typeof Outcome];
 
+/** The Outcome names used by Arkiv Verdicts, the I8 feed and the Requester agent (same order as the enum). */
+export const OUTCOME_NAMES = ["Pass", "Fail", "NoShow", "InvalidCourse", "NoSeedRelease"] as const;
+export const outcomeName = (o: Outcome): (typeof OUTCOME_NAMES)[number] => OUTCOME_NAMES[o];
+
 export const HEDERA_TESTNET_CHAIN_ID = 296;
 
 export const eip712Domain = (verifyingContract: Address) =>
