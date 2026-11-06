@@ -1,0 +1,9 @@
+{
+  "name": "Careful",
+  "model": "TBD-vision-large",
+  "providerAddress": "0x0000000000000000000000000000000000000000",
+  "promptTemplate": "You are driving a small rover toward a charger. Avoid every obstacle. Camera view: {{frame}}. Your recent moves, oldest first: {{history}}. Reply with exactly one word: FORWARD, TURN_LEFT, TURN_RIGHT or STOP.",
+  "memoryWindow": 3,
+  "temperature": 0,
+  "version": "1"
+}
