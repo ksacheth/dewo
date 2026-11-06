@@ -4,6 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
+from .planner import MAX_OPTIMAL_PATH_COST
+
 
 def _load(path):
     return json.loads(Path(path).read_text())
@@ -18,9 +20,9 @@ def main(argv=None):
     c.add_argument("--difficulty", required=True, choices=["easy", "medium", "hard"])
     c.add_argument("--out", required=True)
 
-    pl = sub.add_parser("plan", help="is the Course solvable within the Step Budget?")
+    pl = sub.add_parser("plan", help="Optimal Path Cost of the Course (-1 if above --max-cost)")
     pl.add_argument("--course", required=True)
-    pl.add_argument("--step-budget", type=int, required=True)
+    pl.add_argument("--max-cost", type=int, default=MAX_OPTIMAL_PATH_COST)
 
     s = sub.add_parser("session", help="live JSON-lines Episode on stdin/stdout")
     s.add_argument("--course", required=True)
@@ -38,7 +40,7 @@ def main(argv=None):
     elif a.cmd == "plan":
         from .planner import plan
 
-        print(json.dumps(plan(_load(a.course), a.step_budget)))
+        print(json.dumps(plan(_load(a.course), a.max_cost)))
     elif a.cmd == "session":
         from .session import run
 

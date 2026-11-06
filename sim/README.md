@@ -16,12 +16,12 @@ Deterministic rover simulator that Workers drive live and Verifiers Replay bit f
 
 ```bash
 uv run --project sim sim course  --seed 0xabc --difficulty medium --out course.json
-uv run --project sim sim plan    --course course.json --step-budget 15
+uv run --project sim sim plan    --course course.json [--max-cost 29]
 uv run --project sim sim session --course course.json --frames-dir runs/frames   # JSON lines on stdin/stdout
 uv run --project sim sim replay  --course course.json --actions actions.json     # actions.json: ["FORWARD", ...]
 ```
 
-`plan` prints `{"solvable": bool, "minSteps": int}`; `minSteps` is `-1` when the Course cannot be solved within the budget.
+`plan` prints `{"solvable": bool, "optimalPathCost": int}`: the lowest Path Cost (non-STOP Actions, every turn costs 1) found by a breadth-first search over position and heading. `--max-cost` defaults to 29 (`MAX_OPTIMAL_PATH_COST`, so the Path Allowance 2 x 29 + 2 = 60 equals the Decision Cap); `optimalPathCost` is `-1` and `solvable` is false when no path costs at most that.
 
 ## Semantics the I1 text leaves open (settled here)
 
@@ -30,7 +30,7 @@ uv run --project sim sim replay  --course course.json --actions actions.json    
 - **Goal:** `atGoal` is true when the rover centre is within `goal.r` of the goal centre.
 - **Episode end:** an Episode ends at `STOP`, on the first collision, or on reaching the goal. Later Actions are rejected by `session` (`{"error": ...}`) and ignored by `replay`. `STOP` uses no step.
 - **`frameHashes`:** one per Decision, taken from the view *before* each Action. `session observe` and `replay` use the same code path, so they cannot disagree.
-- **`steps`** is the number of Actions that moved the rover. The Verifier compares it with the Step Budget; `session` and `replay` do not enforce a budget.
+- **`steps`** is the Path Cost: the number of non-STOP Actions. The Verifier compares it with the Path Allowance (2 x Optimal Path Cost + 2) and the Decision Cap of 60; `session` and `replay` do not enforce either.
 - **Frames:** 224x224 PNG from the onboard camera. `frameHash = "0x" + sha256(png bytes)`. The PNG encoder is our own (filter 0, zlib level 6).
 
 ## How determinism is kept

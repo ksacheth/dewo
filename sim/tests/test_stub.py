@@ -32,16 +32,17 @@ def test_course_has_i1_fields(tmp_path):
     assert set(course["goal"]) == {"x", "y", "r"}
 
 
-def test_plan_solvable_within_budget(tmp_path):
+def test_plan_reports_optimal_path_cost(tmp_path):
     course = make_course(tmp_path, "easy")
-    result = json.loads(run("plan", "--course", course, "--step-budget", 15))
-    assert result == {"solvable": True, "minSteps": 4}
+    result = json.loads(run("plan", "--course", course, "--max-cost", 15))
+    assert result == {"solvable": True, "optimalPathCost": 4}
+    assert json.loads(run("plan", "--course", course)) == result
 
 
-def test_plan_unsolvable_when_budget_too_small(tmp_path):
+def test_plan_minus_one_when_bound_too_small(tmp_path):
     course = make_course(tmp_path, "hard")
-    result = json.loads(run("plan", "--course", course, "--step-budget", 3))
-    assert result["solvable"] is False
+    result = json.loads(run("plan", "--course", course, "--max-cost", 3))
+    assert result == {"solvable": False, "optimalPathCost": -1}
 
 
 def test_session_drives_rover_to_goal(tmp_path):

@@ -18,14 +18,16 @@ def test_course_plan_replay_shapes(tmp_path):
     sim("course", "--seed", "0xabc", "--difficulty", "medium", "--out", course)
     assert json.loads(course.read_text()) == json.loads((FIX / "course_medium.json").read_text())
     assert set(json.loads(course.read_text())) == {"seed", "difficulty", "start", "goal", "obstacles", "version"}
-    assert json.loads(sim("plan", "--course", course, "--step-budget", 15)) == {"solvable": True, "minSteps": 15}
+    assert json.loads(sim("plan", "--course", course, "--max-cost", 15)) == {"solvable": True, "optimalPathCost": 15}
+    assert json.loads(sim("plan", "--course", course)) == {"solvable": True, "optimalPathCost": 15}
+    assert json.loads(sim("plan", "--course", course, "--max-cost", 14)) == {"solvable": False, "optimalPathCost": -1}
     result = json.loads(sim("replay", "--course", course, "--actions", FIX / "actions_medium.json"))
     assert result == json.loads((FIX / "expected_medium.json").read_text())
 
 
 def test_plan_on_blocked_fixture_says_unsolvable():
-    out = json.loads(sim("plan", "--course", FIX / "course_blocked.json", "--step-budget", 15))
-    assert out == {"solvable": False, "minSteps": -1}
+    out = json.loads(sim("plan", "--course", FIX / "course_blocked.json", "--max-cost", 15))
+    assert out == {"solvable": False, "optimalPathCost": -1}
 
 
 def test_session_hand_fed_actions_drive_start_to_goal(tmp_path):

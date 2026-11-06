@@ -7,7 +7,7 @@ frames are flat-colour PNGs. Hashes are deterministic, so consumers can
 develop against it, but they are NOT the hashes the real sim will produce.
 
     python3 sim/stub/sim_stub.py course --seed 0xabc --difficulty medium --out course.json
-    python3 sim/stub/sim_stub.py plan --course course.json --step-budget 15
+    python3 sim/stub/sim_stub.py plan --course course.json [--max-cost 29]
     python3 sim/stub/sim_stub.py session --course course.json --frames-dir frames/
     python3 sim/stub/sim_stub.py replay --course course.json --actions actions.json
 """
@@ -27,6 +27,7 @@ TURN_RAD = math.pi / 6  # 30 degrees
 ACTIONS = ("FORWARD", "TURN_LEFT", "TURN_RIGHT", "STOP")
 GOAL_DISTANCE = {"easy": 2.0, "medium": 3.5, "hard": 5.0}
 GOAL_RADIUS = 0.3
+MAX_OPTIMAL_PATH_COST = 29  # Path Allowance 2 * 29 + 2 = 60 = Decision Cap
 FRAME_SIZE = 224
 
 
@@ -111,8 +112,10 @@ def cmd_plan(args):
     course = json.loads(Path(args.course).read_text())
     g = course["goal"]
     dist = math.hypot(g["x"] - course["start"]["x"], g["y"] - course["start"]["y"])
-    min_steps = max(0, math.ceil((dist - g["r"]) / FORWARD_M))
-    print(json.dumps({"solvable": min_steps <= args.step_budget, "minSteps": min_steps}))
+    cost = max(0, math.ceil((dist - g["r"]) / FORWARD_M))
+    if cost > args.max_cost:
+        cost = -1
+    print(json.dumps({"solvable": cost >= 0, "optimalPathCost": cost}))
 
 
 def cmd_session(args):
@@ -188,7 +191,7 @@ def main(argv=None):
 
     pl = sub.add_parser("plan")
     pl.add_argument("--course", required=True)
-    pl.add_argument("--step-budget", type=int, required=True)
+    pl.add_argument("--max-cost", type=int, default=MAX_OPTIMAL_PATH_COST)
     pl.set_defaults(fn=cmd_plan)
 
     s = sub.add_parser("session")
