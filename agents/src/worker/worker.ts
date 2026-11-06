@@ -1,5 +1,5 @@
-// One Worker agent's Mission lifecycle (issue #14):
-// discover -> bid -> watch Award -> stake -> Seed Release -> Episode -> submit -> settled.
+// One Worker agent's Mission lifecycle (issue #14, ADR 0006):
+// discover (public Course Seed and limits) -> bid -> watch Award -> stake -> Episode -> submit -> settled.
 // Every tick re-reads the chain before acting (check-then-act) and writes the local
 // record only after the action is confirmed. One attempt per Mission.
 import {
@@ -7,7 +7,8 @@ import {
   canonicalJson,
   fromBaseUnits,
   policyHash,
-  seedCommitment,
+  replayableSteps,
+  sameVerifierSet,
   toBaseUnits,
   type EpisodeLog,
   type Hex,
@@ -23,6 +24,7 @@ import type {
   Clock,
   EscrowMission,
   EscrowPort,
+  MissionTerms,
   EventsPort,
   InferencePort,
   RegistryPort,
@@ -31,7 +33,11 @@ import type {
 } from "./ports";
 import { expectedStake, price } from "./pricing";
 import { ACTIVE_STAGES, BUSY_STAGES, type MissionRecord, type RecordStore, type Stage } from "./records";
-import { shouldSkip } from "./skip";
+import { shouldSkip, type SkipReason } from "./skip";
+
+/** Stages where the Worker has not staked yet, so it can still walk away from a Mission. */
+const PRE_STAKE_STAGES: ReadonlySet<Stage> = new Set(["BID_PLACED", "WON"]);
+const UNTRUSTED: SkipReason = "UNTRUSTED_VERIFIERS";
 
 /** The Worker's own strategy, in decimal USDC (converted to base units only when sealing the Bid). */
 export interface PricingStrategy {
@@ -48,8 +54,18 @@ export interface WorkerConfig {
   publicKey: Hex;
   policy: Policy;
   verifierPubKeys: readonly Hex[];
+  /** The trusted Verifiers' addresses (derived from VERIFIER_PUBKEYS): a Mission must name exactly these on-chain (ADR 0005). */
+  verifierAddresses: readonly Hex[];
   strategy: PricingStrategy;
+  /**
+   * Seconds kept free before the Episode Submission deadline (stakedAt + episodeWindow) for the two 0G Storage uploads and
+   * submitEpisode: no Decision starts after deadline - submitMarginSeconds (DEFAULT_SUBMIT_MARGIN_SECONDS when unset).
+   */
+  submitMarginSeconds?: number;
 }
+
+/** Hashio and Galileo transactions take 20 to 40 s each; the uploads and submitEpisode fit comfortably in 90 s. */
+export const DEFAULT_SUBMIT_MARGIN_SECONDS = 90;
 
 export interface WorkerDeps {
   board: BoardPort;
@@ -125,6 +141,8 @@ export class Worker {
   private async advance(record: MissionRecord): Promise<void> {
     const mission = await this.deps.escrow.getMission(record.missionId);
     if (mission.settled) this.payouts.markDue(); // settled or rescued: a payout may be parked in owed
+    // ADR 0005: a Bid adopted after a crash, or a record from an older build, must never be staked on untrusted Verifiers.
+    if (this.mustWalkAway(record, mission)) return this.move(record, "LOST", UNTRUSTED);
     if (record.stage === "BID_PLACED") return this.watchAward(record, mission);
     if (record.stage === "WON") return this.stake(record, mission);
     if (record.stage === "STAKED") return this.fly(record, mission);
@@ -134,15 +152,23 @@ export class Worker {
 
   private async consider(missionId: string): Promise<void> {
     const { board, escrow, balances, clock } = this.deps;
+    const mission = await escrow.getMission(missionId);
     // A Bid on Arkiv without a record means a crash between placeBid and the record write.
-    if (await board.myBid(missionId, this.config.address)) return this.put({ missionId, stage: "BID_PLACED" });
-    const { terms } = await escrow.getMission(missionId);
+    if (await board.myBid(missionId, this.config.address)) {
+      return this.put(this.trusts(mission) ? { missionId, stage: "BID_PLACED" } : { missionId, stage: "LOST", note: UNTRUSTED });
+    }
+    const { terms } = mission;
+    // Run the planner first (it can take a while) and only on trusted Missions; the skip rule reports untrusted ones first anyway.
+    const limitsReachable = this.trusts(mission) && (await this.limitsReachable(missionId, terms));
     const reliability = await board.reliabilityOf(this.config.address);
     const maxBounty = fromBaseUnits(terms.maxBounty);
     const stake = expectedStake(maxBounty, reliability);
-    const bidPrice = price({ ...this.config.strategy, reliability, stake });
+    // maxSteps caps the Decisions this Worker can pay for, so it caps its inference estimate too (ADR 0006).
+    const bidPrice = price({ ...this.config.strategy, maxSteps: terms.maxSteps, reliability, stake });
 
     const skip = shouldSkip({
+      missionVerifiers: mission.verifiers,
+      trustedVerifiers: this.config.verifierAddresses,
       price: bidPrice,
       maxBounty,
       secondsLeftToBid: terms.deadlines.biddingClosesAt - clock.now(),
@@ -152,6 +178,8 @@ export class Worker {
       txFees: this.config.strategy.txFees,
       zgBalance: await balances.zeroG(),
       zeroGPerDecision: this.config.strategy.zeroGPerDecision,
+      maxSteps: terms.maxSteps,
+      limitsReachable,
     });
     if (skip) return this.put({ missionId, stage: "SKIPPED", note: skip });
 
@@ -194,31 +222,21 @@ export class Worker {
     this.deps.events.emit(record.missionId, "stake.deposited", { worker: this.config.address, stake: award.stake.toString() }, hederaTxUrl(txHash));
   }
 
+  /** The Course Seed is public in the escrow (ADR 0006), so the Episode can start right after the stake. */
   private async fly(record: MissionRecord, mission: EscrowMission): Promise<void> {
-    const { board, clock } = this.deps;
     const { terms } = mission;
-    const release = await board.readSeedRelease(record.missionId);
-    if (!release) {
-      const windowOver = clock.now() > (mission.stakedAt ?? 0) + terms.deadlines.seedReleaseWindow;
-      if (windowOver) this.move(record, "GAVE_UP", "no Seed Release");
-      return;
-    }
-    if (seedCommitment(release.seed, release.salt) !== terms.seedCommitment) {
-      return this.move(record, "GAVE_UP", "released seed does not match the Seed Commitment");
-    }
-    if (clock.now() > release.releasedAt + terms.deadlines.episodeWindow) {
-      return this.move(record, "GAVE_UP", "Episode window already over");
-    }
+    // The Verifiers judge the Episode Submission against stakedAt + episodeWindow.
+    const deadline = (mission.stakedAt ?? 0) + terms.deadlines.episodeWindow;
+    if (this.deps.clock.now() > deadline) return this.move(record, "GAVE_UP", "Episode window already over");
 
     this.move(record, "EPISODE_RUNNING");
     let decisions: EpisodeLog["decisions"];
     try {
-      ({ decisions } = await this.flyEpisode(record.missionId, release.seed, mission));
+      ({ decisions } = await this.flyEpisode(record.missionId, mission));
     } catch (error) {
       return this.move(record, "GAVE_UP", `Episode crashed: ${String(error)}`);
     }
     // Keep the flown Episode: upload and submit are retried on later ticks, the Episode is never re-flown.
-    const deadline = release.releasedAt + terms.deadlines.episodeWindow;
     this.put({ missionId: record.missionId, stage: "EPISODE_DONE", price: record.price, episode: { decisions, deadline } });
   }
 
@@ -243,13 +261,18 @@ export class Worker {
     this.put({ ...rest, stage: "SUBMITTED", note: undefined });
   }
 
-  private async flyEpisode(missionId: string, seed: Hex, mission: EscrowMission): Promise<Omit<EpisodeLog, "header">> {
-    const session = await this.deps.sim.openSession(seed, mission.terms.difficultyClass, missionId);
+  private async flyEpisode(missionId: string, mission: EscrowMission): Promise<Omit<EpisodeLog, "header">> {
+    const { terms } = mission;
+    const session = await this.deps.sim.openSession(terms.courseSeed, terms.difficultyClass, missionId);
     try {
       const { decisions } = await runEpisode({
         policy: this.config.policy,
         session,
         inference: this.deps.inference,
+        limits: { maxSteps: terms.maxSteps, maxCollisions: terms.maxCollisions },
+        // Stop early enough that the honest partial log can still be uploaded and submitted before the deadline.
+        stopAt: (mission.stakedAt ?? 0) + terms.deadlines.episodeWindow - (this.config.submitMarginSeconds ?? DEFAULT_SUBMIT_MARGIN_SECONDS),
+        now: () => this.deps.clock.now(),
         onDecision: (d, frame) =>
           this.deps.events.emit(missionId, "decision.made", { step: d.step, frame, chatID: d.chatID, action: d.action }),
       });
@@ -266,12 +289,35 @@ export class Worker {
 
     const policyRoot = await storage.upload(encode(canonicalJson(this.config.policy)));
     const log: EpisodeLog = {
-      header: { missionId, worker: this.config.address, policyRoot, seedCommitment: terms.seedCommitment },
+      header: { missionId, worker: this.config.address, policyRoot, courseSeed: terms.courseSeed },
       decisions: episode.decisions,
     };
     const episodeLogRoot = await storage.upload(encode(JSON.stringify(log)));
     const { txHash } = await registry.submitEpisode(missionId, episodeLogRoot, policyRoot, log.decisions.length);
     return { payload: { episodeLogRoot, policyRoot, decisionCount: log.decisions.length }, txHash };
+  }
+
+  /**
+   * ADR 0006: the Course is public, so check before bidding that a collision-free path fits maxSteps (never above MAX_STEPS).
+   * A plan that fails to run counts as unreachable: bidding blind risks a slashed stake.
+   */
+  private async limitsReachable(missionId: string, terms: MissionTerms): Promise<boolean> {
+    try {
+      return (await this.deps.sim.plan(terms.courseSeed, terms.difficultyClass, replayableSteps(terms))).solvable;
+    } catch (error) {
+      console.error(`worker: sim plan for ${missionId} failed, not bidding:`, error);
+      return false;
+    }
+  }
+
+  /** Not staked yet, and the Mission's Verifiers are not the trusted set: give up the Bid or Award rather than stake. */
+  private mustWalkAway(record: MissionRecord, mission: EscrowMission): boolean {
+    return PRE_STAKE_STAGES.has(record.stage) && !this.trusts(mission);
+  }
+
+  /** ADR 0005: the Mission's on-chain Verifiers are exactly this Worker's trusted set. */
+  private trusts(mission: EscrowMission): boolean {
+    return sameVerifierSet(mission.verifiers, this.config.verifierAddresses);
   }
 
   private isAwardedToMe(mission: EscrowMission): boolean {

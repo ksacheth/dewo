@@ -1,20 +1,19 @@
 // I8 event feed types and name rules.
-// Mirrors EventData in @dewo/board's events.ts (M3 owns it) exactly, all 12 types. Import it from
+// Mirrors EventData in @dewo/board's events.ts (M3 owns it) exactly, all 11 types. Import it from
 // there once M4 can depend on @dewo/board; until then a drift here is only caught by review, so
-// keep it in step. M4 emits 10 of them; bids.revealed and verdict.signed are emitted by the
+// keep it in step. M4 emits 9 of them; bids.revealed and verdict.signed are emitted by the
 // Verifiers (M5, process name verifier-<n>) and are mirrored here only so the type is complete.
 // Amounts are strings of USDC base units.
 
 type Addr = string;
 
 export interface EventData {
-  "mission.posted": { difficultyClass: string; maxBounty: string; riskWeight: number; biddingClosesAt: number; arkivKey: string };
+  "mission.posted": { difficultyClass: string; maxBounty: string; riskWeight: number; maxSteps: number; maxCollisions: number; biddingClosesAt: number; arkivKey: string };
   "bid.sealed": { worker: Addr; workerName: string; policyHash: string; arkivKey: string };
   /** Emitted by the Verifiers (M5), not by M4. */
   "bids.revealed": { bids: { worker: Addr; workerName: string; price: string; R: number; score: number }[]; winner: Addr };
   "award.signed": { worker: Addr; price: string; stake: string; verifier: Addr };
   "stake.deposited": { worker: Addr; stake: string };
-  "seed.released": { worker: Addr; arkivKey: string };
   /** frame is a path relative to the runs/ folder, served by the web as /runs/<frame>. */
   "decision.made": { step: number; frame: string; chatID: string; action: string };
   /** Display only: whole-arena images of one move, paths relative to runs/. */

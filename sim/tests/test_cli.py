@@ -53,3 +53,9 @@ def test_replay_bad_actions_file_reports_error_and_exits_nonzero(tmp_path):
         assert out.returncode != 0
         assert "Traceback" not in out.stderr
         assert "error" in json.loads(out.stdout)
+
+
+def test_version_is_the_package_version():
+    from sim import __version__
+
+    assert sim("--version").strip() == __version__ == "0.2.0"

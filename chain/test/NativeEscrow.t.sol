@@ -14,7 +14,8 @@ contract ReenteringRequester {
     }
 
     function create(address[3] calldata verifiers, MissionEscrow.Deadlines calldata deadlines) external payable {
-        missionId = escrow.createMission{value: msg.value}(keccak256("seed"), verifiers, deadlines, msg.value, 1, 2500);
+        missionId =
+            escrow.createMission{value: msg.value}(keccak256("seed"), verifiers, deadlines, msg.value, 1, 2500, 60, 0);
     }
 
     receive() external payable {
@@ -29,8 +30,9 @@ contract NativeEscrowTest is EscrowFixture {
         vm.deal(requester, BOUNTY * 10);
         vm.deal(worker, BOUNTY * 10);
         vm.prank(requester);
-        missionId =
-            escrow.createMission{value: BOUNTY}(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
+        missionId = escrow.createMission{value: BOUNTY}(
+            SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, MAX_STEPS, MAX_COLLISIONS
+        );
     }
 
     function _nativeStake() internal {
@@ -42,7 +44,9 @@ contract NativeEscrowTest is EscrowFixture {
     function testNativeRejectsIncorrectBountyValue() public {
         vm.prank(requester);
         vm.expectRevert(MissionEscrow.InvalidAmount.selector);
-        escrow.createMission{value: BOUNTY - 1}(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
+        escrow.createMission{value: BOUNTY - 1}(
+            SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, MAX_STEPS, MAX_COLLISIONS
+        );
     }
 
     function testNativeStakeMustEqualSignedAmount() public {
@@ -58,12 +62,11 @@ contract NativeEscrowTest is EscrowFixture {
     }
 
     function testFuzzNativeOutcomePayouts(uint8 choice) public {
-        MissionEscrow.Outcome outcome = MissionEscrow.Outcome(bound(uint256(choice), 0, 4));
+        MissionEscrow.Outcome outcome = MissionEscrow.Outcome(bound(uint256(choice), 0, 2));
         _nativeStake();
         vm.warp(1090);
         _settle(outcome);
-        bool paid = outcome == MissionEscrow.Outcome.Pass || outcome == MissionEscrow.Outcome.InvalidCourse
-            || outcome == MissionEscrow.Outcome.NoSeedRelease;
+        bool paid = outcome == MissionEscrow.Outcome.Pass;
         assertEq(worker.balance, BOUNTY * 10 - STAKE + (paid ? PRICE + STAKE : 0));
         assertEq(requester.balance, BOUNTY * 9 + (paid ? BOUNTY - PRICE : BOUNTY + STAKE));
         assertEq(address(escrow).balance, 0);

@@ -30,7 +30,7 @@ describe("I8 payloads", () => {
     const stake = award!.award.stake.toString();
 
     expect(of("mission.posted")).toEqual([
-      { difficultyClass: "easy", maxBounty: "10000000", riskWeight: 0.5, biddingClosesAt: 1_075, arkivKey: "arkiv-mission-1" },
+      { difficultyClass: "easy", maxBounty: "10000000", riskWeight: 0.5, maxSteps: 60, maxCollisions: 0, biddingClosesAt: 1_075, arkivKey: "arkiv-mission-1" },
     ]);
     expect(of("bid.sealed")).toEqual([{ worker: RIVAL, workerName: "Careful", policyHash: policyHash(policy), arkivKey: "arkiv-bid-1" }]);
     expect(of("award.signed")).toEqual([
@@ -38,7 +38,6 @@ describe("I8 payloads", () => {
       { worker: RIVAL, price, stake, verifier: VERIFIER_ADDRESSES[1] },
     ]);
     expect(of("stake.deposited")).toEqual([{ worker: RIVAL, stake }]);
-    expect(of("seed.released")).toEqual([{ worker: RIVAL, arkivKey: "arkiv-seed-m1" }]);
     expect(of("decision.made")).toMatchObject([
       { step: 0, frame: "m1/frames/frame_0000.png", chatID: "chat-1", action: "FORWARD" },
       { step: 1, frame: "m1/frames/frame_0001.png", chatID: "chat-2", action: "FORWARD" },
@@ -48,11 +47,9 @@ describe("I8 payloads", () => {
     expect(of("episode.submitted")).toEqual([
       { episodeLogRoot: episode!.episodeLogRoot, policyRoot: episode!.policyRoot, decisionCount: 3 },
     ]);
+    // D15: the Requester reports only the 402 challenge; each Verifier owns the "paid" event and its settlement link.
     expect(of("replay.paid")).toEqual(
-      VERIFIER_ADDRESSES.flatMap((verifier) => [
-        { verifier, status: 402, amount: REPLAY_PRICE.toString() },
-        { verifier, status: "paid", amount: REPLAY_PRICE.toString() },
-      ]),
+      VERIFIER_ADDRESSES.map((verifier) => ({ verifier, status: 402, amount: REPLAY_PRICE.toString() })),
     );
     expect(of("settled")).toEqual([
       { outcome: "Pass", workerPayout: (BigInt(price) + BigInt(stake)).toString(), requesterPayout: (10_000_000n - BigInt(price)).toString() },
@@ -74,7 +71,7 @@ describe("I8 payloads", () => {
     // Both signatures of one Award ride in the same transaction.
     expect(new Set(urlsOf("award.signed")).size).toBe(1);
     // Off-chain events carry no link.
-    for (const type of ["bid.sealed", "seed.released", "decision.made", "replay.paid"]) {
+    for (const type of ["bid.sealed", "decision.made", "replay.paid"]) {
       for (const url of urlsOf(type)) expect(url, type).toBeUndefined();
     }
   });
@@ -94,14 +91,13 @@ describe("I8 payloads", () => {
 });
 
 describe("I8 event types", () => {
-  it("mirrors all 12 types of @dewo/board's EventData (a missing or extra key fails typecheck)", () => {
+  it("mirrors all 11 types of @dewo/board's EventData (a missing or extra key fails typecheck)", () => {
     const all: Record<EventType, true> = {
       "mission.posted": true,
       "bid.sealed": true,
       "bids.revealed": true,
       "award.signed": true,
       "stake.deposited": true,
-      "seed.released": true,
       "decision.made": true,
       "rover.moved": true,
       "episode.submitted": true,
@@ -109,7 +105,7 @@ describe("I8 event types", () => {
       "verdict.signed": true,
       settled: true,
     };
-    expect(Object.keys(all)).toHaveLength(12);
+    expect(Object.keys(all)).toHaveLength(11);
   });
 });
 
@@ -118,7 +114,7 @@ describe("settlement payouts (spec Outcome table)", () => {
   const price = 6_000_000n;
   const stake = 1_700_000n;
 
-  it.each(["Pass", "InvalidCourse", "NoSeedRelease"] as const)("%s pays the Worker price + stake and refunds the rest of the bounty", (outcome) => {
+  it.each(["Pass"] as const)("%s pays the Worker price + stake and refunds the rest of the bounty", (outcome) => {
     expect(payouts(outcome, maxBounty, price, stake)).toEqual({ worker: 7_700_000n, requester: 4_000_000n });
   });
 

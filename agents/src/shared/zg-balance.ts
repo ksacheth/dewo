@@ -1,4 +1,4 @@
-// Where a Worker's 0G Compute balance comes from, for the skip rule "0G balance covers a full Decision Cap"
+// Where a Worker's 0G Compute balance comes from, for the skip rule "0G balance covers the Mission's maxSteps Decisions"
 // (worker/skip.ts). BalancesPort.zeroG() returns one of these; all report 0G (not neuron), the unit of
 // WORKER_ZG_PER_DECISION.
 //   routerCredit   ADR 0004: the Router account balance, GET {router}/v1/account/balance. Needs a management key

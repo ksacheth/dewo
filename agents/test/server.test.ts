@@ -1,7 +1,7 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import type { MissionRequest } from "../src/requester/requester";
+import type { MissionRequest, PostResult } from "../src/requester/requester";
 import {
   DEFAULT_SERVER_OPTIONS,
   MAX_BODY_BYTES,
@@ -30,6 +30,25 @@ describe("parseMissionRequest limits", () => {
   });
 });
 
+describe("parseMissionRequest Mission Limits (ADR 0006)", () => {
+  const base = { difficulty: "easy", maxBounty: 5, riskWeight: 0.5 };
+
+  it("passes the limits through, and leaves a missing one for the Requester's default", () => {
+    expect(parseMissionRequest({ ...base, maxSteps: 30, maxCollisions: 2 })).toMatchObject({ maxSteps: 30, maxCollisions: 2 });
+    const bare = parseMissionRequest(base) as MissionRequest;
+    expect("maxSteps" in bare || "maxCollisions" in bare).toBe(false);
+  });
+
+  it.each([
+    [{ maxSteps: 0 }, "maxSteps"],
+    [{ maxSteps: 2.5 }, "maxSteps"],
+    [{ maxSteps: "60" }, "maxSteps"],
+    [{ maxCollisions: -1 }, "maxCollisions"],
+  ])("rejects %j", (limits, field) => {
+    expect(parseMissionRequest({ ...base, ...limits })).toContain(field);
+  });
+});
+
 describe("parseMissionRequest money precision", () => {
   const request = (maxBounty: number) => parseMissionRequest({ difficulty: "easy", maxBounty, riskWeight: 0.5 });
 
@@ -51,7 +70,7 @@ describe("parseMissionRequest money precision", () => {
   });
 
   it("answers 400 over HTTP", async () => {
-    const server = createRequesterServer(async () => "0xm");
+    const server = createRequesterServer(async () => ({ missionId: "0xm" }));
     await new Promise<void>((resolve) => server.listen(0, resolve));
     try {
       const { port } = server.address() as { port: number };
@@ -79,14 +98,19 @@ describe("POST /missions", () => {
   const body = { difficulty: "medium", maxBounty: 10, riskWeight: 0.5 };
   const json = { "content-type": "application/json" };
   const posted: MissionRequest[] = [];
+  const keys: (string | undefined)[] = [];
+  let answer: PostResult = { missionId: "m1" };
   const servers: Server[] = [];
   afterEach(() => {
     servers.splice(0).forEach((s) => s.close());
     posted.length = 0;
+    keys.length = 0;
+    answer = { missionId: "m1" };
   });
 
   async function start(options: Partial<ServerOptions> = {}) {
-    const server = createRequesterServer(async (request) => (posted.push(request), "m1"), { ...DEFAULT_SERVER_OPTIONS, ...options });
+    const post = async (request: MissionRequest, key?: string) => (posted.push(request), keys.push(key), answer);
+    const server = createRequesterServer(post, { ...DEFAULT_SERVER_OPTIONS, ...options });
     servers.push(server);
     await new Promise<void>((resolve) => listenRequester(server, 0).once("listening", resolve));
     const { address, port } = server.address() as AddressInfo;
@@ -144,5 +168,35 @@ describe("POST /missions", () => {
     const res = await fetch(url, { method: "POST", headers: json, body: huge });
     expect(res.status).toBe(413);
     expect(posted).toEqual([]);
+  });
+
+  it("passes the Idempotency-Key header on, or nothing without one", async () => {
+    const url = await start();
+    await fetch(url, { method: "POST", headers: { ...json, "idempotency-key": "k-1" }, body: JSON.stringify(body) });
+    await fetch(url, { method: "POST", headers: json, body: JSON.stringify(body) });
+    expect(keys).toEqual(["k-1", undefined]);
+  });
+
+  it("answers 202 with the ref while the first attempt is still creating", async () => {
+    const url = await start();
+    answer = { pending: true, ref: "0xabc" };
+    const res = await fetch(url, { method: "POST", headers: { ...json, "idempotency-key": "k-1" }, body: JSON.stringify(body) });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ pending: true, ref: "0xabc" });
+  });
+
+  it("refuses an empty or over-long Idempotency-Key", async () => {
+    const url = await start();
+    for (const key of ["", " ", "x".repeat(256)]) {
+      const res = await fetch(url, { method: "POST", headers: { ...json, "idempotency-key": key }, body: JSON.stringify(body) });
+      expect(res.status).toBe(400);
+    }
+    expect(posted).toEqual([]);
+  });
+
+  it("lets the browser send an Idempotency-Key", async () => {
+    const url = await start({ allowedOrigin: "http://ui.test" });
+    const preflight = await fetch(url, { method: "OPTIONS", headers: { origin: "http://ui.test" } });
+    expect(preflight.headers.get("access-control-allow-headers")).toContain("idempotency-key");
   });
 });

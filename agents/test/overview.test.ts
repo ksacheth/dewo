@@ -18,7 +18,7 @@ afterAll(() => rmSync(runs, { recursive: true, force: true }));
 async function fly(command: readonly [string, ...string[]], emit: (data: RoverMoved) => void = () => {}) {
   const sim = new SimCli(["node", fakeSim], runs, { command, emit: (_, data) => emit(data), closeTimeoutMs: 300 });
   const session = await sim.openSession(SEED, "easy", MISSION);
-  const result = await runEpisode({ policy, session, inference: new ScriptedInference(["FORWARD", "FORWARD", "FORWARD"]) });
+  const result = await runEpisode({ policy, session, inference: new ScriptedInference(["FORWARD", "FORWARD", "FORWARD"]), limits: { maxSteps: 60, maxCollisions: 0 } });
   await session.close();
   return result;
 }

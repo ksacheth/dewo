@@ -1,9 +1,9 @@
-// The Requester agent's Mission lifecycle (issue #14):
-// post -> bidding closes -> get a Quorum Award -> winner stakes -> Seed Release ->
-// Episode submitted (or window over) -> reveal seed -> pay for Replays -> settle.
+// The Requester agent's Mission lifecycle (issue #14, ADR 0006):
+// post (public Course Seed and limits) -> bidding closes -> get a Quorum Award -> winner stakes ->
+// Episode submitted (or window over) -> pay for Replays -> settle.
 // Like the Worker, it re-reads the chain before acting and records a step only after it is confirmed.
 import { randomBytes } from "node:crypto";
-import { seedCommitment, toBaseUnits, type Hex } from "../formats";
+import { limitsProblems, toBaseUnits, type Hex, type MissionLimits } from "../formats";
 import { PayoutClaimer } from "../shared/payout-claim";
 import { hederaTxUrl } from "../shared/tx-links";
 import type { Clock, DifficultyClass, EscrowMission, EventsPort, MissionTerms, RegistryPort, TxResult } from "../worker/ports";
@@ -14,7 +14,7 @@ import type { RequesterBoardPort, RequesterEscrowPort, SignedVerdict, VerifiersP
 import { quorum } from "./quorum";
 
 /**
- * CREATING: seed chosen and saved, createMission not confirmed yet (keyed by the Seed Commitment).
+ * CREATING: Course Seed chosen and saved, createMission not confirmed yet (keyed by the Course Seed).
  * CREATED: funded on-chain but not listed on Arkiv yet. NO_BIDS: nothing to award (or never listed);
  * waits for rescueAt. RESCUED: this Requester called rescue(). RETIRED: a CREATING record superseded
  * by the one keyed by the real missionId.
@@ -25,7 +25,7 @@ export type RequesterStage =
   | "BIDDING"
   | "AWARDING"
   | "AWARDED"
-  | "SEED_RELEASED"
+  | "STAKED"
   | "VERIFYING"
   | "SETTLED"
   | "NO_BIDS"
@@ -38,7 +38,7 @@ const ACTIVE: ReadonlySet<RequesterStage> = new Set([
   "BIDDING",
   "AWARDING",
   "AWARDED",
-  "SEED_RELEASED",
+  "STAKED",
   "VERIFYING",
   "NO_BIDS",
 ]);
@@ -48,20 +48,23 @@ export const CREATE_RETRY_SECONDS = 120;
 
 export interface RequesterRecord extends Keyed {
   stage: RequesterStage;
-  /** Private until the Episode is over; this file never leaves the Requester's machine. */
+  /** The public Course Seed sent to createMission; a restart finds the Mission by it. */
   seed: Hex;
-  salt: Hex;
-  releasedAt?: number;
-  /** Kept while CREATING so a restart can retry createMission with the same seed. */
+  /** Kept while CREATING so a restart can retry createMission with the same seed and limits. */
   request?: MissionRequest;
   attemptedAt?: number;
-  /** The createMission transaction, for the mission.posted link; unknown if a restart found the Mission by its Seed Commitment. */
+  /** The createMission transaction, for the mission.posted link; unknown if a restart found the Mission by its Course Seed. */
   createTx?: Hex;
   /** Verdicts already paid for, by Verifier URL, so a retry never pays twice. */
   verdicts: Record<string, SignedVerdict>;
   paidReplays: number;
   note?: string;
+  /** The client's Idempotency-Key from POST /missions; carried over when the record is re-keyed. */
+  idempotencyKey?: string;
 }
+
+/** What POST /missions answers: the Mission, or the Course Seed of an attempt still being created. */
+export type PostResult = { missionId: string } | { pending: true; ref: string };
 
 /** I7 request body. */
 export interface MissionRequest {
@@ -70,6 +73,9 @@ export interface MissionRequest {
   maxBounty: number;
   /** Risk Weight between 0 (cheapest) and 1 (most reliable). */
   riskWeight: number;
+  /** The Mission Limits (ADR 0006); the Requester's configured defaults fill a missing one. */
+  maxSteps?: number;
+  maxCollisions?: number;
 }
 
 export interface Windows {
@@ -82,7 +88,7 @@ export interface Windows {
    */
   biddingSlackSeconds: number;
   stakeWindow: number;
-  seedReleaseWindow: number;
+  /** After the stake: the Episode Submission deadline is stakedAt + episodeWindow. */
   episodeWindow: number;
   /** After posting; rescue() refunds everyone from then on. */
   rescueSeconds: number;
@@ -93,7 +99,6 @@ export const DEFAULT_WINDOWS: Windows = {
   biddingSeconds: 60,
   biddingSlackSeconds: 15,
   stakeWindow: 30,
-  seedReleaseWindow: 30,
   episodeWindow: 300,
   rescueSeconds: 3600,
 };
@@ -103,6 +108,8 @@ export interface RequesterConfig {
   address: Hex;
   verifiers: readonly { url: string; address: Hex }[];
   windows: Windows;
+  /** The Mission Limits used when a POST /missions body leaves them out. */
+  defaultLimits: MissionLimits;
   /** Spending cap: the most Replays this Requester pays for on one Mission. */
   maxPaidReplays: number;
 }
@@ -134,20 +141,38 @@ export class Requester {
     this.payouts = new PayoutClaimer(deps.escrow, config.address, "requester");
   }
 
+  /**
+   * I7 POST /missions with an optional idempotency key. A key seen before returns that attempt instead of
+   * locking a second bounty: its missionId, or pending while it is still CREATING (in flight, or failed and
+   * left to the tick to recover or retry with the same seed). A key never expires and ignores the request body.
+   */
+  async postOnce(request: MissionRequest, idempotencyKey?: string): Promise<PostResult> {
+    const earlier = idempotencyKey === undefined ? undefined : this.findByIdempotencyKey(idempotencyKey);
+    if (earlier?.stage === "CREATING") return { pending: true, ref: earlier.missionId };
+    if (earlier) return { missionId: earlier.missionId };
+    // post() saves its CREATING record before its first await, so a concurrent call with the same key finds it.
+    return { missionId: await this.post(request, idempotencyKey) };
+  }
+
+  /** A RETIRED record always has its re-keyed copy, which carries the same key. */
+  private findByIdempotencyKey(key: string): RequesterRecord | undefined {
+    return this.deps.records.all().find((record) => record.idempotencyKey === key && record.stage !== "RETIRED");
+  }
+
   /** I7 POST /missions. Everything after this is autonomous. */
-  async post(request: MissionRequest): Promise<string> {
+  async post(request: MissionRequest, idempotencyKey?: string): Promise<string> {
+    const limited = this.withLimits(request);
     const random = this.deps.random ?? random32;
     const seed = random();
-    const salt = random();
-    // Save the seed first: once createMission confirms the bounty is locked, and without the seed it is lost.
+    // Save the seed first: a restart finds the funded Mission by it, and retries createMission with it.
     const creating: RequesterRecord = {
-      missionId: seedCommitment(seed, salt),
+      missionId: seed,
       stage: "CREATING",
       seed,
-      salt,
       verdicts: {},
       paidReplays: 0,
-      request,
+      request: limited,
+      ...(idempotencyKey !== undefined && { idempotencyKey }),
     };
     this.deps.records.put(creating);
     const created = await this.createOnChain(creating);
@@ -155,6 +180,15 @@ export class Requester {
     const { missionId } = created;
     await this.tickMission(missionId);
     return missionId;
+  }
+
+  /** The request with both limits set (the configured defaults fill a missing one); throws if createMission would reject them. */
+  private withLimits(request: MissionRequest): MissionRequest {
+    const { defaultLimits } = this.config;
+    const limits = { maxSteps: request.maxSteps ?? defaultLimits.maxSteps, maxCollisions: request.maxCollisions ?? defaultLimits.maxCollisions };
+    const problems = limitsProblems(limits);
+    if (problems.length > 0) throw new Error(problems.join("; "));
+    return { ...request, ...limits };
   }
 
   async tick(): Promise<void> {
@@ -192,21 +226,24 @@ export class Requester {
     if (record.stage === "CREATED") return this.list(record, mission);
     if (record.stage === "BIDDING") return this.closeBidding(record, mission);
     if (record.stage === "AWARDING") return this.award(record, mission);
-    if (record.stage === "AWARDED") return this.releaseSeed(record, mission);
-    if (record.stage === "SEED_RELEASED") return this.awaitEpisode(record, mission);
+    if (record.stage === "AWARDED") return this.awaitStake(record, mission);
+    if (record.stage === "STAKED") return this.awaitEpisode(record, mission);
     if (record.stage === "VERIFYING") return this.verify(record, mission);
   }
 
   /** Sends createMission for a CREATING record, remembering the attempt so a restart does not repeat it at once. */
   private async createOnChain(creating: RequesterRecord): Promise<{ missionId: string } & TxResult> {
-    const { request, seed, salt } = creating;
+    const { seed } = creating;
+    const request = this.withLimits(creating.request!);
     const now = this.deps.clock.now();
     const { biddingSeconds, biddingSlackSeconds, rescueSeconds, ...windows } = this.config.windows;
     const terms: MissionTerms = {
-      maxBounty: toBaseUnits(request!.maxBounty),
-      difficultyClass: request!.difficulty,
-      riskWeightBps: Math.round(request!.riskWeight * 10_000),
-      seedCommitment: seedCommitment(seed, salt),
+      maxBounty: toBaseUnits(request.maxBounty),
+      difficultyClass: request.difficulty,
+      riskWeightBps: Math.round(request.riskWeight * 10_000),
+      courseSeed: seed,
+      maxSteps: request.maxSteps!,
+      maxCollisions: request.maxCollisions!,
       deadlines: { biddingClosesAt: now + biddingSeconds + biddingSlackSeconds, rescueAt: now + rescueSeconds, ...windows },
     };
     this.deps.records.put({ ...creating, attemptedAt: now });
@@ -241,16 +278,22 @@ export class Requester {
     this.deps.records.put({ ...creating, stage: "RETIRED", note: `created as ${missionId}` });
   }
 
-  /** Lists a funded Mission on Arkiv; if bidding closed first, nobody can bid, so wait for rescue. */
+  /**
+   * Lists a funded Mission on Arkiv; if bidding closed first, nobody can bid, so wait for rescue.
+   * Check before acting: a crash after postMission but before the record write must not list twice. An adopted
+   * listing is still announced, since that crash also came before the mission.posted event.
+   */
   private async list(record: RequesterRecord, mission: EscrowMission): Promise<void> {
     const { terms } = mission;
     if (this.deps.clock.now() >= terms.deadlines.biddingClosesAt) return this.move(record, "NO_BIDS", "never listed");
-    const { key } = await this.deps.board.postMission({
+    const { key } = (await this.deps.board.listingOf(record.missionId)) ?? await this.deps.board.postMission({
       missionId: record.missionId,
       difficultyClass: terms.difficultyClass,
       maxBounty: terms.maxBounty,
       riskWeightBps: terms.riskWeightBps,
-      seedCommitment: terms.seedCommitment,
+      courseSeed: terms.courseSeed,
+      maxSteps: terms.maxSteps,
+      maxCollisions: terms.maxCollisions,
       biddingClosesAt: terms.deadlines.biddingClosesAt,
     });
     this.move(record, "BIDDING");
@@ -258,6 +301,8 @@ export class Requester {
       difficultyClass: terms.difficultyClass,
       maxBounty: terms.maxBounty.toString(),
       riskWeight: terms.riskWeightBps / 10_000,
+      maxSteps: terms.maxSteps,
+      maxCollisions: terms.maxCollisions,
       biddingClosesAt: terms.deadlines.biddingClosesAt,
       arkivKey: key,
     }, record.createTx && hederaTxUrl(record.createTx));
@@ -292,34 +337,18 @@ export class Requester {
     }
   }
 
-  private async releaseSeed(record: RequesterRecord, mission: EscrowMission): Promise<void> {
-    const { award } = mission;
-    if (!award) return this.move(record, "AWARDING");
-    if (mission.stakedAt === null) {
-      if (this.lapsed(mission)) this.move(record, "AWARDING", "winner missed the stake window");
-      return;
-    }
-    const workerPubKey = await this.deps.board.workerPubKey(record.missionId, award.worker);
-    if (!workerPubKey) return;
-
-    // Check before acting: a crash after releaseSeed but before the record write must not release twice.
-    if (await this.deps.board.hasSeedRelease(record.missionId, award.worker)) {
-      this.deps.records.put({ ...record, stage: "SEED_RELEASED", releasedAt: this.deps.clock.now() });
-      return;
-    }
-    const { key } = await this.deps.board.releaseSeed(record.missionId, record.seed, record.salt, workerPubKey);
-    this.deps.records.put({ ...record, stage: "SEED_RELEASED", releasedAt: this.deps.clock.now() });
-    this.deps.events.emit(record.missionId, "seed.released", { worker: award.worker, arkivKey: key });
+  /** Waits for the winner's stake; if it misses the stake window, goes back to the Quorum for the next-best Bid. */
+  private awaitStake(record: RequesterRecord, mission: EscrowMission): void {
+    if (!mission.award) return this.move(record, "AWARDING");
+    if (mission.stakedAt !== null) return this.move(record, "STAKED");
+    if (this.lapsed(mission)) this.move(record, "AWARDING", "winner missed the stake window");
   }
 
-  /** Waits for the Episode Submission or the end of its window (a No-show), then reveals the seed. */
+  /** Waits for the Episode Submission or the end of its window, stakedAt + episodeWindow (a No-show). */
   private async awaitEpisode(record: RequesterRecord, mission: EscrowMission): Promise<void> {
     const submitted = mission.award ? await this.deps.registry.isSubmitted(record.missionId, mission.award.worker) : false;
-    const windowOver = this.deps.clock.now() > (record.releasedAt ?? 0) + mission.terms.deadlines.episodeWindow;
-    if (!submitted && !windowOver) return;
-
-    await this.deps.board.revealSeed(record.missionId, record.seed, record.salt);
-    this.move(record, "VERIFYING");
+    const windowOver = this.deps.clock.now() > (mission.stakedAt ?? 0) + mission.terms.deadlines.episodeWindow;
+    if (submitted || windowOver) this.move(record, "VERIFYING");
   }
 
   private async verify(record: RequesterRecord, mission: EscrowMission): Promise<void> {
@@ -359,8 +388,8 @@ export class Requester {
       const { verdict, payment } = await this.deps.verifiers.requestReplay(url, record.missionId);
       next = { ...next, verdicts: { ...next.verdicts, [url]: verdict } };
       const verifier = this.config.verifiers.find((v) => v.url === url)!.address;
+      // D15: the Verifier owns the "paid" event (it alone knows the settlement transaction); the Requester reports only the challenge.
       if (payment.challenged) this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: 402, amount: payment.amount.toString() });
-      this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: "paid", amount: payment.amount.toString() });
       await this.audit({
         missionId: record.missionId,
         verifier,

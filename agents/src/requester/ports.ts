@@ -5,7 +5,7 @@ import type { WithdrawalPort } from "../shared/payout-claim";
 import type { EscrowMission, MissionTerms, TxResult } from "../worker/ports";
 
 /** I5 Outcome enum, in contract order. */
-export const OUTCOMES = ["Pass", "Fail", "NoShow", "InvalidCourse", "NoSeedRelease"] as const;
+export const OUTCOMES = ["Pass", "Fail", "NoShow"] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 
 /** Amounts in USDC base units, exactly as the Quorum signed them. */
@@ -29,8 +29,8 @@ export interface RequesterEscrowPort extends WithdrawalPort {
   /** Locks maxBounty and fixes the terms on-chain; returns the Mission id and the transaction. */
   createMission(terms: MissionTerms, verifiers: readonly Hex[]): Promise<{ missionId: string } & TxResult>;
   getMission(missionId: string): Promise<EscrowMission>;
-  /** The id of this Requester's Mission with that Seed Commitment (from MissionCreated events), or null. */
-  findMission(seedCommitment: Hex): Promise<string | null>;
+  /** The id of this Requester's Mission with that Course Seed (from MissionCreated events), or null. */
+  findMission(courseSeed: Hex): Promise<string | null>;
   /** Refunds the Mission once rescueAt has passed; anyone may call it. */
   rescue(missionId: string): Promise<TxResult>;
   award(missionId: string, award: AwardTerms, signatures: readonly Hex[]): Promise<TxResult>;
@@ -43,21 +43,17 @@ export interface MissionListing {
   difficultyClass: MissionTerms["difficultyClass"];
   maxBounty: bigint;
   riskWeightBps: number;
-  seedCommitment: Hex;
+  courseSeed: Hex;
+  maxSteps: number;
+  maxCollisions: number;
   biddingClosesAt: number;
 }
 
 export interface RequesterBoardPort {
   /** Returns the Arkiv entity key of the Mission. */
   postMission(listing: MissionListing): Promise<{ key: string }>;
-  /** The public key the winner put in its Bid entity. */
-  workerPubKey(missionId: string, worker: Hex): Promise<Hex | null>;
-  /** Whether a Seed Release for this winner is already on Arkiv. */
-  hasSeedRelease(missionId: string, worker: Hex): Promise<boolean>;
-  /** Seed + salt encrypted to the winner only. */
-  releaseSeed(missionId: string, seed: Hex, salt: Hex, workerPubKey: Hex): Promise<{ key: string }>;
-  /** Seed + salt in the clear, after the Episode, so anyone can re-run the Replay. */
-  revealSeed(missionId: string, seed: Hex, salt: Hex): Promise<void>;
+  /** This Requester's own Mission entity for that id, if it already posted one (others' entities do not count). */
+  listingOf(missionId: string): Promise<{ key: string } | null>;
 }
 
 /** What paying for one Replay looked like on the wire. */

@@ -23,3 +23,7 @@ We chose this because it is the only verifiable vision model on 0G today, and a 
 - **Verifiers need no 0G and no accounts.** They need only a mainnet RPC for `processResponse` and the provider's public signature endpoint. The Episode Registry and Storage reads stay on Galileo, so the RPC configuration splits by purpose.
 - **One model and one provider.** The demo Policies all use `0gm-1.0-35b-a3b` and differ by prompt, memory window and pricing. There is no failover if that provider goes down. More verifiable vision providers can be added as 0G lists them.
 - **The model reasons by default.** Requests must set `chat_template_kwargs: {"enable_thinking": false}`, or the token cap is spent on thinking and the reply is empty. This setting is part of the Policy's committed request, so it is covered by the request rebuild.
+
+## Update (2026-11-06, ADR 0006)
+
+There is no fixed Decision Cap any more: the credit-balance skip rule checks the Mission's own `maxSteps` Decisions.

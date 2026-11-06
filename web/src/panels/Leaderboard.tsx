@@ -45,7 +45,7 @@ export function Leaderboard({ names, refreshKey }: { names: Record<string, strin
           <h2 style={{ marginTop: 12 }}>{who(worker.worker)} <span className="mono dim">{short(worker.worker, 6)}</span></h2>
           {worker.missions.map((m) => (
             <div key={m.missionId} className="card">
-              <div className="row"><strong className={m.outcome === "Pass" ? "ok" : "bad"}>{m.outcome}</strong><span>{m.difficultyClass}</span><span className="dim">path {m.pathCost}/{m.optimalPathCost} · q {m.pathQuality.toFixed(2)} · {m.collisions} collisions</span></div>
+              <div className="row"><strong className={m.outcome === "Pass" ? "ok" : "bad"}>{m.outcome}</strong><span>{m.difficultyClass}</span><span className="dim">{m.steps} steps · {m.collisions} collisions</span></div>
               <div className="mono dim"><a href={arkivEntity(m.entityKey)} target="_blank" rel="noreferrer">Verdict entity</a>{settlements?.[m.missionId] && <> · <a href={settlements[m.missionId]} target="_blank" rel="noreferrer">settlement</a></>}</div>
             </div>
           ))}

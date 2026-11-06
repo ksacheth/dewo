@@ -5,13 +5,15 @@ import { privateKeyToAccount } from "viem/accounts";
 import type { Address, Hex } from "viem";
 import { arkivAdapters } from "./adapters/board.js";
 import { hederaEscrow, viemEscrowReader } from "./adapters/escrow-chain.js";
-import { cliSim, localRunner } from "./adapters/sim-cli.js";
+import { assertSimVersion, cliSim, localRunner } from "./adapters/sim-cli.js";
 import { mainnetComputeBroker, zeroGCompute } from "./adapters/zerog-compute.js";
+import { GALILEO_FLOW, viemFlowReader, zeroGFlow } from "./adapters/zerog-flow.js";
 import { viemRegistryReader, zeroGRegistry } from "./adapters/zerog-registry.js";
 import { indexerAt, zeroGStorage } from "./adapters/zerog-storage.js";
 import { createEpisodeSource } from "./episodes.js";
 import { boardEvents } from "./events.js";
 import { createApp } from "./server.js";
+import { trustedVerifiersFrom } from "./verifier-set.js";
 import { createX402Gate } from "./x402.js";
 
 const env = (name: string): string => {
@@ -44,6 +46,7 @@ function listenerIdentity(): { port: number; name: string } {
 async function main() {
   const key = env("VERIFIER_KEY") as Hex;
   const { port, name } = listenerIdentity();
+  const trustedVerifiers = trustedVerifiersFrom(process.env.VERIFIER_ADDRESSES, privateKeyToAccount(key).address);
   const escrowAddress = deployedAddress("MISSION_ESCROW_ADDRESS", "hedera-testnet.json");
   const registryAddress = deployedAddress("EPISODE_REGISTRY_ADDRESS", "0g-galileo.json");
   const hederaRpc = process.env.HEDERA_RPC_URL ?? "https://testnet.hashio.io/api";
@@ -53,9 +56,11 @@ async function main() {
   const zgMainnetRpc = process.env.ZG_MAINNET_RPC_URL ?? "https://evmrpc.0g.ai";
 
   // Replays run in the pinned dewo-sim image (R1) so frame hashes match the Workers'; SIM_CMD=sim inside the Verifier image, which is built on it.
-  const sim = cliSim(localRunner((process.env.SIM_CMD ?? "../sim/scripts/sim-docker").split(" ")));
+  const simRunner = localRunner((process.env.SIM_CMD ?? "../sim/scripts/sim-docker").split(" "));
+  await assertSimVersion(simRunner);
+  const sim = cliSim(simRunner);
   const broker = await mainnetComputeBroker(zgMainnetRpc);
-  const { board, seeds, verdicts } = arkivAdapters(key);
+  const { board, verdicts } = arkivAdapters(key);
   const chain = hederaEscrow(viemEscrowReader(hederaRpc, escrowAddress));
   const gate = await createX402Gate({
     facilitator: new HTTPFacilitatorClient({ url: process.env.X402_FACILITATOR_URL ?? "https://api.testnet.blocky402.com" }),
@@ -65,12 +70,13 @@ async function main() {
 
   const app = createApp({
     key, escrow: escrowAddress, gate, now: () => Math.floor(Date.now() / 1000),
-    board, chain, sim, zeroG: zeroGCompute(broker), verdicts,
+    board, chain, sim, zeroG: zeroGCompute(broker), verdicts, trustedVerifiers,
     events: boardEvents(name),
     source: createEpisodeSource({
-      board, chain, seeds,
+      board, chain,
       registry: zeroGRegistry(viemRegistryReader(zgRpc, registryAddress)),
       storage: zeroGStorage(indexerAt(process.env.ZG_STORAGE_INDEXER ?? "https://indexer-storage-testnet-turbo.0g.ai")),
+      uploads: zeroGFlow(viemFlowReader(zgRpc, (process.env.ZG_FLOW_ADDRESS as Address | undefined) ?? GALILEO_FLOW)),
     }),
   });
   serve({ fetch: app.fetch, port });

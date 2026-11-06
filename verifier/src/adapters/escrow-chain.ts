@@ -3,9 +3,10 @@ import type { Difficulty, EscrowMission, EscrowPort } from "../ports.js";
 
 /** The slice of MissionEscrow's `Mission` struct the Verifier reads. */
 export interface RawMission {
-  requester: Address; worker: Address; verifiers: readonly Address[]; seedCommitment: Hex; maxBounty: bigint; difficultyClass: number; riskWeightBps: number;
+  requester: Address; worker: Address; verifiers: readonly Address[]; courseSeed: Hex; maxBounty: bigint; difficultyClass: number; riskWeightBps: number;
+  maxSteps: number; maxCollisions: number;
   price: bigint; bidStake: bigint; awardedAt: bigint; stakedAt: bigint;
-  deadlines: { biddingEndsAt: bigint; stakeWindow: number; seedReleaseWindow: number; episodeWindow: number }; state: number;
+  deadlines: { biddingEndsAt: bigint; stakeWindow: number; episodeWindow: number }; state: number;
 }
 export interface EscrowReader {
   getMission(missionId: Hex): Promise<RawMission>;
@@ -15,8 +16,8 @@ export interface EscrowReader {
 const DIFFICULTIES: Difficulty[] = ["easy", "medium", "hard"];
 
 const escrowAbi = parseAbi([
-  "struct Deadlines { uint64 biddingEndsAt; uint32 stakeWindow; uint32 seedReleaseWindow; uint32 episodeWindow; uint64 rescueAt; }",
-  "struct Mission { address requester; address worker; address[3] verifiers; bytes32 seedCommitment; uint256 maxBounty; uint8 difficultyClass; uint16 riskWeightBps; uint256 price; uint256 bidStake; uint256 awardedAt; uint256 stakedAt; Deadlines deadlines; uint8 state; }",
+  "struct Deadlines { uint64 biddingEndsAt; uint32 stakeWindow; uint32 episodeWindow; uint64 rescueAt; }",
+  "struct Mission { address requester; address worker; address[3] verifiers; bytes32 courseSeed; uint256 maxBounty; uint8 difficultyClass; uint16 riskWeightBps; uint32 maxSteps; uint32 maxCollisions; uint256 price; uint256 bidStake; uint256 awardedAt; uint256 stakedAt; Deadlines deadlines; uint8 state; }",
   "function getMission(bytes32 missionId) view returns (Mission)",
   "function lapsedWorker(bytes32 missionId, address worker) view returns (bool)",
 ]);
@@ -43,8 +44,9 @@ export function hederaEscrow(reader: EscrowReader): EscrowPort {
         verifiers: raw.verifiers,
         biddingEndsAt: Number(raw.deadlines.biddingEndsAt),
         mission: {
-          missionId, difficultyClass, maxBounty: raw.maxBounty, seedCommitment: raw.seedCommitment, riskWeight: raw.riskWeightBps / 10_000,
-          deadlines: { seedReleaseWindow: raw.deadlines.seedReleaseWindow, episodeWindow: raw.deadlines.episodeWindow },
+          missionId, difficultyClass, maxBounty: raw.maxBounty, courseSeed: raw.courseSeed, riskWeight: raw.riskWeightBps / 10_000,
+          maxSteps: raw.maxSteps, maxCollisions: raw.maxCollisions,
+          deadlines: { episodeWindow: raw.deadlines.episodeWindow },
         },
         award: raw.worker === zeroAddress ? null : {
           worker: raw.worker, price: raw.price, stake: raw.bidStake, awardedAt: Number(raw.awardedAt), stakeWindow: raw.deadlines.stakeWindow,

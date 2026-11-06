@@ -18,3 +18,7 @@ We did it this way because the contract can't read Arkiv (where Bids, Seed Relea
 ## Update (2026-11-06)
 
 A replacement Award after a lapsed stake window still needs a fresh Quorum signature. Deferred payouts (`owed`, `withdraw()`) change only when a payout is delivered, not who is paid or who decides, so the trust root is unchanged. `rescue()` is available from `rescueAt` for any unsettled Mission, and `settle()` is blocked from then.
+
+## Update (2026-11-06, ADR 0006)
+
+The Outcomes are now Pass, Fail and No-show: Invalid Course and No Seed Release were removed with the sealed Course. Seed Releases no longer exist on Arkiv. The trust root is unchanged.

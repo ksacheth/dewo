@@ -6,6 +6,8 @@ import type { AddressInfo } from "node:net";
 import { mainnetComputeBroker, zeroGCompute } from "../src/adapters/zerog-compute.js";
 import { zeroGRegistry, type RegistryEntry } from "../src/adapters/zerog-registry.js";
 import { zeroGStorage } from "../src/adapters/zerog-storage.js";
+import { StorageUnavailableError } from "../src/errors.js";
+import { NotJson } from "../src/ports.js";
 
 const MISSION = ("0x" + "11".repeat(32)) as Hex;
 const WORKER = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" as const;
@@ -67,26 +69,61 @@ describe("zeroGRegistry (EpisodeRegistry.submissions)", () => {
 });
 
 describe("zeroGStorage", () => {
+  const serving = (bytes: BlobPart) => ({ downloadToBlob: async () => [new Blob([bytes]), null] as [Blob, null] });
+
   it("downloads a root as JSON", async () => {
     const indexer = { downloadToBlob: async (root: string) => { expect(root).toBe("0xroot"); return [new Blob([JSON.stringify({ a: 1 })]), null] as [Blob, null]; } };
     expect(await zeroGStorage(indexer).downloadJson("0xroot")).toEqual({ a: 1 });
   });
-  it("throws the indexer error instead of parsing an empty blob", async () => {
-    const indexer = { downloadToBlob: async () => [new Blob([]), new Error("not found")] as [Blob, Error] };
-    await expect(zeroGStorage(indexer).downloadJson("0xroot")).rejects.toThrow("not found");
+
+  describe("bytes that are not JSON are the Worker's fault: a NotJson result, not an error", () => {
+    it.each([
+      ["garbage bytes", new Uint8Array([0xff, 0x00, 0x13, 0x37])],
+      ["truncated JSON", '{"header": {'],
+      ["an empty file", ""],
+    ])("returns NotJson for %s", async (_name, bytes) => {
+      expect(await zeroGStorage(serving(bytes)).downloadJson("0xroot")).toBeInstanceOf(NotJson);
+    });
+    it("cannot be forged by uploading JSON that looks like a NotJson", async () => {
+      const doc = await zeroGStorage(serving(JSON.stringify({ reason: "not valid JSON" }))).downloadJson("0xroot");
+      expect(doc).not.toBeInstanceOf(NotJson);
+    });
+  });
+
+  describe("an unreachable 0G is infrastructure: a retryable StorageUnavailableError, never a Verdict", () => {
+    it("when the indexer returns an error instead of parsing an empty blob", async () => {
+      const indexer = { downloadToBlob: async () => [new Blob([]), new Error("not found")] as [Blob, Error] };
+      const download = zeroGStorage(indexer).downloadJson("0xroot");
+      await expect(download).rejects.toBeInstanceOf(StorageUnavailableError);
+      await expect(download).rejects.toThrow("not found");
+    });
+    it("when the indexer call itself throws (network down)", async () => {
+      const indexer = { downloadToBlob: async (): Promise<[Blob, Error | null]> => { throw new Error("ECONNREFUSED"); } };
+      await expect(zeroGStorage(indexer).downloadJson("0xroot")).rejects.toBeInstanceOf(StorageUnavailableError);
+    });
+    it("when the indexer does not answer within the timeout", async () => {
+      const hanging = { downloadToBlob: () => new Promise<[Blob, Error | null]>(() => {}) };
+      const download = zeroGStorage(hanging, { timeoutMs: 10 }).downloadJson("0xroot");
+      await expect(download).rejects.toBeInstanceOf(StorageUnavailableError);
+      await expect(download).rejects.toThrow(/timed out/);
+    });
   });
 });
 
 describe("hederaEscrow (MissionEscrow)", () => {
   const raw = (over: Partial<RawMission> = {}): RawMission => ({
-    requester: REQUESTER, worker: ZERO, seedCommitment: ("0x" + "cc".repeat(32)) as Hex, maxBounty: 10_000_000n, difficultyClass: 1, riskWeightBps: 5_000,
-    price: 0n, bidStake: 0n, awardedAt: 0n, stakedAt: 0n, verifiers: [WORKER, WORKER, WORKER], deadlines: { biddingEndsAt: 960n, stakeWindow: 30, seedReleaseWindow: 45, episodeWindow: 600 }, state: 1, ...over,
+    requester: REQUESTER, worker: ZERO, courseSeed: ("0x" + "cc".repeat(32)) as Hex, maxBounty: 10_000_000n, difficultyClass: 1, riskWeightBps: 5_000,
+    maxSteps: 40, maxCollisions: 2,
+    price: 0n, bidStake: 0n, awardedAt: 0n, stakedAt: 0n, verifiers: [WORKER, WORKER, WORKER], deadlines: { biddingEndsAt: 960n, stakeWindow: 30, episodeWindow: 600 }, state: 1, ...over,
   });
   const chain = (m: RawMission, lapsed: string[] = []) => hederaEscrow({ getMission: async () => m, lapsedWorker: async (_id, w) => lapsed.includes(w) });
 
-  it("reads the Mission terms the Requester fixed on-chain: bounty, difficulty, risk weight from basis points, seed commitment", async () => {
+  it("reads the Mission terms the Requester fixed on-chain: bounty, difficulty, risk weight from basis points, Course Seed, limits", async () => {
     const { mission, requester, award } = await chain(raw()).getMission(MISSION);
-    expect(mission).toEqual({ missionId: MISSION, difficultyClass: "medium", maxBounty: 10_000_000n, riskWeight: 0.5, seedCommitment: "0x" + "cc".repeat(32), deadlines: { seedReleaseWindow: 45, episodeWindow: 600 } });
+    expect(mission).toEqual({
+      missionId: MISSION, difficultyClass: "medium", maxBounty: 10_000_000n, riskWeight: 0.5, courseSeed: "0x" + "cc".repeat(32),
+      maxSteps: 40, maxCollisions: 2, deadlines: { episodeWindow: 600 },
+    });
     expect(requester).toBe(REQUESTER);
     expect(award).toBeNull();
   });

@@ -4,13 +4,10 @@
 import { randomBytes } from "node:crypto"
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { privateKeyToAccount, publicKeyToAddress } from "viem/accounts"
-import { decrypt, encrypt } from "../src/crypto"
 import { bidsBeforeClose, firstBidPerWorker } from "../src/bids"
 import { runsDir } from "../src/events"
 import { LIFETIME_MS } from "../src/schemas"
-import type { BidInput, BidRow, DifficultyClass, Hex, MissionInput, MissionRow, MissionStatus, SeedReleaseRow, SeedRevealRow, VerdictInput, VerdictRow, WalletLike } from "../src/schemas"
-import { pathQuality } from "../src/scoring"
+import type { BidInput, BidRow, DifficultyClass, Hex, MissionInput, MissionRow, MissionStatus, VerdictInput, VerdictRow, WalletLike } from "../src/schemas"
 import { leaderboardFrom, trustedVerifiers } from "../src/verdicts"
 import type { LeaderboardRow, VerdictFilter } from "../src/verdicts"
 
@@ -22,8 +19,8 @@ export { BidOpenError, bidsBeforeClose, openBid, sealBid } from "../src/bids"
 export { leaderboardFrom, trustedVerifiers } from "../src/verdicts"
 export type { LeaderboardRow, VerdictFilter } from "../src/verdicts"
 
-type Store = { missions: MissionRow[]; bids: BidRow[]; seedReleases: SeedReleaseRow[]; seedReveals: SeedRevealRow[]; verdicts: VerdictRow[] }
-const empty = (): Store => ({ missions: [], bids: [], seedReleases: [], seedReveals: [], verdicts: [] })
+type Store = { missions: MissionRow[]; bids: BidRow[]; verdicts: VerdictRow[] }
+const empty = (): Store => ({ missions: [], bids: [], verdicts: [] })
 type Written = { entityKey: Hex; txHash: Hex }
 
 // JSON can't hold bigint or bytes, so tag them.
@@ -128,8 +125,10 @@ export async function listOpenMissions(filter: { difficultyClass?: DifficultyCla
     .sort((a, b) => a.biddingClosesAt - b.biddingClosesAt)
 }
 
-export async function getMission(missionId: Hex): Promise<MissionRow | null> {
-  const found = live(load().missions).filter((m) => m.missionId === missionId).sort((a, b) => a.$createdAt - b.$createdAt)
+export async function getMission(missionId: Hex, requester?: Hex): Promise<MissionRow | null> {
+  const found = live(load().missions)
+    .filter((m) => m.missionId === missionId && (!requester || same(m.$owner, requester)))
+    .sort((a, b) => a.$createdAt - b.$createdAt)
   if (found.length > 1) console.warn(`board: ${found.length} Mission entities claim ${missionId}; using the earliest`)
   return found[0] ?? null
 }
@@ -146,46 +145,9 @@ export async function listBids(missionId: Hex, { closesAt }: { closesAt?: number
   return firstBidPerWorker(bidsBeforeClose(rows, cutoff))
 }
 
-export async function releaseSeed(wallet: WalletLike, missionId: Hex, seed: string, salt: string, workerPubKey: Hex): Promise<Written> {
-  const owner = wallet.account.address
-  const sealed = encrypt(workerPubKey, JSON.stringify({ seed, salt }))
-  return write("seedReleases", () => ({ ...meta(owner, LIFETIME_MS.seedRelease), missionId, worker: publicKeyToAddress(workerPubKey), sealed }))
-}
-
-export async function readSeedRelease(missionId: Hex, workerPrivKey: Hex): Promise<{ seed: string; salt: string } | null> {
-  const mission = await getMission(missionId)
-  if (!mission) return null
-  const worker = privateKeyToAccount(workerPrivKey).address
-  const row = live(load().seedReleases).find((r) => r.missionId === missionId && same(r.worker, worker) && same(r.$owner, mission.requester))
-  return row ? JSON.parse(decrypt(workerPrivKey, row.sealed)) : null
-}
-
-export async function seedReleasedAt(missionId: Hex, worker: Hex, requester?: Hex): Promise<number | null> {
-  const owner = requester ?? (await getMission(missionId))?.requester
-  if (!owner) return null
-  const row = live(load().seedReleases)
-    .filter((r) => r.missionId === missionId && same(r.worker, worker) && same(r.$owner, owner))
-    .sort((a, b) => a.$createdAt - b.$createdAt || (a.$key < b.$key ? -1 : 1))[0]
-  return row ? Math.floor(row.$createdAt / 1000) : null
-}
-
-export async function revealSeed(wallet: WalletLike, missionId: Hex, seed: string, salt: string): Promise<Written> {
-  const owner = wallet.account.address
-  return write("seedReveals", () => ({ ...meta(owner, LIFETIME_MS.seedReveal), missionId, seed, salt }))
-}
-
-export async function readSeedReveal(missionId: Hex, requester?: Hex): Promise<{ seed: string; salt: string } | null> {
-  const owner = requester ?? (await getMission(missionId))?.requester
-  if (!owner) return null
-  const row = live(load().seedReveals)
-    .filter((r) => r.missionId === missionId && same(r.$owner, owner))
-    .sort((a, b) => a.$createdAt - b.$createdAt || (a.$key < b.$key ? -1 : 1))[0]
-  return row ? { seed: row.seed, salt: row.salt } : null
-}
-
 export async function writeVerdict(wallet: WalletLike, v: VerdictInput): Promise<Written> {
   const owner = wallet.account.address
-  return write("verdicts", () => ({ ...v, pathQuality: pathQuality(v.optimalPathCost, v.pathCost), ...meta(owner, LIFETIME_MS.verdict) }))
+  return write("verdicts", () => ({ ...v, ...meta(owner, LIFETIME_MS.verdict) }))
 }
 
 export async function listVerdicts(filter: VerdictFilter = {}): Promise<VerdictRow[]> {

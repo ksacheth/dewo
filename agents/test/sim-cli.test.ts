@@ -18,7 +18,7 @@ afterAll(() => rmSync(runs, { recursive: true, force: true }));
 describe("SimCli (I1 over JSON lines)", () => {
   it("drives a whole Episode through a real child process", async () => {
     const session = await sim.openSession(SEED, "easy", MISSION);
-    const result = await runEpisode({ policy, session, inference: new ScriptedInference(["FORWARD", "FORWARD", "FORWARD"]) });
+    const result = await runEpisode({ policy, session, inference: new ScriptedInference(["FORWARD", "FORWARD", "FORWARD"]), limits: { maxSteps: 60, maxCollisions: 0 } });
     await session.close();
 
     expect(result.endReason).toBe("GOAL");
@@ -45,11 +45,19 @@ describe("SimCli (I1 over JSON lines)", () => {
     await session.close();
   });
 
-  it("turns an {error} reply into an exception instead of reading it as no collision", async () => {
+  it("goes on after a collision (sim 0.2.0), and turns an {error} reply into an exception instead of reading it as no collision", async () => {
     const session = await sim.openSession(SEED, "easy", MISSION);
     await session.act("TURN_LEFT");
+    expect(await session.act("FORWARD")).toEqual({ collision: false, atGoal: false });
+    await session.act("STOP");
     await expect(session.act("FORWARD")).rejects.toThrow(/episode is over/);
     await session.close();
+  });
+
+  it("plans the Course of a seed with `sim course` then `sim plan --max-cost`", async () => {
+    expect(await sim.plan(SEED, "easy", 10)).toEqual({ solvable: true, optimalPathCost: 3 });
+    expect(await sim.plan(SEED, "easy", 2)).toEqual({ solvable: false, optimalPathCost: -1 });
+    await expect(sim.plan(`0x${"f".repeat(64)}`, "easy", 10)).rejects.toThrow(/sim plan failed/);
   });
 
   it("lets STOP end the Episode without using a step, and reports the pose on observe", async () => {

@@ -13,11 +13,11 @@ bypass the Quorum. Rescue is the only unsigned finalization path.
 
 ## Deadline recommendation
 
-Use `Deadlines(uint64 biddingEndsAt, uint32 stakeWindow, uint32 seedReleaseWindow,
-uint32 episodeWindow, uint64 rescueAt)`. Bidding and rescue are absolute Unix
-timestamps; the other fields are durations in seconds. Demo defaults are a
-60-second bidding period, 30 seconds to stake, 30 seconds for Seed Release,
-300 seconds for Episode Submission, and rescue 3600 seconds after creation.
+Use `Deadlines(uint64 biddingEndsAt, uint32 stakeWindow, uint32 episodeWindow,
+uint64 rescueAt)`. Bidding and rescue are absolute Unix timestamps; the other
+fields are durations in seconds. Demo defaults are a 60-second bidding period,
+30 seconds to stake, 300 seconds for Episode Submission, and rescue 3600 seconds
+after creation.
 
 Record `awardedAt` and `stakedAt` locally. Staking is allowed strictly before
 `awardedAt + stakeWindow`; a replacement `award()` is allowed from that boundary (no dead second).
@@ -25,11 +25,11 @@ Each replacement gets a new stake window but cannot extend `rescueAt`. Awarding
 must leave sufficient time for the full sequence before rescue. Settlement is
 allowed strictly before rescue; anyone can rescue at or after `rescueAt`.
 
-Verifiers check Seed Release on Arkiv and Episode Submission on 0G. The Episode
-window begins at the actual Seed Release, not at stake. The contract stores the
-configuration so consumers do not use inconsistent timeout settings. It can
-reject an early NoSeedRelease using `stakedAt + seedReleaseWindow`; precise
-NoShow timing requires the Verifiers' evidence.
+Verifiers check Episode Submission on 0G. The Episode window begins at stake
+(`stakedAt + episodeWindow`): the Course Seed is public in the Mission from
+`createMission` (ADR 0006), so there is no Seed Release step to wait for. The
+contract stores the configuration so consumers do not use inconsistent timeout
+settings; precise NoShow timing requires the Verifiers' evidence.
 
 ## Award replacement: implemented with frozen I5 types
 
@@ -66,11 +66,13 @@ to communicate to consumers before integration.
 ## Minimal on-chain state
 
 `Created -> Awarded -> Staked -> Settled`; any unfinished state can become
-`Rescued` at the fixed final deadline. The application still tracks Seed Release,
-Episode Submission and verification, but those do not require new Escrow writes.
-`createMission` also stores `difficultyClass` (0 easy, 1 medium, 2 hard) and
-`riskWeightBps` (at most 10000) in the Mission and `MissionCreated`. They are
-immutable Mission terms for Verifiers to score against; payouts and the Award and
+`Rescued` at the fixed final deadline. The application still tracks Episode
+Submission and verification, but those do not require new Escrow writes.
+`createMission` also stores `courseSeed` (the public Course Seed, non-zero),
+`difficultyClass` (0 easy, 1 medium, 2 hard), `riskWeightBps` (at most 10000) and
+the Requester's limits `maxSteps` (1 to `MAX_STEPS` = 200) and `maxCollisions`. `difficultyClass`
+and `riskWeightBps` are also in `MissionCreated`. They are immutable Mission terms
+for Workers to price from and Verifiers to judge against; payouts and the Award and
 Verdict EIP-712 types do not use them. Values out of range revert with
 `InvalidConfiguration`.
 
@@ -82,10 +84,10 @@ is possible. Rescue is not part of the signed Outcome enum.
 | --- | --- | --- |
 | Pass | price + stake | maxBounty - price |
 | Fail / NoShow | 0 | maxBounty + stake |
-| InvalidCourse / NoSeedRelease | price + stake | maxBounty - price |
 | Rescue | deposited stake | maxBounty |
 
-Keep `Pass=0, Fail=1, NoShow=2, InvalidCourse=3, NoSeedRelease=4` exactly.
+Keep `Pass=0, Fail=1, NoShow=2` exactly. (`InvalidCourse=3` and `NoSeedRelease=4`
+were removed with the sealed Course, ADR 0006.)
 Use checks-effects-interactions and a reentrancy guard. Test each payout and
 conservation of funds across multiple Missions.
 

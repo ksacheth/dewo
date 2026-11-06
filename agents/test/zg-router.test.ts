@@ -173,6 +173,7 @@ describe("RouterInference", () => {
     const result = await runEpisode({
       policy: routerPolicy,
       session: new CorridorSession(3),
+      limits: { maxSteps: 60, maxCollisions: 0 },
       inference: new RouterInference(brokerWith(), { apiKey: API_KEY }),
     });
     expect(result).toEqual({ decisions: [], endReason: "SAFE_STOP" });
@@ -183,6 +184,7 @@ describe("RouterInference", () => {
     const result = await runEpisode({
       policy: routerPolicy,
       session: new CorridorSession(3),
+      limits: { maxSteps: 60, maxCollisions: 0 },
       inference: new RouterInference(brokerWith(), { apiKey: API_KEY }),
     });
     expect(result.decisions[0]).toMatchObject({

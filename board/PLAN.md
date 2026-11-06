@@ -1,5 +1,7 @@
 # M3 plan, part 1 of 3: `board/` (`@dewo/board`)
 
+> **Partly superseded (2026-11-06):** [ADR 0006](../docs/adr/0006-requester-sets-numeric-limits-on-a-public-course.md) removed the Seed Release, Seed Reveal, Path Quality and the Decision Cap described below; the Mission now carries a public `courseSeed` and the Requester's `maxSteps` and `maxCollisions`. This plan is kept as a record.
+
 Working plan for issue #13. Sister plans: [`web/PLAN.md`](../web/PLAN.md), [`arkiv/PLAN.md`](../arkiv/PLAN.md).
 Sources: `docs/spec.md` §4 and §5.3, PRD #10 (interfaces I4 and I8), `GLOSSARY.md`, ADR 0002,
 and the `@arkiv-network/sdk@1.0.1` source (read directly, not from memory).
@@ -318,7 +320,7 @@ Defined by `src/events.ts` (the source of truth; this table mirrors it). Files: 
 | `seed.released` | `{ worker, arkivKey }` | agents (Requester) |
 | `decision.made` | `{ step, frame, chatID, action }` (frame = path relative to `runs/`) | agents (Worker) |
 | `episode.submitted` | `{ episodeLogRoot, policyRoot, decisionCount }` | agents (Worker) |
-| `replay.paid` | `{ verifier, status: 402 \| "paid", amount }` | agents (Requester) |
+| `replay.paid` | `{ verifier, status: 402 \| "paid", amount }` | agents (Requester) for `402`; verifier for `"paid"` with `txUrl` (D15) |
 | `verdict.signed` | `{ verifier, outcome, evidenceHash, arkivKey }` | verifier (`verifier-<n>`, R10) |
 | `settled` | `{ outcome, workerPayout, requesterPayout }` | agents (Requester) |
 

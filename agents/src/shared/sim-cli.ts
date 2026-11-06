@@ -1,14 +1,14 @@
 // Simulator adapter for the I1 CLI: `sim course` writes a Course, then a long-running
 // `sim session` speaks JSON lines over stdin/stdout.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import type { Action, Hex } from "../formats";
 import { assertMissionId } from "./events";
 import { OverviewView, type OverviewOptions, type Pose } from "./overview";
-import type { ActResult, DifficultyClass, Observation, SimPort, SimSession } from "../worker/ports";
+import type { ActResult, CoursePlan, DifficultyClass, Observation, SimPort, SimSession } from "../worker/ports";
 
 /** How to invoke the sim CLI, e.g. ["uv", "run", "--project", "../sim", "sim"]. */
 export type SimCommand = readonly [string, ...string[]];
@@ -30,6 +30,20 @@ export class SimCli implements SimPort {
     const framesDir = resolve(this.runsDir, missionId, "frames");
     const view = this.overview && new OverviewView(this.overview, missionId, course, resolve(this.runsDir, missionId, "overview"), this.runsDir);
     return new CliSession(spawnSim(this.command, ["session", "--course", course, "--frames-dir", framesDir]), resolve(this.runsDir), view);
+  }
+
+  /** The advisory `sim plan` on the Course of `seed`: the shortest collision-free path, searched up to `maxCost` moving Actions. */
+  async plan(seed: Hex, difficulty: DifficultyClass, maxCost: number): Promise<CoursePlan> {
+    const dir = await mkdtemp(join(tmpdir(), "dewo-plan-"));
+    try {
+      const course = join(dir, "course.json");
+      await run(this.command, ["course", "--seed", seed, "--difficulty", difficulty, "--out", course]);
+      const reply = JSON.parse(await run(this.command, ["plan", "--course", course, "--max-cost", String(maxCost)])) as CoursePlan;
+      if (typeof reply.solvable !== "boolean" || !Number.isInteger(reply.optimalPathCost)) throw new Error(`sim plan answered ${JSON.stringify(reply)}`);
+      return reply;
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 }
 
@@ -102,12 +116,15 @@ function spawnSim(command: SimCommand, args: string[]): ChildProcessWithoutNullS
   return spawn(program, [...prefix, ...args], { stdio: "pipe" });
 }
 
-function run(command: SimCommand, args: string[]): Promise<void> {
+/** Runs one sim command to completion; resolves with its stdout. */
+function run(command: SimCommand, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawnSim(command, args);
+    let stdout = "";
     let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += String(chunk)));
     child.stderr.on("data", (chunk) => (stderr += String(chunk)));
     child.on("error", reject);
-    child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`sim ${args[0]} failed (${code}): ${stderr.trim()}`))));
+    child.on("exit", (code) => (code === 0 ? resolve(stdout) : reject(new Error(`sim ${args[0]} failed (${code}): ${stderr.trim()}`))));
   });
 }
