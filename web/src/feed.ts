@@ -7,6 +7,8 @@ export type VerifierView = { status: "idle" | "402" | "paid" | "verdict"; outcom
 export type MissionState = {
   missionId: string
   posted?: Of<"mission.posted">
+  /** When the Mission was posted (ms), for the bidding countdown ring. */
+  postedAt?: number
   sealedBids: Of<"bid.sealed">[]
   revealed?: Of<"bids.revealed">
   award?: Of<"award.signed"> & { txUrl?: string }
@@ -32,7 +34,7 @@ export function foldEvents(missionId: string, events: DewoEvent[]): MissionState
   for (const e of [...events].sort((a, b) => a.ts.localeCompare(b.ts))) {
     const d = e.data as never
     switch (e.type) {
-      case "mission.posted": s.posted = d; break
+      case "mission.posted": s.posted = d; s.postedAt = Date.parse(e.ts); break
       case "bid.sealed": s.sealedBids.push(d); break
       case "bids.revealed": s.revealed = d; break
       case "award.signed": s.award = { ...(d as object), txUrl: e.txUrl } as never; break

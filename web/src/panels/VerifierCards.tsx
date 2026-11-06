@@ -10,7 +10,7 @@ export function VerifierCards({ state }: { state: MissionState }) {
   const agree = agreement(state)
   return (
     <section className="panel" aria-label="Verifiers">
-      <h2><span className="num">04</span>Verifier Quorum · x402 per Replay</h2>
+      <h2>Verifier Quorum · x402 per Replay</h2>
       {slots.map(([addr, v], i) => (
         <div key={addr} className="card">
           <div className="row"><strong>Verifier {i + 1}</strong><span className="mono dim">{addr.startsWith("idle") ? "" : short(addr, 4)}</span>

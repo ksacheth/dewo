@@ -1,6 +1,7 @@
 // Emits a plausible full Mission through the real emit(): the test fixture, and a way to build the UI before M4/M5 exist.
 // pnpm --filter web fake-run [delayMs]   (default 800 ms between Decisions)
-import { mkdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { deflateSync } from "node:zlib"
 import { randomBytes } from "node:crypto"
@@ -39,7 +40,10 @@ const WORKERS = [
   { name: "Gambler", worker: addr(0xc3), price: "4300000", R: 0.5 },
 ]
 const VERIFIERS = [addr(0xe1), addr(0xe2), addr(0xe3)]
-const ACTIONS = ["FORWARD", "FORWARD", "TURN_LEFT", "FORWARD", "FORWARD", "FORWARD", "TURN_RIGHT", "FORWARD", "FORWARD", "FORWARD", "TURN_LEFT", "FORWARD", "FORWARD", "FORWARD", "FORWARD"]
+// The sim's golden Course and its solving Actions, so the Result map draws a route that really avoids the obstacles.
+const FIX = fileURLToPath(new URL("../../sim/tests/fixtures/", import.meta.url))
+const fixture = (name: string) => (existsSync(`${FIX}${name}`) ? JSON.parse(readFileSync(`${FIX}${name}`, "utf8")) : null)
+const ACTIONS: string[] = fixture("actions_medium.json") ?? ["FORWARD", "FORWARD", "TURN_LEFT", "FORWARD", "FORWARD", "FORWARD", "TURN_RIGHT", "FORWARD", "FORWARD", "FORWARD", "TURN_LEFT", "FORWARD", "FORWARD", "FORWARD", "FORWARD"]
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const hs = (id: string) => `https://hashscan.io/testnet/transaction/${id}`
 
@@ -47,6 +51,8 @@ const hs = (id: string) => `https://hashscan.io/testnet/transaction/${id}`
 export async function fakeRun({ dir = runsDir(), delayMs = 800, missionId = `0x${randomBytes(32).toString("hex")}` }: { dir?: string; delayMs?: number; missionId?: string } = {}) {
   process.env.RUNS_DIR = dir
   mkdirSync(join(dir, missionId, "frames"), { recursive: true })
+  const course = fixture("course_medium.json")
+  if (course) writeFileSync(join(dir, missionId, "course.json"), JSON.stringify(course))
   const e = emit
   e(missionId, "requester", { type: "mission.posted", data: { difficultyClass: "medium", task: "rover", maxBounty: "10000000", riskWeight: 0.5, maxSteps: 60, maxCollisions: 0, biddingClosesAt: Math.floor(Date.now() / 1000) + 60, arkivKey: addr(0xa1) }, txUrl: hs("0.0.1001@1.1") })
   for (const w of WORKERS) { e(missionId, `worker-${w.name.toLowerCase().replace(/ /g, "-")}`, { type: "bid.sealed", data: { worker: w.worker, workerName: w.name, policyHash: `0x${w.name.length}abc`, arkivKey: addr(0xb0 + w.name.length) } }); await sleep(Math.max(2, delayMs / 4)) }
@@ -74,7 +80,36 @@ export async function fakeRun({ dir = runsDir(), delayMs = 800, missionId = `0x$
   return missionId
 }
 
+/** Demo only: Verdict entities in the mock board, so the Result and the Leaderboard have data (one Fail included). Needs VERIFIER_ADDRESSES. */
+async function seedBoard(missionId: string, dir: string) {
+  if (existsSync(".env")) process.loadEnvFile(".env")
+  const verifiers = (process.env.VERIFIER_ADDRESSES ?? "").split(",").filter(Boolean)
+  if (!verifiers.length) return console.log("VERIFIER_ADDRESSES not set: skipped seeding Verdicts")
+  process.env.RUNS_DIR = dir
+  const { seedMock } = await import("@dewo/board/mock")
+  const hex = (n = 32) => `0x${randomBytes(n).toString("hex")}`
+  const row = (worker: string, id: string, outcome: string, pathCost: number, optimalPathCost: number, collisions: number, owner: string, ago: number, evidenceHash: string, episodeLogRoot: string) => ({
+    missionId: id, worker, outcome, pathCost, optimalPathCost, collisions, difficultyClass: "medium", signature: hex(65), evidenceHash, episodeLogRoot,
+    pathQuality: pathCost ? Math.min(1, optimalPathCost / pathCost) : 0,
+    $key: hex(), $owner: owner, $createdAt: Date.now() - ago, $expiresAt: Date.now() + 86_400_000,
+  })
+  // Two Verifiers sign the same evidence, which is what makes a Quorum.
+  const pair = (worker: string, id: string, outcome: string, pc: number, opt: number, col: number, ago: number) => {
+    const evidence = hex(), log = hex()
+    return verifiers.slice(0, 2).map((v) => row(worker, id, outcome, pc, opt, col, v, ago, evidence, log))
+  }
+  seedMock({
+    verdicts: [
+      ...pair(WORKERS[1].worker, missionId, "Pass", 15, 15, 0, 0),
+      ...pair(WORKERS[0].worker, hex(), "Pass", 12, 11, 0, 60_000), ...pair(WORKERS[0].worker, hex(), "Pass", 14, 12, 0, 120_000),
+      ...pair(WORKERS[2].worker, hex(), "Fail", 9, 11, 1, 90_000), ...pair(WORKERS[2].worker, hex(), "Pass", 17, 12, 0, 150_000),
+      ...pair(WORKERS[1].worker, hex(), "Pass", 13, 12, 0, 180_000),
+    ] as never,
+  })
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const id = await fakeRun({ delayMs: Number(process.argv[2] ?? 800) })
+  await seedBoard(id, runsDir())
   console.log(`fake Mission ${id} written to ${runsDir()}`)
 }

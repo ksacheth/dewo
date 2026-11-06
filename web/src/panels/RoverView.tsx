@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { MissionState } from "../feed"
+import { API } from "../api"
 import { short } from "../links"
 
 const MS_PER_IMAGE = 70
@@ -14,7 +15,7 @@ function useMotion(moves: MissionState["moves"]): string | null {
     for (const move of moves.slice(seen.current)) {
       const ready = Promise.all(move.images.map((image) => {
         const img = new Image()
-        img.src = `/runs/${image}`
+        img.src = API.frame(image)
         return img.decode().then(() => image, () => null)
       }))
       const previous = loading.current
@@ -50,13 +51,13 @@ export function RoverView({ state }: { state: MissionState }) {
   const failed = Object.values(state.verifiers).some((v) => v.outcome && v.outcome !== "Pass") || (state.settled && state.settled.outcome !== "Pass")
   return (
     <section className="panel panel-hero" aria-label={`${robot} view`}>
-      <h2><span className="num">03</span>{robot} · every Decision is a 0G model call</h2>
+      <h2>{robot} · every Decision is a 0G model call</h2>
       {arena ? (
         <div className="arena">
-          <img className="frame" src={`/runs/${arena}`} alt="Whole arena, rendered in MuJoCo" />
+          <img className="frame" src={API.frame(arena)} alt="Whole arena, rendered in MuJoCo" />
           {shown && (
             <div className="onboard">
-              <img src={`/runs/${shown.frame}`} alt={`Camera frame, step ${shown.step}`} />
+              <img src={API.frame(shown.frame)} alt={`Camera frame, step ${shown.step}`} />
               <div>
                 <span className="dim">What the model sees · Decision {shown.step}/{maxSteps}</span>
                 <strong>{shown.action}</strong>
@@ -65,7 +66,7 @@ export function RoverView({ state }: { state: MissionState }) {
             </div>
           )}
         </div>
-      ) : shown ? <img className="frame" src={`/runs/${shown.frame}`} alt={`Camera frame, step ${shown.step}`} /> : <div className="frame" />}
+      ) : shown ? <img className="frame" src={API.frame(shown.frame)} alt={`Camera frame, step ${shown.step}`} /> : <div className="frame" />}
       {last?.collision && <div className="banner bad">Collision: the move was blocked</div>}
       {last?.atGoal && <div className="banner good">{drone ? "Flew through the hoop" : "Reached the charger"}</div>}
       {state.decisions.some((d) => d.action === "STOP") && <div className="banner bad">Episode ended by STOP</div>}

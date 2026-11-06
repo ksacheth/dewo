@@ -14,6 +14,10 @@ _Avoid_: Agent 1, client, buyer, task poster
 An agent that bids on Missions and, if it wins, pilots the robot to complete one.
 _Avoid_: bidder, executor, contractor, worker agent
 
+**Operator**:
+The human who onboards a Requester or a Worker by connecting its wallet, and who clicks Post to start a Mission. Everything after that click is autonomous.
+_Avoid_: user, admin, owner, human
+
 **Verifier**:
 The party that decides pass or fail for an Episode by replaying it; never the Requester or the Worker.
 _Avoid_: judge, evaluator, oracle

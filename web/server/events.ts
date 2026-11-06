@@ -6,6 +6,8 @@ import { dirname, join, resolve, sep } from "node:path"
 import { randomBytes } from "node:crypto"
 import { MAX_STEPS } from "../src/constants"
 import type { Plugin, ViteDevServer } from "vite"
+import { AuthError, authFromEnv } from "./auth"
+import { CourseError, loadCourse } from "./course"
 
 const MISSION_ID = /^0x[0-9a-fA-F]{64}$/
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x instanceof Uint8Array ? `0x${Buffer.from(x).toString("hex")}` : x))
@@ -64,12 +66,40 @@ export function dewoServer(): Plugin {
       let board: Promise<Record<string, any>> | undefined
       const loadBoard = () => (board ??= server.ssrLoadModule(mode === "mock" ? "@dewo/board/mock" : "@dewo/board") as Promise<Record<string, any>>)
 
+      const auth = authFromEnv()
+      const difficultyOf = (id: string) => listRuns(RUNS).find((r) => r.missionId === id)?.posted?.difficultyClass as string | undefined
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? "/", "http://x")
         try {
+          // Posting a Mission needs an operator wallet when OPERATOR_ADDRESSES is set (also guards the proxied Requester API).
+          if (req.method === "POST" && (url.pathname === "/api/mock/missions" || url.pathname.startsWith("/requester")) && !auth.canPost(req.headers.cookie))
+            return send(res, 401, { error: "sign in with an operator wallet to post a Mission" })
+          if (url.pathname === "/api/auth/me") { const a = auth.session(req.headers.cookie); return send(res, 200, { address: a, open: auth.open }) }
+          if (url.pathname === "/api/auth/message") return send(res, 200, { message: auth.challenge(url.searchParams.get("address") ?? "") })
+          if (url.pathname === "/api/auth/login" || url.pathname === "/api/auth/logout") {
+            if (req.method !== "POST") return send(res, 405, { error: "POST only" })
+            const refused = guardMockPost(req.headers)
+            if (refused) return send(res, refused.code, { error: refused.message })
+            if (url.pathname.endsWith("logout")) { res.setHeader("set-cookie", auth.clearCookie()); return send(res, 200, { address: null }) }
+            let b: any
+            try { b = JSON.parse(await readBody(req)) } catch (e) { if (e instanceof HttpError) throw e; return send(res, 400, { error: "invalid JSON" }) }
+            const { address, cookie } = await auth.login(String(b?.address), String(b?.message), String(b?.signature))
+            res.setHeader("set-cookie", cookie)
+            return send(res, 200, { address })
+          }
+          if (url.pathname === "/api/board/verdicts") {
+            const id = url.searchParams.get("missionId") ?? ""
+            return MISSION_ID.test(id) ? send(res, 200, await (await loadBoard()).listVerdicts({ missionId: id })) : send(res, 400, { error: "bad missionId" })
+          }
+          const course = /^\/api\/missions\/([^/]+)\/course$/.exec(url.pathname)
+          if (course) {
+            if (!MISSION_ID.test(course[1])) return send(res, 400, { error: "bad missionId" })
+            return send(res, 200, await loadCourse({ missionId: course[1], runs: RUNS, difficulty: difficultyOf(course[1]), board: (await loadBoard()) as never }))
+          }
           if (url.pathname === "/api/events") return sse(url, req, res, RUNS)
           if (url.pathname === "/api/runs") return send(res, 200, listRuns(RUNS))
           if (url.pathname.startsWith("/runs/")) return frame(url.pathname.slice(6), res, RUNS)
+          if (url.pathname === "/api/workers") return send(res, 200, workerNames(RUNS))
           if (url.pathname === "/api/settlements") return send(res, 200, settlements(RUNS))
           if (url.pathname === "/api/deployments") return send(res, 200, deployments(server))
           if (url.pathname === "/api/board/mode") return send(res, 200, { board: mode })
@@ -90,7 +120,7 @@ export function dewoServer(): Plugin {
             return mockRequester(body, res, loadBoard, mode)
           }
         } catch (e) {
-          return send(res, e instanceof HttpError ? e.code : 500, { error: (e as Error).message })
+          return send(res, e instanceof HttpError || e instanceof AuthError || e instanceof CourseError ? e.code : 500, { error: (e as Error).message })
         }
         next()
       })
@@ -149,6 +179,14 @@ function listRuns(RUNS: string) {
     const posted = files(dir).flatMap((f) => lines(join(dir, f))).find((e) => e.type === "mission.posted")
     return { missionId, posted: posted?.data, mtime: statSync(dir).mtimeMs }
   }).sort((a, b) => b.mtime - a.mtime)
+}
+
+/** Worker address -> Policy name, from every bid.sealed event on this machine (the Leaderboard and Onboarding show names, not addresses). */
+function workerNames(RUNS: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const d of readdirSync(RUNS).filter((x) => MISSION_ID.test(x)))
+    for (const f of files(join(RUNS, d))) for (const e of lines(join(RUNS, d, f))) if (e.type === "bid.sealed") out[String(e.data.worker).toLowerCase()] = e.data.workerName
+  return out
 }
 
 function frame(rel: string, res: ServerResponse, RUNS: string) {
