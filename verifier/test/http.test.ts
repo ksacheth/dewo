@@ -35,12 +35,12 @@ beforeEach(() => {
 });
 afterEach(() => { delete process.env.RUNS_DIR; });
 
-function app(opts: { award?: () => EscrowAward | null; bidders?: Record<string, bigint>; now?: () => number; arkivDown?: boolean; storageDown?: boolean; onChainVerifiers?: readonly `0x${string}`[] } = {}) {
+function app(opts: { award?: () => EscrowAward | null; bidders?: Record<string, bigint>; now?: () => number; arkivDown?: boolean; storageDown?: boolean; onChainVerifiers?: readonly `0x${string}`[]; escrowDown?: boolean } = {}) {
   const { mission, ...episode } = honestEpisode();
   const written: unknown[] = [];
   const deps = {
     key: KEY, escrow: ESCROW, gate, events: boardEvents("verifier-1"), sim: new FakeSim(), zeroG: zeroG(), now: opts.now ?? (() => 5_000),
-    board: fakeBoard({ prices: opts.bidders ?? { [WORKER]: 5_000_000n } }), chain: fakeChain({ award: opts.award, verifiers: opts.onChainVerifiers }), trustedVerifiers: VERIFIERS,
+    board: fakeBoard({ prices: opts.bidders ?? { [WORKER]: 5_000_000n } }), chain: fakeChain({ award: opts.award, verifiers: opts.onChainVerifiers, down: opts.escrowDown }), trustedVerifiers: VERIFIERS,
     source: { load: async () => {
       if (opts.storageDown) throw new StorageUnavailableError("0G Storage download timed out");
       return { mission, worker: WORKER, timeline: { stakedAt: 1_000, seedReleasedAt: 1_010, episodeSubmittedAt: 1_100 }, episode };
@@ -159,6 +159,16 @@ describe("Verifier HTTP API (I6)", () => {
       expect((await res.json()).error).toMatch(/untrusted Verifiers/);
       expect(settleCalls).toBe(0);
       expect(written).toHaveLength(0);
+    });
+
+    it("answers a retryable 503, not a 4xx, when the escrow read behind the check fails", async () => {
+      settleCalls = 0;
+      const { a } = app({ escrowDown: true });
+      const award = await post(a, "/award");
+      expect(award.status).toBe(503);
+      expect((await award.json()).error).toMatch(/escrow unavailable/);
+      expect((await post(a, "/replay", { "x-payment": "paid" })).status).toBe(503);
+      expect(settleCalls).toBe(0);
     });
   });
 

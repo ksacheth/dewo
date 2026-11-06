@@ -47,6 +47,28 @@ describe("Worker: bidding", () => {
     expect(w.stage()).toBe("BID_PLACED");
   });
 
+  it("does not stake a Bid re-adopted after a crash when the on-chain Verifiers are untrusted", async () => {
+    const w = setup();
+    w.post("m1", terms(), [VERIFIER_ADDRESSES[0]!, VERIFIER_ADDRESSES[1]!, RIVAL]);
+    // A Bid on Arkiv with no local record: the process died between placeBid and the record write.
+    await w.board.placeBid({ missionId: "m1", worker: ME, policyHash: policyHash(policy), workerPubKey: "0x04ab", sealedPrice: ["a", "b", "c"] });
+    w.escrow.grant("m1");
+    await w.worker.tick();
+    await w.worker.tick();
+    expect(w.records.get("m1")).toMatchObject({ stage: "LOST", note: "UNTRUSTED_VERIFIERS" });
+    expect(w.escrow.stakes).toHaveLength(0);
+  });
+
+  it("does not stake a persisted WON record when the on-chain Verifiers are untrusted", async () => {
+    const w = setup();
+    w.post("m1", terms(), [VERIFIER_ADDRESSES[0]!, RIVAL, RIVAL]);
+    w.records.put({ missionId: "m1", stage: "WON", price: 1.36 });
+    w.escrow.grant("m1");
+    await w.worker.tick();
+    expect(w.records.get("m1")).toMatchObject({ stage: "LOST", note: "UNTRUSTED_VERIFIERS" });
+    expect(w.escrow.stakes).toHaveLength(0);
+  });
+
   it("skips instead of bidding 0 when its strategy prices the Mission at zero", async () => {
     const w = world();
     const me = workerIn(w, { margin: 0 });

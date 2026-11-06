@@ -35,12 +35,8 @@ async function logFailure(what: string, step: () => Promise<unknown>) {
     console.error(`${what}: ${errorMessage(e)}`);
   }
 }
-/**
- * Untrusted Verifiers: refused for good (ADR 0005). Pending: retry later. 0G Storage unavailable: retry later (no Verdict).
- * Evidence expired: retrying cannot help. Anything else is our failure.
- */
+/** Pending: retry later. 0G Storage unavailable: retry later (no Verdict). Evidence expired: retrying cannot help. Anything else is our failure. */
 const replayErrorStatus = (e: unknown) => {
-  if (e instanceof UntrustedVerifiersError) return 403;
   if (e instanceof PendingError) return 409;
   if (e instanceof StorageUnavailableError) return 503;
   if (e instanceof EvidenceExpiredError) return 410;
@@ -63,13 +59,25 @@ export function createApp(deps: AppDeps) {
   const verifier = privateKeyToAccount(deps.key).address;
   const awardFor = createAwarder(deps);
   // ADR 0005: both routes refuse a Mission whose on-chain Verifiers are not this instance plus the other two trusted ones.
-  const refuseUntrusted = verifierSetGuard(deps.chain, verifier, deps.trustedVerifiers);
+  const checkVerifierSet = verifierSetGuard(deps.chain, verifier, deps.trustedVerifiers);
+
+  /** 403 when the Mission's Verifiers are untrusted (final); 503 when the escrow read itself fails (retryable). Null to go on. */
+  async function refuseUntrusted(missionId: Hex): Promise<Response | null> {
+    try {
+      await checkVerifierSet(missionId);
+      return null;
+    } catch (e) {
+      if (e instanceof UntrustedVerifiersError) return respond({ error: e.message }, 403);
+      return respond({ error: `escrow unavailable: ${errorMessage(e)}` }, 503);
+    }
+  }
 
   app.post("/award", async (c) => {
     const missionId = await readMissionId(c.req.raw);
     if (!missionId) return respond({ error: "missionId must be a 32-byte hex string" }, 400);
+    const refused = await refuseUntrusted(missionId);
+    if (refused) return refused;
     try {
-      await refuseUntrusted(missionId);
       const award = await awardFor(missionId);
       await announceAward(missionId, award);
       return respond(award);
@@ -77,7 +85,6 @@ export function createApp(deps: AppDeps) {
       // The Requester reads a null body as "no valid Bid to award" (agents/src/requester/verifier-client.ts).
       if (e instanceof NoValidBidsError) return respond(null);
       if (e instanceof BiddingOpenError) return respond({ error: e.message }, 409);
-      if (e instanceof UntrustedVerifiersError) return respond({ error: e.message }, 403);
       return respond({ error: (e as Error).message }, 422);
     }
   });
@@ -102,9 +109,10 @@ export function createApp(deps: AppDeps) {
   }
 
   async function paidReplay(missionId: Hex, payment: GatePaid): Promise<Response> {
+    const refused = await refuseUntrusted(missionId);
+    if (refused) return refused;
     let decided: DecidedVerdict;
     try {
-      await refuseUntrusted(missionId);
       decided = await decideVerdict(deps, missionId);
     } catch (e) {
       return respond({ error: errorMessage(e) }, replayErrorStatus(e));

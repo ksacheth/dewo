@@ -8,8 +8,8 @@ A Mission's 3 Verifiers are whatever addresses the Requester passes to `createMi
 
 We close this off-chain, without redeploying the escrow. Every Worker and every Verifier carries the same trusted list, `VERIFIER_ADDRESSES`, and reads the Mission's `verifiers` from the escrow before acting:
 
-- **Worker:** skips the Mission with skip reason `UNTRUSTED_VERIFIERS` unless the on-chain `verifiers` are exactly its 3 trusted Verifiers (derived from `VERIFIER_PUBKEYS`). The check ignores case and order, since any 2 of the 3 signatures count. This is on top of the Arkiv filter, which only checks the Mission entity's list and keeps its order because the sealed prices follow it (board D7).
-- **Verifier:** `POST /award` and `POST /replay` answer `403` and sign nothing unless the on-chain `verifiers` include this Verifier and equal its `VERIFIER_ADDRESSES` (again ignoring case and order). `/replay` refuses before the Replay runs, so no payment is settled. A Verifier refuses to start if `VERIFIER_ADDRESSES` is not 3 distinct addresses that include its own.
+- **Worker:** skips the Mission with skip reason `UNTRUSTED_VERIFIERS` unless the on-chain `verifiers` are exactly its 3 trusted Verifiers (derived from `VERIFIER_PUBKEYS`). The check ignores case and order, since any 2 of the 3 signatures count. This is on top of the Arkiv filter, which only checks the Mission entity's list and keeps its order because the sealed prices follow it (board D7). The same check runs again before every action that can lead to a stake: a Bid the Worker re-adopts after a crash, and any record still in `BID_PLACED` or `WON` (for example one written by an older build), moves to `LOST` with note `UNTRUSTED_VERIFIERS` instead of staking. Once staked there is nothing left to refuse.
+- **Verifier:** `POST /award` and `POST /replay` answer `403` and sign nothing unless the on-chain `verifiers` include this Verifier and equal its `VERIFIER_ADDRESSES` (again ignoring case and order). `/replay` refuses before the Replay runs, so no payment is settled. If the escrow read behind the check fails, both routes answer a retryable `503` instead. A Verifier refuses to start if `VERIFIER_ADDRESSES` is not 3 distinct addresses that include its own.
 
 The rule is one function, `sameVerifierSet` in `@dewo/agents/formats`, shared by both sides.
 
@@ -37,4 +37,5 @@ In scope: a Worker corrupting 2 of the 3 Verifiers, a Requester choosing its own
 - Workers skip, and Verifiers refuse, any Mission not posted on the trusted set. A Requester that wants Workers must use these Verifiers.
 - `VERIFIER_ADDRESSES` must be the same in the Requester, Workers, Verifiers and web UI. A Verifier now needs it to run.
 - Every Verifier call does one more escrow read.
+- A Verifier's `VERIFIER_ADDRESSES` is configured on its own, apart from the Workers' `VERIFIER_PUBKEYS`, and is only checked to include the Verifier itself. If the two drift apart, Workers skip Missions the Verifiers would serve (or the reverse), so operators must keep them in step.
 - Known weaknesses of the production design: a Requester can retry `createMission` (or abandon and recreate Missions) to grind for a friendly committee, so the draw needs a cost per attempt or a commit-reveal step to make grinding expensive. And a drawn Verifier can still leak Bid prices until sealing uses threshold encryption.

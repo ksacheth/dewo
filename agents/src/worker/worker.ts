@@ -7,6 +7,7 @@ import {
   canonicalJson,
   fromBaseUnits,
   policyHash,
+  sameVerifierSet,
   seedCommitment,
   toBaseUnits,
   type EpisodeLog,
@@ -31,7 +32,11 @@ import type {
 } from "./ports";
 import { expectedStake, price } from "./pricing";
 import { ACTIVE_STAGES, BUSY_STAGES, type MissionRecord, type RecordStore, type Stage } from "./records";
-import { shouldSkip } from "./skip";
+import { shouldSkip, type SkipReason } from "./skip";
+
+/** Stages where the Worker has not staked yet, so it can still walk away from a Mission. */
+const PRE_STAKE_STAGES: ReadonlySet<Stage> = new Set(["BID_PLACED", "WON"]);
+const UNTRUSTED: SkipReason = "UNTRUSTED_VERIFIERS";
 
 /** The Worker's own strategy, in decimal USDC (converted to base units only when sealing the Bid). */
 export interface PricingStrategy {
@@ -127,6 +132,8 @@ export class Worker {
   private async advance(record: MissionRecord): Promise<void> {
     const mission = await this.deps.escrow.getMission(record.missionId);
     if (mission.settled) this.payouts.markDue(); // settled or rescued: a payout may be parked in owed
+    // ADR 0005: a Bid adopted after a crash, or a record from an older build, must never be staked on untrusted Verifiers.
+    if (this.mustWalkAway(record, mission)) return this.move(record, "LOST", UNTRUSTED);
     if (record.stage === "BID_PLACED") return this.watchAward(record, mission);
     if (record.stage === "WON") return this.stake(record, mission);
     if (record.stage === "STAKED") return this.fly(record, mission);
@@ -136,16 +143,19 @@ export class Worker {
 
   private async consider(missionId: string): Promise<void> {
     const { board, escrow, balances, clock } = this.deps;
+    const mission = await escrow.getMission(missionId);
     // A Bid on Arkiv without a record means a crash between placeBid and the record write.
-    if (await board.myBid(missionId, this.config.address)) return this.put({ missionId, stage: "BID_PLACED" });
-    const { terms, verifiers } = await escrow.getMission(missionId);
+    if (await board.myBid(missionId, this.config.address)) {
+      return this.put(this.trusts(mission) ? { missionId, stage: "BID_PLACED" } : { missionId, stage: "LOST", note: UNTRUSTED });
+    }
+    const { terms } = mission;
     const reliability = await board.reliabilityOf(this.config.address);
     const maxBounty = fromBaseUnits(terms.maxBounty);
     const stake = expectedStake(maxBounty, reliability);
     const bidPrice = price({ ...this.config.strategy, reliability, stake });
 
     const skip = shouldSkip({
-      missionVerifiers: verifiers,
+      missionVerifiers: mission.verifiers,
       trustedVerifiers: this.config.verifierAddresses,
       price: bidPrice,
       maxBounty,
@@ -276,6 +286,16 @@ export class Worker {
     const episodeLogRoot = await storage.upload(encode(JSON.stringify(log)));
     const { txHash } = await registry.submitEpisode(missionId, episodeLogRoot, policyRoot, log.decisions.length);
     return { payload: { episodeLogRoot, policyRoot, decisionCount: log.decisions.length }, txHash };
+  }
+
+  /** Not staked yet, and the Mission's Verifiers are not the trusted set: give up the Bid or Award rather than stake. */
+  private mustWalkAway(record: MissionRecord, mission: EscrowMission): boolean {
+    return PRE_STAKE_STAGES.has(record.stage) && !this.trusts(mission);
+  }
+
+  /** ADR 0005: the Mission's on-chain Verifiers are exactly this Worker's trusted set. */
+  private trusts(mission: EscrowMission): boolean {
+    return sameVerifierSet(mission.verifiers, this.config.verifierAddresses);
   }
 
   private isAwardedToMe(mission: EscrowMission): boolean {
