@@ -61,7 +61,12 @@ export interface RequesterRecord extends Keyed {
   verdicts: Record<string, SignedVerdict>;
   paidReplays: number;
   note?: string;
+  /** The client's Idempotency-Key from POST /missions; carried over when the record is re-keyed. */
+  idempotencyKey?: string;
 }
+
+/** What POST /missions answers: the Mission, or the Seed Commitment of an attempt still being created. */
+export type PostResult = { missionId: string } | { pending: true; ref: string };
 
 /** I7 request body. */
 export interface MissionRequest {
@@ -134,8 +139,26 @@ export class Requester {
     this.payouts = new PayoutClaimer(deps.escrow, config.address, "requester");
   }
 
+  /**
+   * I7 POST /missions with an optional idempotency key. A key seen before returns that attempt instead of
+   * locking a second bounty: its missionId, or pending while it is still CREATING (in flight, or failed and
+   * left to the tick to recover or retry with the same seed). A key never expires and ignores the request body.
+   */
+  async postOnce(request: MissionRequest, idempotencyKey?: string): Promise<PostResult> {
+    const earlier = idempotencyKey === undefined ? undefined : this.findByIdempotencyKey(idempotencyKey);
+    if (earlier?.stage === "CREATING") return { pending: true, ref: earlier.missionId };
+    if (earlier) return { missionId: earlier.missionId };
+    // post() saves its CREATING record before its first await, so a concurrent call with the same key finds it.
+    return { missionId: await this.post(request, idempotencyKey) };
+  }
+
+  /** A RETIRED record always has its re-keyed copy, which carries the same key. */
+  private findByIdempotencyKey(key: string): RequesterRecord | undefined {
+    return this.deps.records.all().find((record) => record.idempotencyKey === key && record.stage !== "RETIRED");
+  }
+
   /** I7 POST /missions. Everything after this is autonomous. */
-  async post(request: MissionRequest): Promise<string> {
+  async post(request: MissionRequest, idempotencyKey?: string): Promise<string> {
     const random = this.deps.random ?? random32;
     const seed = random();
     const salt = random();
@@ -148,6 +171,7 @@ export class Requester {
       verdicts: {},
       paidReplays: 0,
       request,
+      ...(idempotencyKey !== undefined && { idempotencyKey }),
     };
     this.deps.records.put(creating);
     const created = await this.createOnChain(creating);
@@ -241,11 +265,15 @@ export class Requester {
     this.deps.records.put({ ...creating, stage: "RETIRED", note: `created as ${missionId}` });
   }
 
-  /** Lists a funded Mission on Arkiv; if bidding closed first, nobody can bid, so wait for rescue. */
+  /**
+   * Lists a funded Mission on Arkiv; if bidding closed first, nobody can bid, so wait for rescue.
+   * Check before acting: a crash after postMission but before the record write must not list twice. An adopted
+   * listing is still announced, since that crash also came before the mission.posted event.
+   */
   private async list(record: RequesterRecord, mission: EscrowMission): Promise<void> {
     const { terms } = mission;
     if (this.deps.clock.now() >= terms.deadlines.biddingClosesAt) return this.move(record, "NO_BIDS", "never listed");
-    const { key } = await this.deps.board.postMission({
+    const { key } = (await this.deps.board.listingOf(record.missionId)) ?? await this.deps.board.postMission({
       missionId: record.missionId,
       difficultyClass: terms.difficultyClass,
       maxBounty: terms.maxBounty,
@@ -359,8 +387,8 @@ export class Requester {
       const { verdict, payment } = await this.deps.verifiers.requestReplay(url, record.missionId);
       next = { ...next, verdicts: { ...next.verdicts, [url]: verdict } };
       const verifier = this.config.verifiers.find((v) => v.url === url)!.address;
+      // D15: the Verifier owns the "paid" event (it alone knows the settlement transaction); the Requester reports only the challenge.
       if (payment.challenged) this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: 402, amount: payment.amount.toString() });
-      this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: "paid", amount: payment.amount.toString() });
       await this.audit({
         missionId: record.missionId,
         verifier,

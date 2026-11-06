@@ -1,14 +1,18 @@
-// I7 Requester API: POST /missions { difficulty, maxBounty, riskWeight } -> { missionId }.
+// I7 Requester API: POST /missions { difficulty, maxBounty, riskWeight } -> 201 { missionId }.
+// An optional Idempotency-Key header makes a retry safe: the same key returns the first attempt's
+// 201 { missionId }, or 202 { pending: true, ref } (its Seed Commitment) while that attempt is still
+// being created or waits for the tick to recover or retry it. Poll with the same key until it is 201.
 // Creating a Mission locks real funds, so the API is local-only by default, optionally needs a bearer
 // token, is open to one browser origin only, and caps the bounty and the body size.
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { toBaseUnits, USDC_DECIMALS } from "../formats";
-import type { MissionRequest } from "./requester";
+import type { MissionRequest, PostResult } from "./requester";
 
 const DIFFICULTIES = new Set(["easy", "medium", "hard"]);
 
 export const MAX_BODY_BYTES = 16 * 1024;
+export const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 export const DEFAULT_HOST = "127.0.0.1";
 
 export interface ServerOptions {
@@ -60,8 +64,15 @@ function bountyPrecisionError(maxBounty: number): string | null {
   return null;
 }
 
+/** The Idempotency-Key header: undefined when absent, null when not 1 to 255 visible ASCII characters (a repeated header is joined with ", ", so it fails too). */
+export function parseIdempotencyKey(header: string | string[] | undefined): string | undefined | null {
+  if (header === undefined) return undefined;
+  if (typeof header !== "string") return null;
+  return /^[\x21-\x7e]+$/.test(header) && header.length <= MAX_IDEMPOTENCY_KEY_LENGTH ? header : null;
+}
+
 export function createRequesterServer(
-  post: (request: MissionRequest) => Promise<string>,
+  post: (request: MissionRequest, idempotencyKey?: string) => Promise<PostResult>,
   options: ServerOptions = DEFAULT_SERVER_OPTIONS,
 ): Server {
   return createServer(async (req, res) => {
@@ -71,12 +82,15 @@ export function createRequesterServer(
     if (req.method !== "POST" || req.url !== "/missions") return reply(404, { error: "not found" });
     if (options.apiToken && !authorised(req, options.apiToken)) return reply(401, { error: "missing or wrong bearer token" });
     if (!/^application\/json\b/i.test(req.headers["content-type"] ?? "")) return reply(415, { error: "content-type must be application/json" });
+    const idempotencyKey = parseIdempotencyKey(req.headers["idempotency-key"]);
+    if (idempotencyKey === null) return reply(400, { error: `idempotency-key must be 1 to ${MAX_IDEMPOTENCY_KEY_LENGTH} visible ASCII characters` });
     try {
       const body = await readJson(req);
       if (body === TOO_LARGE) return reply(413, { error: `body over ${MAX_BODY_BYTES} bytes` });
       const parsed = parseMissionRequest(body, options.maxBounty);
       if (typeof parsed === "string") return reply(400, { error: parsed });
-      reply(201, { missionId: await post(parsed) });
+      const result = await post(parsed, idempotencyKey);
+      reply("pending" in result ? 202 : 201, result);
     } catch (error) {
       reply(500, { error: String(error) });
     }
@@ -114,7 +128,7 @@ function send(res: ServerResponse, status: number, body: unknown, allowOrigin?: 
       "access-control-allow-origin": allowOrigin,
       vary: "Origin",
       "access-control-allow-methods": "POST, OPTIONS",
-      "access-control-allow-headers": "content-type, authorization",
+      "access-control-allow-headers": "content-type, authorization, idempotency-key",
     }),
     ...(status === 413 && { connection: "close" }),
   });

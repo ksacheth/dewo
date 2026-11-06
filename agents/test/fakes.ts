@@ -191,6 +191,10 @@ export class FakeBoard implements BoardPort, RequesterBoardPort {
     this.open.push(listing.missionId);
     return { key: `arkiv-mission-${this.listings.length}` };
   }
+  async listingOf(missionId: string): Promise<{ key: string } | null> {
+    const index = this.listings.findIndex((l) => l.missionId === missionId);
+    return index < 0 ? null : { key: `arkiv-mission-${index + 1}` };
+  }
   async workerPubKey(missionId: string, worker: Hex): Promise<Hex | null> {
     return this.bids.find((b) => b.missionId === missionId && b.worker === worker)?.workerPubKey ?? null;
   }

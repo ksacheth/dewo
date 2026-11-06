@@ -314,6 +314,28 @@ describe("Requester: crash safety", () => {
     expect(s.board.listings).toHaveLength(1);
   });
 
+  it("does not list twice when a crash lost the record write after postMission", async () => {
+    const s = setupRequester();
+    const postMission = s.board.postMission.bind(s.board);
+    // The listing lands on Arkiv, then the process dies before the record moves on.
+    s.board.postMission = async (listing) => {
+      await postMission(listing);
+      throw new Error("crash");
+    };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await s.post();
+    expect(s.stage()).toBe("CREATED");
+
+    s.board.postMission = postMission;
+    await s.requester.tick();
+    errors.mockRestore();
+    expect(s.board.listings).toHaveLength(1);
+    expect(s.stage()).toBe("BIDDING");
+    expect(s.events.filter((e) => e.type === "mission.posted")).toEqual([
+      expect.objectContaining({ data: expect.objectContaining({ arkivKey: "arkiv-mission-1" }) }),
+    ]);
+  });
+
   it("stops listing once bidding has closed and rescues it later", async () => {
     const s = setupRequester();
     s.board.postMission = async () => Promise.reject(new Error("arkiv down"));
@@ -418,5 +440,72 @@ describe("Requester: isolation", () => {
 
     expect(records.get("m1")?.stage).toBe("BIDDING");
     expect(records.get("m2")?.stage).toBe("AWARDED");
+  });
+});
+
+describe("Requester: idempotent posting (#37)", () => {
+  const request = { difficulty: "medium", maxBounty: 10, riskWeight: 0.5 } as const;
+
+  it("returns the first Mission for a repeated key and never creates a second", async () => {
+    const s = setupRequester();
+    expect(await s.requester.postOnce(request, "k1")).toEqual({ missionId: "m1" });
+    expect(await s.requester.postOnce(request, "k1")).toEqual({ missionId: "m1" });
+    expect(s.escrow.missions.size).toBe(1);
+    expect(s.records.get("m1")).toMatchObject({ idempotencyKey: "k1" });
+  });
+
+  it("answers pending while the first attempt is still in flight", async () => {
+    const s = setupRequester();
+    let release = () => {};
+    const create = s.escrow.createMission.bind(s.escrow);
+    s.escrow.createMission = (t) => new Promise((resolve) => (release = () => resolve(create(t))));
+    const first = s.requester.postOnce(request, "k1");
+
+    expect(await s.requester.postOnce(request, "k1")).toEqual({ pending: true, ref: seedCommitment(SEED, SALT) });
+    release();
+    expect(await first).toEqual({ missionId: "m1" });
+    expect(s.escrow.missions.size).toBe(1);
+  });
+
+  it("does not lock a second bounty when createMission errors but still lands", async () => {
+    const s = setupRequester();
+    const create = s.escrow.createMission.bind(s.escrow);
+    // An RPC timeout: the transaction lands, the caller only sees the error.
+    s.escrow.createMission = async (t) => {
+      await create(t);
+      throw new Error("rpc timeout");
+    };
+    await expect(s.requester.postOnce(request, "k1")).rejects.toThrow("rpc timeout");
+    s.escrow.createMission = create;
+
+    expect(await s.requester.postOnce(request, "k1")).toEqual({ pending: true, ref: seedCommitment(SEED, SALT) });
+    await s.requester.tick();
+    expect(await s.requester.postOnce(request, "k1")).toEqual({ missionId: "m1" });
+    expect(s.escrow.missions.size).toBe(1);
+  });
+
+  it("waits for the tick's retry after a failed attempt instead of starting another", async () => {
+    const s = setupRequester();
+    const create = s.escrow.createMission.bind(s.escrow);
+    s.escrow.createMission = async () => Promise.reject(new Error("rpc down"));
+    await expect(s.requester.postOnce(request, "k1")).rejects.toThrow("rpc down");
+    s.escrow.createMission = create;
+
+    expect(await s.requester.postOnce(request, "k1")).toMatchObject({ pending: true });
+    expect(s.escrow.missions.size).toBe(0);
+    s.clock.t += CREATE_RETRY_SECONDS + 1;
+    await s.requester.tick();
+    expect(await s.requester.postOnce(request, "k1")).toEqual({ missionId: "m1" });
+    expect(s.escrow.missions.size).toBe(1);
+  });
+
+  it("creates a new Mission for each request without a key, or with another key", async () => {
+    const w = world();
+    let n = 0;
+    const { requester } = requesterIn(w, { random: () => `0x${(++n).toString(16).padStart(64, "0")}` });
+    expect(await requester.postOnce(request)).toEqual({ missionId: "m1" });
+    expect(await requester.postOnce(request)).toEqual({ missionId: "m2" });
+    expect(await requester.postOnce(request, "a")).toEqual({ missionId: "m3" });
+    expect(await requester.postOnce(request, "b")).toEqual({ missionId: "m4" });
   });
 });

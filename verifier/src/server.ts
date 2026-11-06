@@ -25,6 +25,13 @@ export interface AppDeps {
 }
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
+async function logFailure(what: string, step: () => Promise<unknown>) {
+  try {
+    await step();
+  } catch (e) {
+    console.error(`${what}: ${errorMessage(e)}`);
+  }
+}
 /** Pending: retry later. 0G Storage unavailable: retry later (no Verdict). Evidence expired: retrying cannot help. Anything else is our failure. */
 const replayErrorStatus = (e: unknown) => {
   if (e instanceof PendingError) return 409;
@@ -73,14 +80,14 @@ export function createApp(deps: AppDeps) {
     }
   }
 
-  /** The payer has bought the signed Verdict once settlement succeeds: an Arkiv or event-feed failure is logged, never withheld. */
+  /**
+   * The payer has bought the signed Verdict once settlement succeeds: an Arkiv or event-feed failure is logged, never withheld.
+   * D15: this is the only `replay.paid` "paid" event, emitted first because settlement happened first, and on its own so an Arkiv failure cannot hide it.
+   */
   async function announcePaid(missionId: Hex, decided: DecidedVerdict, amount: string, transaction: string) {
-    try {
-      await publishVerdict(deps, decided);
-      await deps.events.emit(missionId, "replay.paid", { verifier, status: "paid", amount }, HASHSCAN_TX + transaction);
-    } catch (e) {
-      console.error(`replay ${missionId}: paid Verdict not fully published: ${errorMessage(e)}`);
-    }
+    await logFailure(`replay ${missionId}: replay.paid not emitted`,
+      () => deps.events.emit(missionId, "replay.paid", { verifier, status: "paid", amount }, HASHSCAN_TX + transaction));
+    await logFailure(`replay ${missionId}: paid Verdict not published`, () => publishVerdict(deps, decided));
   }
 
   async function paidReplay(missionId: Hex, payment: GatePaid): Promise<Response> {

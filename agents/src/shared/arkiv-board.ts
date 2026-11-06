@@ -149,6 +149,12 @@ export class RequesterArkivBoard implements RequesterBoardPort {
     return { key: entityKey };
   }
 
+  /** Only an entity owned by this wallet counts: anyone can post a Mission entity under our Mission id. */
+  async listingOf(missionId: string): Promise<{ key: string } | null> {
+    const mine = await this.lib.getMission(missionId as Hex, this.wallet.account.address);
+    return mine ? { key: mine.$key } : null;
+  }
+
   /** From the Bids that count (first per Worker, owned by it, before the close), like the Verifiers see them. */
   async workerPubKey(missionId: string, worker: Hex): Promise<Hex | null> {
     const bids = await this.lib.listBids(missionId as Hex);

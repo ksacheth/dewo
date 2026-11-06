@@ -48,11 +48,9 @@ describe("I8 payloads", () => {
     expect(of("episode.submitted")).toEqual([
       { episodeLogRoot: episode!.episodeLogRoot, policyRoot: episode!.policyRoot, decisionCount: 3 },
     ]);
+    // D15: the Requester reports only the 402 challenge; each Verifier owns the "paid" event and its settlement link.
     expect(of("replay.paid")).toEqual(
-      VERIFIER_ADDRESSES.flatMap((verifier) => [
-        { verifier, status: 402, amount: REPLAY_PRICE.toString() },
-        { verifier, status: "paid", amount: REPLAY_PRICE.toString() },
-      ]),
+      VERIFIER_ADDRESSES.map((verifier) => ({ verifier, status: 402, amount: REPLAY_PRICE.toString() })),
     );
     expect(of("settled")).toEqual([
       { outcome: "Pass", workerPayout: (BigInt(price) + BigInt(stake)).toString(), requesterPayout: (10_000_000n - BigInt(price)).toString() },

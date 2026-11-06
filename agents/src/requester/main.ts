@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     audit: await spendingLog(settings),
   });
 
-  const server = listenRequester(createRequesterServer((request) => requester.post(request), settings.server), settings.port);
+  const server = listenRequester(createRequesterServer((request, key) => requester.postOnce(request, key), settings.server), settings.port);
   console.log(`requester: ${settings.config.address}, escrow ${escrowAt.address} from block ${escrowAt.deployBlock}, API on :${settings.port}`);
   await runRequester(requester, stopSignal(REQUESTER_PROCESS));
   server.close();

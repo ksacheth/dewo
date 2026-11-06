@@ -107,12 +107,22 @@ describe("Verifier HTTP API (I6)", () => {
     expect(body.evidenceHash).toMatch(/^0x/);
     expect(written).toHaveLength(1);
     const lines = eventsOf();
-    expect(lines.map((l) => l.type)).toEqual(["verdict.signed", "replay.paid"]);
-    expect(lines[0]).toMatchObject({ data: { verifier: VERIFIER, outcome: "Pass", evidenceHash: body.evidenceHash, arkivKey: "0x" + "ab".repeat(32) } });
-    expect(lines[1]).toMatchObject({
+    // Settlement comes first, so the feed reads paid, then the Verdict.
+    expect(lines.map((l) => l.type)).toEqual(["replay.paid", "verdict.signed"]);
+    expect(lines[0]).toMatchObject({
       missionId: MISSION, data: { verifier: VERIFIER, status: "paid", amount: "50000" },
       txUrl: "https://hashscan.io/testnet/transaction/0.0.1234@1700000000.000000000",
     });
+    expect(lines[1]).toMatchObject({ data: { verifier: VERIFIER, outcome: "Pass", evidenceHash: body.evidenceHash, arkivKey: "0x" + "ab".repeat(32) } });
+  });
+
+  it("owns the paid event (D15): one replay.paid per settled payment, none for the 402 challenge", async () => {
+    const { a } = app();
+    expect((await post(a, "/replay")).status).toBe(402);
+    expect((await post(a, "/replay", { "x-payment": "paid" })).status).toBe(200);
+    expect(eventsOf().filter((l) => l.type === "replay.paid")).toEqual([
+      expect.objectContaining({ data: { verifier: VERIFIER, status: "paid", amount: "50000" }, txUrl: expect.stringMatching(/^https:\/\/hashscan\.io\//) }),
+    ]);
   });
 
   it("POST /replay returns the I6 wire fields: Path Cost, Optimal Path Cost, collisions, and the settlement in PAYMENT-RESPONSE", async () => {
@@ -184,6 +194,8 @@ describe("Verifier HTTP API (I6)", () => {
     const res = await post(a, "/replay", { "x-payment": "paid" });
     expect(res.status).toBe(200);
     expect((await res.json()).verdict).toBe("Pass");
+    // The payment did settle: the feed still says so, with its link.
+    expect(eventsOf().map((l) => [l.type, l.txUrl])).toEqual([["replay.paid", "https://hashscan.io/testnet/transaction/0.0.1234@1700000000.000000000"]]);
   });
 
   it("answers a retryable 503 when 0G Storage is unreachable, charging nothing and signing no Verdict (issue #47)", async () => {

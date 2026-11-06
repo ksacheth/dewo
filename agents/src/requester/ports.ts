@@ -50,6 +50,8 @@ export interface MissionListing {
 export interface RequesterBoardPort {
   /** Returns the Arkiv entity key of the Mission. */
   postMission(listing: MissionListing): Promise<{ key: string }>;
+  /** This Requester's own Mission entity for that id, if it already posted one (others' entities do not count). */
+  listingOf(missionId: string): Promise<{ key: string } | null>;
   /** The public key the winner put in its Bid entity. */
   workerPubKey(missionId: string, worker: Hex): Promise<Hex | null>;
   /** Whether a Seed Release for this winner is already on Arkiv. */
