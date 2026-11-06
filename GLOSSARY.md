@@ -69,7 +69,7 @@ The numeric limits a Requester sets for a Mission in `createMission`, which a Pa
 _Avoid_: constraints, requirements, SLA
 
 **Max Steps**:
-The most Decisions an Episode may take on this Mission (`maxSteps`, required, at least 1). It also bounds the Worker's 0G spend and the Verifier's Replay cost.
+The most Decisions an Episode may take on this Mission (`maxSteps`, required, from 1 to the protocol maximum of 200). It also bounds the Worker's 0G spend and the Verifier's Replay cost.
 _Avoid_: Decision Cap, step budget, timeout
 
 **Max Collisions**:
