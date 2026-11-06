@@ -13,3 +13,5 @@ We chose this over LLM-as-judge grading (non-deterministic, gameable) and over c
 ## Update (2026-11-06)
 
 The Course Seed stays sealed until the winner has staked (Seed Release), not merely until bidding closes, and becomes public via the Seed Reveal after the Episode Submission so anyone can re-run the Replay. Bit-reproducible requests also require Workers to run the simulator in the same pinned Docker image the Verifiers use (`sim/scripts/sim-docker`), so `frameHash` and the PNG bytes in the 0G request match the Replay.
+
+The 0G Compute call for each Decision now goes through the Router to a mainnet TeeML provider (ADR 0004). Its signed receipt covers the sealed request and response, so binding the rebuilt request to the signature is not yet proven (#48); until it is, the prompt-steering gap described above remains partly open.
