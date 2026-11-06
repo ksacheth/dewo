@@ -12,6 +12,7 @@ import {
   type Hex,
   type Policy,
 } from "../formats";
+import type { EventData } from "../shared/events";
 import { runEpisode } from "./episode";
 import type {
   BalancesPort,
@@ -111,6 +112,7 @@ export class Worker {
     if (record.stage === "BID_PLACED") return this.watchAward(record, mission);
     if (record.stage === "WON") return this.stake(record, mission);
     if (record.stage === "STAKED") return this.fly(record, mission);
+    if (record.stage === "EPISODE_DONE") return this.submitFinished(record);
     if (record.stage === "SUBMITTED" && mission.settled) this.move(record, "DONE");
   }
 
@@ -192,13 +194,36 @@ export class Worker {
     }
 
     this.move(record, "EPISODE_RUNNING");
+    let decisions: EpisodeLog["decisions"];
     try {
-      const log = await this.flyEpisode(record.missionId, release.seed, mission);
-      await this.submit(record.missionId, log);
-      this.move(record, "SUBMITTED");
+      ({ decisions } = await this.flyEpisode(record.missionId, release.seed, mission));
     } catch (error) {
-      this.move(record, "GAVE_UP", `Episode crashed: ${String(error)}`);
+      return this.move(record, "GAVE_UP", `Episode crashed: ${String(error)}`);
     }
+    // Keep the flown Episode: upload and submit are retried on later ticks, the Episode is never re-flown.
+    const deadline = release.releasedAt + terms.deadlines.episodeWindow;
+    this.put({ missionId: record.missionId, stage: "EPISODE_DONE", price: record.price, episode: { decisions, deadline } });
+  }
+
+  /** Uploads and submits a flown Episode; a failure leaves it for the next tick, until the deadline passes. */
+  private async submitFinished(record: MissionRecord): Promise<void> {
+    const { episode } = record;
+    if (!episode) return this.move(record, "GAVE_UP", "finished Episode was not kept");
+    if (await this.deps.registry.isSubmitted(record.missionId, this.config.address)) return this.submitted(record);
+    if (this.deps.clock.now() > episode.deadline) return this.move(record, "GAVE_UP", "Episode Submission deadline passed");
+    let payload: EventData["episode.submitted"];
+    try {
+      payload = await this.submit(record.missionId, episode);
+    } catch (error) {
+      return console.error(`worker: submitting the Episode of ${record.missionId} failed, will retry:`, error);
+    }
+    this.submitted(record);
+    this.deps.events.emit(record.missionId, "episode.submitted", payload);
+  }
+
+  private submitted(record: MissionRecord): void {
+    const { episode: _flown, ...rest } = record;
+    this.put({ ...rest, stage: "SUBMITTED", note: undefined });
   }
 
   private async flyEpisode(missionId: string, seed: Hex, mission: EscrowMission): Promise<Omit<EpisodeLog, "header">> {
@@ -217,7 +242,7 @@ export class Worker {
     }
   }
 
-  private async submit(missionId: string, episode: Omit<EpisodeLog, "header">): Promise<void> {
+  private async submit(missionId: string, episode: Omit<EpisodeLog, "header">): Promise<EventData["episode.submitted"]> {
     const { storage, registry, escrow } = this.deps;
     const { terms } = await escrow.getMission(missionId);
     const encode = (text: string) => new TextEncoder().encode(text);
@@ -229,11 +254,7 @@ export class Worker {
     };
     const episodeLogRoot = await storage.upload(encode(JSON.stringify(log)));
     await registry.submitEpisode(missionId, episodeLogRoot, policyRoot, log.decisions.length);
-    this.deps.events.emit(missionId, "episode.submitted", {
-      episodeLogRoot,
-      policyRoot,
-      decisionCount: log.decisions.length,
-    });
+    return { episodeLogRoot, policyRoot, decisionCount: log.decisions.length };
   }
 
   private isAwardedToMe(mission: EscrowMission): boolean {

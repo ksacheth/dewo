@@ -222,3 +222,67 @@ describe("Worker: restart after a crash while bidding", () => {
     expect(w.stage()).toBe("BID_PLACED");
   });
 });
+
+describe("Worker: retrying a flown Episode", () => {
+  async function flown() {
+    const w = setup();
+    w.post();
+    await w.worker.tick();
+    w.escrow.grant("m1");
+    await w.worker.tick();
+    w.release();
+    return w;
+  }
+
+  it("keeps the Episode when the upload fails and submits it on the next tick without re-flying", async () => {
+    const w = await flown();
+    vi.spyOn(w.storage, "upload").mockRejectedValueOnce(new Error("0G storage down"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await w.worker.tick();
+    expect(w.stage()).toBe("EPISODE_DONE");
+    expect(w.records.get("m1")?.episode?.decisions).toHaveLength(3);
+    expect(w.registry.submissions).toHaveLength(0);
+
+    await w.worker.tick();
+    expect(w.stage()).toBe("SUBMITTED");
+    expect(w.records.get("m1")?.episode).toBeUndefined();
+    expect(w.registry.submissions).toHaveLength(1);
+    expect(w.sim.sessions).toHaveLength(1);
+    errors.mockRestore();
+  });
+
+  it("gives up only once the Episode Submission deadline has passed", async () => {
+    const w = await flown();
+    vi.spyOn(w.registry, "submitEpisode").mockRejectedValue(new Error("chain down"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await w.worker.tick();
+    expect(w.stage()).toBe("EPISODE_DONE");
+    w.clock.t += 301;
+    await w.worker.tick();
+    expect(w.records.get("m1")).toMatchObject({ stage: "GAVE_UP", note: "Episode Submission deadline passed" });
+    errors.mockRestore();
+  });
+
+  it("recovers to SUBMITTED, without a second submit, when the chain already has the submission", async () => {
+    const w = await flown();
+    await w.worker.tick();
+    const [only] = w.registry.submissions;
+    w.records.put({ missionId: "m1", stage: "EPISODE_DONE", episode: { decisions: [], deadline: w.clock.now() + 100 } });
+    await w.worker.tick();
+    expect(w.stage()).toBe("SUBMITTED");
+    expect(w.registry.submissions).toEqual([only]);
+  });
+
+  it("stays busy while an Episode awaits submission", async () => {
+    const w = await flown();
+    vi.spyOn(w.storage, "upload").mockRejectedValue(new Error("down"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await w.worker.tick();
+    w.post("m2");
+    await w.worker.tick();
+    expect(w.records.get("m2")).toMatchObject({ stage: "SKIPPED", note: "BUSY_WITH_UNFINISHED_WIN" });
+    errors.mockRestore();
+  });
+});
