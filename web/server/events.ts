@@ -13,9 +13,43 @@ const send = (res: ServerResponse, code: number, body: unknown) => {
   res.setHeader("content-type", "application/json")
   res.end(json(body))
 }
-const readBody = (req: IncomingMessage) => new Promise<string>((ok) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => ok(b)) })
+export const MAX_BODY = 16 * 1024
+class HttpError extends Error { constructor(readonly code: number, message: string) { super(message) } }
+const readBody = (req: IncomingMessage, limit = MAX_BODY) => new Promise<string>((ok, fail) => {
+  const chunks: Buffer[] = []
+  let size = 0
+  req.on("data", (c: Buffer) => {
+    size += c.length
+    if (size > limit) { fail(new HttpError(413, "body too large")); req.destroy(); return }
+    chunks.push(c)
+  })
+  req.on("end", () => ok(Buffer.concat(chunks).toString("utf8")))
+  req.on("error", fail)
+})
+
+/** Mock requester is unauthenticated, so refuse cross-origin browsers and simple (form) posts. Returns an HttpError or null. */
+export function guardMockPost(headers: IncomingMessage["headers"]): HttpError | null {
+  const origin = headers.origin
+  if (origin !== undefined) {
+    let host: string | null = null
+    try { host = new URL(origin).host } catch { /* malformed Origin: refuse */ }
+    if (host === null || host !== headers.host) return new HttpError(403, "cross-origin request refused")
+  }
+  if (!/^application\/json\s*(;|$)/i.test(headers["content-type"] ?? "")) return new HttpError(415, "content-type must be application/json")
+  return null
+}
 const files = (dir: string) => (existsSync(dir) ? readdirSync(dir).filter((f) => /^events\.[a-z0-9-]+\.ndjson$/.test(f)) : [])
-const lines = (path: string) => readFileSync(path, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l))
+/** Parsed events of one ndjson file. Skips a torn line and ignores a last line still missing its newline (a writer is mid-append). */
+export function lines(path: string): any[] {
+  const parts = readFileSync(path, "utf8").split("\n")
+  parts.pop() // after the final newline it is "", otherwise an incomplete line
+  const out: any[] = []
+  for (const l of parts) {
+    if (!l) continue
+    try { out.push(JSON.parse(l)) } catch { /* corrupt line: skip it, never crash the server */ }
+  }
+  return out
+}
 
 export function dewoServer(): Plugin {
   return {
@@ -47,9 +81,15 @@ export function dewoServer(): Plugin {
             return MISSION_ID.test(id) ? send(res, 200, await (await loadBoard()).listBids(id)) : send(res, 400, { error: "bad missionId" })
           }
           if (url.pathname === "/api/board/leaderboard") return send(res, 200, await (await loadBoard()).leaderboard())
-          if (url.pathname === "/api/mock/missions" && req.method === "POST") return mockRequester(JSON.parse(await readBody(req)), res, loadBoard, mode)
+          if (url.pathname === "/api/mock/missions" && req.method === "POST") {
+            const refused = guardMockPost(req.headers)
+            if (refused) return send(res, refused.code, { error: refused.message })
+            let body: any
+            try { body = JSON.parse(await readBody(req)) } catch (e) { if (e instanceof HttpError) throw e; return send(res, 400, { error: "invalid JSON" }) }
+            return mockRequester(body, res, loadBoard, mode)
+          }
         } catch (e) {
-          return send(res, 500, { error: (e as Error).message })
+          return send(res, e instanceof HttpError ? e.code : 500, { error: (e as Error).message })
         }
         next()
       })
@@ -133,7 +173,8 @@ function deployments(server: ViteDevServer) {
 
 /** Stand-in for the Requester API (I7) until it lands: posts a Mission entity and a mission.posted event. Labelled "mock requester" in the UI. */
 async function mockRequester(body: { difficultyClass: string; maxBounty: number; riskWeight: number }, res: ServerResponse, loadBoard: () => Promise<Record<string, any>>, mode: string) {
-  if (!["easy", "medium", "hard"].includes(body.difficultyClass) || !(body.maxBounty > 0 && body.maxBounty <= 1000) || !(body.riskWeight >= 0 && body.riskWeight <= 1))
+  const num = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x)
+  if (!body || typeof body !== "object" || !["easy", "medium", "hard"].includes(body.difficultyClass) || !(num(body.maxBounty) && body.maxBounty > 0 && body.maxBounty <= 1000) || !(num(body.riskWeight) && body.riskWeight >= 0 && body.riskWeight <= 1))
     return send(res, 400, { error: "invalid difficultyClass, maxBounty or riskWeight" })
   const b = await loadBoard()
   const missionId = `0x${randomBytes(32).toString("hex")}`

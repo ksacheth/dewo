@@ -1,7 +1,9 @@
 import { useState } from "react"
 import { DECISION_CAP } from "../constants"
 
-/** Starts a Mission. Calls the Requester API (I7) via the proxy; if it isn't configured or reachable, the clearly labelled mock requester stands in. */
+/** Starts a Mission. Calls the Requester API (I7) via the proxy. The clearly labelled mock requester stands in only when no Requester is configured or it is unreachable (network error, or 502/503/504 from the proxy); a real 4xx/5xx is shown to the user. */
+const UNREACHABLE = new Set([502, 503, 504])
+
 export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: boolean) => void }) {
   const [difficultyClass, setDifficulty] = useState("medium")
   const [maxBounty, setBounty] = useState(10)
@@ -15,9 +17,9 @@ export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: 
     const post = (url: string) => fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body })
     try {
       let mock = false
-      let r = await post("/requester/missions").catch(() => null)
-      if (!r || !r.ok) { mock = true; r = await post("/api/mock/missions") }
-      const data = await r.json()
+      let r = import.meta.env.VITE_REQUESTER_URL ? await post("/requester/missions").catch(() => null) : null
+      if (!r || UNREACHABLE.has(r.status)) { mock = true; r = await post("/api/mock/missions") }
+      const data = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(data.error ?? r.statusText)
       onPosted(data.missionId, mock)
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
