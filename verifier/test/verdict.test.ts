@@ -3,73 +3,76 @@ import { SimInputError } from "../src/adapters/sim-cli.js";
 import { verifyEpisode, type EpisodeInput } from "../src/checks/index.js";
 import { NotJson, NotUploaded } from "../src/ports.js";
 import { Outcome } from "../src/sign.js";
-import { FakeSim, honestEpisode, zeroG, frameHashFor, pngFor, POLICY, ROUTER_POLICY } from "./fixtures/builders.js";
+import { FakeSim, SEED, honestEpisode, zeroG, frameHashFor, pngFor, POLICY, ROUTER_POLICY } from "./fixtures/builders.js";
 import { buildRequest, policyHash, type Policy } from "@dewo/agents/formats";
 
 const deps = (sim = new FakeSim(), g = zeroG()) => ({ sim, zeroG: g });
 
 describe("verifyEpisode", () => {
-  it("passes an honest Episode that reaches the goal with no collisions", async () => {
-    const v = await verifyEpisode(deps(), honestEpisode());
+  it("passes an honest Episode that reaches the goal within the limits, on the Course of the on-chain Course Seed", async () => {
+    const sim = new FakeSim();
+    const v = await verifyEpisode(deps(sim), honestEpisode());
     expect(v.outcome).toBe(Outcome.Pass);
-    expect(v.pathCost).toBe(3);
-    expect(v.optimalPathCost).toBe(3);
-    expect(v.pathQuality).toBe(1);
+    expect(v.steps).toBe(3);
     expect(v.collisions).toBe(0);
+    expect(sim.seeds).toEqual([SEED]);
   });
 
-  describe("Path Allowance and Decision Cap (spec 4.6, ADR 0003)", () => {
+  describe("Mission Limits (spec 4.6, ADR 0006)", () => {
     const turns = (n: number) => Array<"TURN_RIGHT">(n).fill("TURN_RIGHT");
+    const limited = (actions: Parameters<typeof honestEpisode>[0], limits: { maxSteps?: number; maxCollisions?: number }) => {
+      const ep = honestEpisode(actions);
+      ep.mission = { ...ep.mission, ...limits };
+      return ep;
+    };
 
-    it("passes a detour and records its Path Quality, which never changes the Outcome", async () => {
-      const v = await verifyEpisode(deps(), honestEpisode(["FORWARD", "TURN_RIGHT", "FORWARD", "FORWARD"]));
+    it("passes a detour: there is no optimal-path test any more", async () => {
+      const v = await verifyEpisode(deps(), honestEpisode(["FORWARD", ...turns(10), "FORWARD", "FORWARD"]));
       expect(v.outcome).toBe(Outcome.Pass);
-      expect(v.pathCost).toBe(4);
-      expect(v.pathQuality).toBe(0.75);
+      expect(v.steps).toBe(13);
     });
 
-    it("does not count STOP towards Path Cost", async () => {
+    it("does not count STOP towards steps", async () => {
       const v = await verifyEpisode(deps(), honestEpisode(["FORWARD", "FORWARD", "FORWARD", "STOP"]));
       expect(v.outcome).toBe(Outcome.Pass);
-      expect(v.pathCost).toBe(3);
+      expect(v.steps).toBe(3);
     });
 
-    it("passes at exactly the Path Allowance (2 x optimal + 2) and fails one above it", async () => {
-      const atLimit = await verifyEpisode(deps(), honestEpisode(["FORWARD", "FORWARD", "FORWARD", ...turns(5)])); // cost 8 = 2*3+2
-      expect(atLimit.outcome).toBe(Outcome.Pass);
-      const over = await verifyEpisode(deps(), honestEpisode(["FORWARD", "FORWARD", "FORWARD", ...turns(6)])); // cost 9
-      expect(over.outcome).toBe(Outcome.Fail);
-      expect(over.failedCheck).toBe("replay");
-      expect(over.pathCost).toBe(9);
+    it("passes at exactly maxSteps Decisions and fails one above, before any Replay", async () => {
+      const actions = ["FORWARD", ...turns(4), "FORWARD", "FORWARD"] as const; // 7 Decisions
+      expect((await verifyEpisode(deps(), limited([...actions], { maxSteps: 7 }))).outcome).toBe(Outcome.Pass);
+      const sim = new FakeSim();
+      const over = await verifyEpisode(deps(sim), limited([...actions], { maxSteps: 6 }));
+      expect(over).toMatchObject({ outcome: Outcome.Fail, failedCheck: "steps", steps: 0 });
+      expect(sim.seeds).toEqual([]);
     });
 
-    it("allows more Decisions than the allowance when the extras are STOP, up to the Decision Cap of 60", async () => {
-      const sim = new FakeSim({ optimalPathCost: 29 });
-      const sixty = honestEpisode(["FORWARD", "FORWARD", "FORWARD", ...turns(56), "STOP"]); // 60 Decisions, cost 59 <= 60
-      expect((await verifyEpisode(deps(sim), sixty)).outcome).toBe(Outcome.Pass);
-      const sixtyOne = honestEpisode(["FORWARD", "FORWARD", "FORWARD", ...turns(57), "STOP"]); // 61 Decisions, cost 60 <= 60
-      const v = await verifyEpisode(deps(sim), sixtyOne);
-      expect(v.outcome).toBe(Outcome.Fail);
-      expect(v.failedCheck).toBe("replay");
+    it("judges collisions against maxCollisions: a collision blocks a move but the Episode can still pass", async () => {
+      const bumped = ["FORWARD", "TURN_LEFT", "FORWARD", "FORWARD"] as const;
+      const strict = await verifyEpisode(deps(), limited([...bumped], { maxCollisions: 0 }));
+      expect(strict).toMatchObject({ outcome: Outcome.Fail, failedCheck: "replay", collisions: 1 });
+      const lenient = await verifyEpisode(deps(), limited([...bumped], { maxCollisions: 1 }));
+      expect(lenient).toMatchObject({ outcome: Outcome.Pass, collisions: 1 });
     });
 
-    it("is Invalid Course when the shortest path is 30 (allowance 62 would exceed the Decision Cap), solvable at 29", async () => {
-      expect((await verifyEpisode(deps(new FakeSim({ optimalPathCost: 30 })), honestEpisode())).outcome).toBe(Outcome.InvalidCourse);
-      expect((await verifyEpisode(deps(new FakeSim({ optimalPathCost: 29 })), honestEpisode())).outcome).toBe(Outcome.Pass);
+    it("fails an Episode that never reaches the goal", async () => {
+      const v = await verifyEpisode(deps(), honestEpisode(["FORWARD", "FORWARD", "STOP"]));
+      expect(v).toMatchObject({ outcome: Outcome.Fail, failedCheck: "replay" });
+    });
+
+    it("binds the limits it judged against into the evidence, so Verifiers reading other terms cannot match", async () => {
+      const a = await verifyEpisode(deps(), limited(["FORWARD", "FORWARD", "FORWARD"], { maxSteps: 60 }));
+      const b = await verifyEpisode(deps(), limited(["FORWARD", "FORWARD", "FORWARD"], { maxSteps: 59 }));
+      expect(a.outcome).toBe(b.outcome);
+      expect(a.evidenceHash).not.toBe(b.evidenceHash);
     });
   });
 
-  it("returns Invalid Course when the planner finds no path, before judging the Worker", async () => {
-    const v = await verifyEpisode(deps(new FakeSim({ solvable: false })), honestEpisode());
-    expect(v.outcome).toBe(Outcome.InvalidCourse);
-  });
-
-  it("fails when the revealed seed does not match the seedCommitment", async () => {
+  it("fails a log whose header names another Course Seed", async () => {
     const ep = honestEpisode();
-    ep.reveal.salt = ("0x" + "ff".repeat(16)) as `0x${string}`;
+    ep.log = { ...ep.log, header: { ...ep.log.header, courseSeed: ("0x" + "ff".repeat(32)) as `0x${string}` } };
     const v = await verifyEpisode(deps(), ep);
-    expect(v.outcome).toBe(Outcome.Fail);
-    expect(v.failedCheck).toBe("seed");
+    expect(v).toMatchObject({ outcome: Outcome.Fail, failedCheck: "header" });
   });
 
   it("fails when the revealed Policy does not hash to the Bid's policyHash", async () => {
@@ -141,7 +144,7 @@ describe("verifyEpisode", () => {
     const cases: Array<[() => ReturnType<typeof honestEpisode>, FakeSim]> = [
       [honestEpisode, new FakeSim()],
       [wrongAction, new FakeSim()],
-      [honestEpisode, new FakeSim({ optimalPathCost: 30 })],
+      [() => honestEpisode(["FORWARD", "TURN_LEFT", "FORWARD", "FORWARD"]), new FakeSim()],
     ];
     for (const [make, sim] of cases) {
       const a = await verifyEpisode(deps(sim), make());
@@ -229,7 +232,7 @@ describe("Worker documents that are not valid content (issue #47: a Fail, never 
 
   it("fails an Episode Log whose bytes are not JSON at the header check, with the reason in the evidence", async () => {
     const v = await verifyEpisode(deps(), withLog(new NotJson(), 3));
-    expect(v).toMatchObject({ outcome: Outcome.Fail, failedCheck: "header", reason: LOG_NOT_JSON, pathCost: 0, collisions: 0 });
+    expect(v).toMatchObject({ outcome: Outcome.Fail, failedCheck: "header", reason: LOG_NOT_JSON, steps: 0, collisions: 0 });
     const mismatch = honestEpisode();
     mismatch.decisionCount = 7;
     expect(v.evidenceHash).not.toBe((await verifyEpisode(deps(), mismatch)).evidenceHash);
@@ -240,7 +243,7 @@ describe("Worker documents that are not valid content (issue #47: a Fail, never 
     ["a string", "hello"],
     ["an array", []],
     ["an empty header", { header: {}, decisions: [] }],
-    ["a header with non-string fields", { header: { missionId: 1, worker: 2, policyRoot: 3, seedCommitment: 4 }, decisions: [] }],
+    ["a header with non-string fields", { header: { missionId: 1, worker: 2, policyRoot: 3, courseSeed: 4 }, decisions: [] }],
     ["decisions that are not a list", { header: honestEpisode().log.header, decisions: "none" }],
   ])("fails an Episode Log that is JSON in the wrong shape (%s)", async (_name, log) => {
     const v = await verifyEpisode(deps(), withLog(log));
@@ -267,7 +270,7 @@ describe("Worker documents that are not valid content (issue #47: a Fail, never 
 
   it("fails a never-uploaded Episode Log at the header check and a never-uploaded Policy at the policy check (issue #64)", async () => {
     const log = await verifyEpisode(deps(), withLog(new NotUploaded(), 3));
-    expect(log).toMatchObject({ outcome: Outcome.Fail, failedCheck: "header", reason: "episode log was never uploaded to 0G Storage", pathCost: 0 });
+    expect(log).toMatchObject({ outcome: Outcome.Fail, failedCheck: "header", reason: "episode log was never uploaded to 0G Storage", steps: 0 });
     const policy = await verifyEpisode(deps(), withPolicy(new NotUploaded()));
     expect(policy).toMatchObject({ outcome: Outcome.Fail, failedCheck: "policy", reason: "policy was never uploaded to 0G Storage" });
     // The reason is in the evidence: a missing upload never hashes like bytes that are not JSON.
@@ -275,9 +278,11 @@ describe("Worker documents that are not valid content (issue #47: a Fail, never 
     expect(policy.evidenceHash).not.toBe((await verifyEpisode(deps(), withPolicy(new NotJson()))).evidenceHash);
   });
 
-  it("keeps the spec order: an unsolvable Course is Invalid Course before the Policy is judged", async () => {
-    const v = await verifyEpisode(deps(new FakeSim({ solvable: false })), withPolicy(new NotJson()));
-    expect(v.outcome).toBe(Outcome.InvalidCourse);
+  it("keeps the spec order: a Policy that is not valid content fails before the sim runs", async () => {
+    const sim = new FakeSim();
+    const v = await verifyEpisode(deps(sim), withPolicy(new NotJson()));
+    expect(v).toMatchObject({ outcome: Outcome.Fail, failedCheck: "policy" });
+    expect(sim.seeds).toEqual([]);
   });
 
   it("gives every Verifier the same Outcome and evidence for the same bad content, so 2 matching Verdicts settle", async () => {

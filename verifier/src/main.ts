@@ -58,7 +58,7 @@ async function main() {
   // Replays run in the pinned dewo-sim image (R1) so frame hashes match the Workers'; SIM_CMD=sim inside the Verifier image, which is built on it.
   const sim = cliSim(localRunner((process.env.SIM_CMD ?? "../sim/scripts/sim-docker").split(" ")));
   const broker = await mainnetComputeBroker(zgMainnetRpc);
-  const { board, seeds, verdicts } = arkivAdapters(key);
+  const { board, verdicts } = arkivAdapters(key);
   const chain = hederaEscrow(viemEscrowReader(hederaRpc, escrowAddress));
   const gate = await createX402Gate({
     facilitator: new HTTPFacilitatorClient({ url: process.env.X402_FACILITATOR_URL ?? "https://api.testnet.blocky402.com" }),
@@ -71,7 +71,7 @@ async function main() {
     board, chain, sim, zeroG: zeroGCompute(broker), verdicts, trustedVerifiers,
     events: boardEvents(name),
     source: createEpisodeSource({
-      board, chain, seeds,
+      board, chain,
       registry: zeroGRegistry(viemRegistryReader(zgRpc, registryAddress)),
       storage: zeroGStorage(indexerAt(process.env.ZG_STORAGE_INDEXER ?? "https://indexer-storage-testnet-turbo.0g.ai")),
       uploads: zeroGFlow(viemFlowReader(zgRpc, (process.env.ZG_FLOW_ADDRESS as Address | undefined) ?? GALILEO_FLOW)),
