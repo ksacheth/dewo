@@ -29,7 +29,8 @@ export function RunView({ state }: { state: MissionState }) {
 
   const last = state.moves[state.moves.length - 1]
   const stopped = state.decisions.some((d) => d.action === "STOP")
-  const failed = Object.values(state.verifiers).some((v) => v.outcome && v.outcome !== "Pass") || (state.settled && state.settled.outcome !== "Pass")
+  // The banner follows the settled outcome only: a lone dissenting Verifier must not turn a 2-of-3 Pass red.
+  const outcome = state.settled?.outcome
   const list = [...state.decisions].reverse()
   return (
     <Panel title={robot} meta={state.moves.length ? "Rendered in MuJoCo · inset: what the model sees" : "What the model saw, Decision by Decision"} label={`${robot} view`} flush
@@ -44,7 +45,7 @@ export function RunView({ state }: { state: MissionState }) {
           {last?.collision && !pickedMove && <div className="banner bad">Collision: the move was blocked</div>}
           {last?.atGoal && !pickedMove && <div className="banner ok">{goalText(task)}</div>}
           {stopped && <div className="banner bad">Episode ended by STOP</div>}
-          {failed && <div className="banner bad">Outcome: {state.settled?.outcome ?? "Fail"}</div>}
+          {outcome && <div className={`banner ${outcome === "Pass" ? "ok" : "bad"}`}>Outcome: {outcome}</div>}
           {state.episode && <p className="mono dim">Episode submitted · log {short(state.episode.episodeLogRoot)} · {state.episode.decisionCount} Decisions {state.episode.txUrl && <a href={state.episode.txUrl} target="_blank" rel="noreferrer">0G Chainscan</a>}</p>}
         </div>
         <div className="decisions" role="listbox" aria-label="Decisions">

@@ -31,7 +31,7 @@ export function VerifierCards({ state }: { state: MissionState }) {
         <div className="pnl-body" style={{ borderTop: "1px solid var(--line)" }}>
           {agree && <div className="banner ok">{agree.count} of 3 agree · <span className="mono">{short(agree.hash)}</span><div className="meter" aria-hidden style={{ marginTop: 8 }}><i style={{ transform: `scaleX(${agree.count / 3})` }} /></div></div>}
           {state.settled && (
-            <div className="banner ok">Settled: {state.settled.outcome} · Worker {usdc(state.settled.workerPayout)} · Requester {usdc(state.settled.requesterPayout)}{" "}
+            <div className={`banner ${state.settled.outcome === "Pass" ? "ok" : "bad"}`}>Settled: {state.settled.outcome} · Worker {usdc(state.settled.workerPayout)} · Requester {usdc(state.settled.requesterPayout)}{" "}
               {state.settled.txUrl && <a href={state.settled.txUrl} target="_blank" rel="noreferrer">HashScan</a>}</div>
           )}
         </div>

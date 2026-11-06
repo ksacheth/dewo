@@ -27,10 +27,13 @@ export function ResultCard({ state, animate, onReplay }: { state: MissionState; 
   const { data: verdicts } = usePoll<Verdict[]>(API.verdicts(state.missionId), 10000)
   const { data: course } = usePoll<Course>(API.course(state.missionId), 20000)
   const agree = agreement(state)
-  const verdict = verdicts?.[0]
+  // Show the Verdict the Quorum agreed on, not whichever Verifier answered first (it may be the dissenter).
+  const verdict = verdicts?.find((v) => v.evidenceHash === agree?.hash) ?? verdicts?.[0]
   const outcome = state.settled?.outcome ?? verdict?.outcome ?? Object.values(state.verifiers).find((v) => v.outcome)?.outcome ?? "Pending"
   const pass = outcome === "Pass"
   const actions = state.decisions.map((d) => d.action)
+  // Move k was made by Decision k-1 (arena.ts), so Decision d collided when move d+1 says so.
+  const blocked = state.decisions.map((d) => state.moves.find((m) => m.step === d.step + 1)?.collision)
   const maxSteps = state.posted?.maxSteps ?? DEFAULT_MAX_STEPS
   const maxCollisions = state.posted?.maxCollisions ?? 0
   return (
@@ -58,7 +61,7 @@ export function ResultCard({ state, animate, onReplay }: { state: MissionState; 
         <div><h3 className="sub">The run</h3><ReplayPlayer state={state} maxSteps={maxSteps} /></div>
         <div>
           <h3 className="sub">The Course</h3>
-          {course ? <CourseMap course={course} actions={actions} /> : <Placeholder title="Top-down map" endpoint="GET /api/missions/:id/course" note="Drawn from the public Course Seed on the Mission entity, when the sim is reachable." />}
+          {course ? <CourseMap course={course} actions={actions} blocked={blocked} /> : <Placeholder title="Top-down map" endpoint="GET /api/missions/:id/course" note="Drawn from the public Course Seed on the Mission entity, when the sim is reachable." />}
         </div>
       </div>
 
