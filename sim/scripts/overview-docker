@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Runs the spectator renderer (sim/overview) in its own container:
+#   overview-docker --course <course.json> --out-dir <dir>      # JSON lines on stdin/stdout
+# Paths are mounted at the same place, so the image paths in replies are valid on the host.
+# --init so signals reach it; --user so its files are not root-owned on the host.
+# Env: DEWO_SIM_VERSION (image tag, default 0.1.0).
+set -euo pipefail
+course="$(realpath "$2")"
+mkdir -p "$4"
+out="$(realpath "$4")"
+exec docker run --rm -i --init --platform linux/amd64 --user "$(id -u):$(id -g)" \
+  -v "$(dirname "$course"):$(dirname "$course"):ro" -v "$out:$out" \
+  "dewo-sim-overview:${DEWO_SIM_VERSION:-0.1.0}" --course "$course" --out-dir "$out"

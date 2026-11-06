@@ -61,7 +61,7 @@ export async function fakeRun({ dir = runsDir(), delayMs = 800, missionId = `0x$
   await sleep(2) // distinct timestamps, so replay order is unambiguous
   for (let i = 0; i < 15; i++) {
     writeFileSync(join(dir, missionId, "frames", `${String(i + 1).padStart(3, "0")}.png`), png(i))
-    e(missionId, "worker-cheap-and-blind", { type: "decision.made", data: { step: i + 1, frame: `${missionId}/frames/${String(i + 1).padStart(3, "0")}.png`, chatID: `chat-${randomBytes(6).toString("hex")}`, action: ACTIONS[i] } })
+    e(missionId, "worker-cheap-and-blind", { type: "decision.made", data: { step: i, frame: `${missionId}/frames/${String(i + 1).padStart(3, "0")}.png`, chatID: `chat-${randomBytes(6).toString("hex")}`, action: ACTIONS[i] } })
     await sleep(delayMs)
   }
   e(missionId, "worker-cheap-and-blind", { type: "episode.submitted", data: { episodeLogRoot: "0xroot123", policyRoot: "0xpolicy456", decisionCount: 15 }, txUrl: "https://chainscan-galileo.0g.ai/tx/0xdeadbeef" })

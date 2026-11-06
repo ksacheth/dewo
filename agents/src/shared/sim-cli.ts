@@ -7,6 +7,7 @@ import { join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import type { Action, Hex } from "../formats";
 import { assertMissionId } from "./events";
+import { OverviewView, type OverviewOptions, type Pose } from "./overview";
 import type { ActResult, DifficultyClass, Observation, SimPort, SimSession } from "../worker/ports";
 
 /** How to invoke the sim CLI, e.g. ["uv", "run", "--project", "../sim", "sim"]. */
@@ -17,6 +18,8 @@ export class SimCli implements SimPort {
   constructor(
     private readonly command: SimCommand,
     private readonly runsDir: string,
+    /** Optional spectator images for the web UI. Display only. */
+    private readonly overview?: OverviewOptions,
   ) {}
 
   async openSession(seed: Hex, difficulty: DifficultyClass, missionId: string): Promise<SimSession> {
@@ -25,7 +28,8 @@ export class SimCli implements SimPort {
     const course = join(dir, "course.json");
     await run(this.command, ["course", "--seed", seed, "--difficulty", difficulty, "--out", course]);
     const framesDir = resolve(this.runsDir, missionId, "frames");
-    return new CliSession(spawnSim(this.command, ["session", "--course", course, "--frames-dir", framesDir]), resolve(this.runsDir));
+    const view = this.overview && new OverviewView(this.overview, missionId, course, resolve(this.runsDir, missionId, "overview"), this.runsDir);
+    return new CliSession(spawnSim(this.command, ["session", "--course", course, "--frames-dir", framesDir]), resolve(this.runsDir), view);
   }
 }
 
@@ -33,10 +37,12 @@ export class CliSession implements SimSession {
   private readonly pending: { resolve: (line: string) => void; reject: (error: Error) => void }[] = [];
   private exited: Error | null = null;
   private stderr = "";
+  private started = false;
 
   constructor(
     private readonly child: ChildProcessWithoutNullStreams,
     private readonly runsDir: string,
+    private readonly view?: OverviewView,
   ) {
     createInterface({ input: child.stdout }).on("line", (line) => this.pending.shift()?.resolve(line));
     child.stderr.on("data", (chunk) => (this.stderr = (this.stderr + String(chunk)).slice(-2000)));
@@ -54,7 +60,9 @@ export class CliSession implements SimSession {
   }
 
   async observe(): Promise<Observation> {
-    const reply = (await this.send({ cmd: "observe" })) as { frame: string; frameHash: Hex };
+    const reply = (await this.send({ cmd: "observe" })) as { frame: string; frameHash: Hex; pose?: Pose };
+    if (!this.started && reply.pose) this.view?.show(reply.pose);
+    this.started = true;
     return {
       frame: new Uint8Array(await readFile(reply.frame)),
       frameHash: reply.frameHash,
@@ -63,11 +71,13 @@ export class CliSession implements SimSession {
   }
 
   async act(action: Action): Promise<ActResult> {
-    const reply = (await this.send({ cmd: "act", action })) as ActResult;
+    const reply = (await this.send({ cmd: "act", action })) as ActResult & { pose?: Pose };
+    if (reply.pose) this.view?.show(reply.pose, reply.collision, reply.atGoal);
     return { collision: reply.collision, atGoal: reply.atGoal };
   }
 
   async close(): Promise<void> {
+    await this.view?.close();
     if (this.exited) return;
     const done = new Promise((resolve) => this.child.once("exit", resolve));
     this.child.stdin.end();

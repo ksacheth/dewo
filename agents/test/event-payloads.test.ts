@@ -94,7 +94,7 @@ describe("I8 payloads", () => {
 });
 
 describe("I8 event types", () => {
-  it("mirrors all 11 types of @dewo/board's EventData (a missing or extra key fails typecheck)", () => {
+  it("mirrors all 12 types of @dewo/board's EventData (a missing or extra key fails typecheck)", () => {
     const all: Record<EventType, true> = {
       "mission.posted": true,
       "bid.sealed": true,
@@ -103,12 +103,13 @@ describe("I8 event types", () => {
       "stake.deposited": true,
       "seed.released": true,
       "decision.made": true,
+      "rover.moved": true,
       "episode.submitted": true,
       "replay.paid": true,
       "verdict.signed": true,
       settled: true,
     };
-    expect(Object.keys(all)).toHaveLength(11);
+    expect(Object.keys(all)).toHaveLength(12);
   });
 });
 

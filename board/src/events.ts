@@ -1,7 +1,7 @@
 // I8 event feed: types are browser-safe; emit() is Node-only and loads fs lazily.
 export type EventType =
   | "mission.posted" | "bid.sealed" | "bids.revealed" | "award.signed" | "stake.deposited" | "seed.released"
-  | "decision.made" | "episode.submitted" | "replay.paid" | "verdict.signed" | "settled"
+  | "decision.made" | "rover.moved" | "episode.submitted" | "replay.paid" | "verdict.signed" | "settled"
 
 type Addr = string
 export type EventData = {
@@ -13,6 +13,8 @@ export type EventData = {
   "seed.released": { worker: Addr; arkivKey: string }
   /** frame is a path relative to the runs/ folder */
   "decision.made": { step: number; frame: string; chatID: string; action: string }
+  /** Display only: whole-arena images of one move, paths relative to the runs/ folder */
+  "rover.moved": { step: number; images: string[]; collision: boolean; atGoal: boolean }
   "episode.submitted": { episodeLogRoot: string; policyRoot: string; decisionCount: number }
   "replay.paid": { verifier: Addr; status: 402 | "paid"; amount: string }
   "verdict.signed": { verifier: Addr; outcome: string; evidenceHash: string; arkivKey: string }
