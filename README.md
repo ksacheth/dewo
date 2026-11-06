@@ -55,7 +55,7 @@ Verifiers are paid per Replay through x402, never from Escrow. A payout that can
 
 | Item | Value |
 |---|---|
-| Hedera transaction ID of a settled x402 payment | TODO(evidence): from the end-to-end run |
+| Hedera transaction ID of a settled x402 payment | `0.0.7162784@1793959944.460369848` ([HashScan](https://hashscan.io/testnet/transaction/1793959951.765951588)): one Replay paid automatically through Blocky402, 0.05 Circle USDC `0.0.429274` (live spike; the end-to-end run will add more) |
 | `MissionEscrow` on Hedera testnet | [`0x9aae6A883B4d16BF53Fa6339c606D18b47342631`](https://hashscan.io/testnet/contract/0.0.11337437) (`0.0.11337437`), settles in Circle USDC `0.0.429274` |
 | Escrow holds and pays out HTS USDC (spike #5) | 1 USDC in via `createMission`: [HashScan](https://hashscan.io/testnet/transaction/1793959306.817990545); back out via `rescue()`: [HashScan](https://hashscan.io/testnet/transaction/1793959493.464701456) |
 | HashScan link of a `settle()` | TODO(evidence): from the end-to-end run |
