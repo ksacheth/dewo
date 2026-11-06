@@ -1,0 +1,9 @@
+{
+  "name": "Cheap and Blind",
+  "model": "TBD-vision-small",
+  "providerAddress": "0x0000000000000000000000000000000000000000",
+  "promptTemplate": "Drive the rover to the charger. View: {{frame}}. Previous moves: {{history}}. Answer FORWARD, TURN_LEFT, TURN_RIGHT or STOP.",
+  "memoryWindow": 0,
+  "temperature": 0,
+  "version": "1"
+}
