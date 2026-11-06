@@ -105,3 +105,15 @@ def test_episode_reports_frame_files(tmp_path):
     assert obs["frameHash"].startswith("0x") and len(obs["frameHash"]) == 66
     assert (tmp_path / "f" / "frame_0000.png").read_bytes()[:4] == b"\x89PNG"
     ep.close()
+
+
+def test_camera_yaw_quaternions_rotate_x_axis_to_each_heading():
+    import math
+
+    from sim.camera import _QUAT
+
+    for k, (w, _, _, z) in enumerate(_QUAT):
+        yaw = math.radians(k * 30)
+        # rotate (1, 0) by the z-axis quaternion: (w^2 - z^2, 2wz)
+        assert abs((w * w - z * z) - math.cos(yaw)) < 1e-12
+        assert abs(2 * w * z - math.sin(yaw)) < 1e-12

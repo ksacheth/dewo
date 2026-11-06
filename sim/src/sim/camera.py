@@ -24,9 +24,14 @@ FRAME_SIZE = 224
 WALL_H = 0.5
 OBSTACLE_COLORS = ("0.9 0.4 0.1 1", "0.8 0.1 0.2 1", "0.2 0.4 0.9 1", "0.6 0.2 0.8 1")
 
-# half-angle quaternions (w, 0, 0, z) for yaw = k*30deg, from sqrt only (no libm trig)
+# half-angle quaternions (w, 0, 0, z) for yaw = k*30deg, from sqrt only (no libm trig).
+# With half-angle h = k*15deg in [0, 180): z = sin h >= 0 always, but w = cos h is
+# negative for h > 90deg (k > 6), so only w carries the sign.
 _COS = [1.0, R.SQRT3 / 2, 0.5, 0.0, -0.5, -R.SQRT3 / 2, -1.0, -R.SQRT3 / 2, -0.5, 0.0, 0.5, R.SQRT3 / 2]
-_QUAT = [(math.sqrt((1 + c) / 2), 0.0, 0.0, math.sqrt((1 - c) / 2)) for c in _COS]
+_QUAT = [
+    (math.sqrt((1 + c) / 2) * (1.0 if k <= 6 else -1.0), 0.0, 0.0, math.sqrt((1 - c) / 2))
+    for k, c in enumerate(_COS)
+]
 
 
 def build_xml(course):
