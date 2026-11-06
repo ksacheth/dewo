@@ -3,9 +3,11 @@
 // Episode submitted (or window over) -> reveal seed -> pay for Replays -> settle.
 // Like the Worker, it re-reads the chain before acting and records a step only after it is confirmed.
 import { randomBytes } from "node:crypto";
-import { seedCommitment, type Hex } from "../formats";
+import { seedCommitment, toBaseUnits, type Hex } from "../formats";
 import type { Clock, DifficultyClass, EscrowMission, EventsPort, MissionTerms, RegistryPort } from "../worker/ports";
 import type { Keyed, RecordStore } from "../worker/records";
+import type { AuditPort, PaymentRecord } from "./audit";
+import { payouts } from "./payouts";
 import type { RequesterBoardPort, RequesterEscrowPort, SignedVerdict, VerifiersPort } from "./ports";
 import { quorum } from "./quorum";
 
@@ -28,6 +30,7 @@ export interface RequesterRecord extends Keyed {
 /** I7 request body. */
 export interface MissionRequest {
   difficulty: DifficultyClass;
+  /** Decimal USDC, as typed by the human. */
   maxBounty: number;
   /** Risk Weight between 0 (cheapest) and 1 (most reliable). */
   riskWeight: number;
@@ -38,10 +41,18 @@ export interface Windows {
   stakeWindow: number;
   seedReleaseWindow: number;
   episodeWindow: number;
+  /** After posting; rescue() refunds everyone from then on. */
+  rescueSeconds: number;
 }
 
 /** docs/spec.md section 3 (tunable). */
-export const DEFAULT_WINDOWS: Windows = { biddingSeconds: 60, stakeWindow: 30, seedReleaseWindow: 30, episodeWindow: 300 };
+export const DEFAULT_WINDOWS: Windows = {
+  biddingSeconds: 60,
+  stakeWindow: 30,
+  seedReleaseWindow: 30,
+  episodeWindow: 300,
+  rescueSeconds: 3600,
+};
 
 export interface RequesterConfig {
   verifiers: readonly { url: string; address: Hex }[];
@@ -59,6 +70,8 @@ export interface RequesterDeps {
   clock: Clock;
   records: RecordStore<RequesterRecord>;
   random?: () => Hex;
+  /** Optional HCS spending log. */
+  audit?: AuditPort;
 }
 
 const random32 = (): Hex => `0x${randomBytes(32).toString("hex")}`;
@@ -75,18 +88,19 @@ export class Requester {
     const random = this.deps.random ?? random32;
     const seed = random();
     const salt = random();
-    const { biddingSeconds, ...windows } = this.config.windows;
+    const { biddingSeconds, rescueSeconds, ...windows } = this.config.windows;
+    const now = clock.now();
     const terms: MissionTerms = {
-      maxBounty: request.maxBounty,
+      maxBounty: toBaseUnits(request.maxBounty),
       difficultyClass: request.difficulty,
       riskWeightBps: Math.round(request.riskWeight * 10_000),
       seedCommitment: seedCommitment(seed, salt),
-      deadlines: { biddingClosesAt: clock.now() + biddingSeconds, ...windows },
+      deadlines: { biddingClosesAt: now + biddingSeconds, rescueAt: now + rescueSeconds, ...windows },
     };
 
     const missionId = await escrow.createMission(terms, this.config.verifiers.map((v) => v.address));
     this.deps.records.put({ missionId, stage: "BIDDING", seed, salt, verdicts: {}, paidReplays: 0 });
-    await board.postMission({
+    const { key } = await board.postMission({
       missionId,
       difficultyClass: terms.difficultyClass,
       maxBounty: terms.maxBounty,
@@ -94,7 +108,13 @@ export class Requester {
       seedCommitment: terms.seedCommitment,
       biddingClosesAt: terms.deadlines.biddingClosesAt,
     });
-    this.deps.events.emit(missionId, "mission.posted", { ...request, seedCommitment: terms.seedCommitment });
+    this.deps.events.emit(missionId, "mission.posted", {
+      difficultyClass: terms.difficultyClass,
+      maxBounty: terms.maxBounty.toString(),
+      riskWeight: request.riskWeight,
+      biddingClosesAt: terms.deadlines.biddingClosesAt,
+      arkivKey: key,
+    });
     return missionId;
   }
 
@@ -119,7 +139,7 @@ export class Requester {
     if (record.stage === "AWARDING") return this.award(record, mission);
     if (record.stage === "AWARDED") return this.releaseSeed(record, mission);
     if (record.stage === "SEED_RELEASED") return this.awaitEpisode(record, mission);
-    return this.verify(record);
+    return this.verify(record, mission);
   }
 
   private closeBidding(record: RequesterRecord, mission: EscrowMission): void {
@@ -137,7 +157,11 @@ export class Requester {
     const { worker, price, stake } = agreed.value;
     await this.deps.escrow.award(record.missionId, { worker, price, stake }, agreed.signatures);
     this.move(record, "AWARDED");
-    this.deps.events.emit(record.missionId, "award.signed", { worker, price, stake });
+    // One event per signature that went on-chain, naming the Verifier who signed it.
+    for (const index of agreed.indexes) {
+      const verifier = this.config.verifiers[index]!.address;
+      this.deps.events.emit(record.missionId, "award.signed", { worker, price: price.toString(), stake: stake.toString(), verifier });
+    }
   }
 
   private async releaseSeed(record: RequesterRecord, mission: EscrowMission): Promise<void> {
@@ -150,9 +174,9 @@ export class Requester {
     const workerPubKey = await this.deps.board.workerPubKey(record.missionId, award.worker);
     if (!workerPubKey) return;
 
-    await this.deps.board.releaseSeed(record.missionId, record.seed, record.salt, workerPubKey);
+    const { key } = await this.deps.board.releaseSeed(record.missionId, record.seed, record.salt, workerPubKey);
     this.deps.records.put({ ...record, stage: "SEED_RELEASED", releasedAt: this.deps.clock.now() });
-    this.deps.events.emit(record.missionId, "seed.released", { worker: award.worker });
+    this.deps.events.emit(record.missionId, "seed.released", { worker: award.worker, arkivKey: key });
   }
 
   /** Waits for the Episode Submission or the end of its window (a No-show), then reveals the seed. */
@@ -165,14 +189,15 @@ export class Requester {
     this.move(record, "VERIFYING");
   }
 
-  private async verify(record: RequesterRecord): Promise<void> {
+  private async verify(record: RequesterRecord, mission: EscrowMission): Promise<void> {
     let current = record;
     for (const { url } of this.config.verifiers) {
       if (current.verdicts[url] || current.paidReplays >= this.config.maxPaidReplays) continue;
       current = await this.payForReplay(current, url);
     }
 
-    const agreed = quorum(Object.values(current.verdicts), (v) => `${v.outcome}|${v.evidenceHash}`);
+    const verdicts = this.config.verifiers.map(({ url }) => current.verdicts[url]);
+    const agreed = quorum(verdicts, (v) => `${v.outcome}|${v.evidenceHash}`);
     if (!agreed) {
       const capped = current.paidReplays >= this.config.maxPaidReplays;
       if (capped) this.move(current, "VERIFYING", "no Quorum within the Replay budget; rescue() refunds after the final deadline");
@@ -182,21 +207,39 @@ export class Requester {
     const { outcome, evidenceHash } = agreed.value;
     await this.deps.escrow.settle(record.missionId, outcome, evidenceHash, agreed.signatures);
     this.move(current, "SETTLED", outcome);
-    this.deps.events.emit(record.missionId, "settled", { outcome, evidenceHash });
+    const { award, terms } = mission;
+    const paid = payouts(outcome, terms.maxBounty, award?.price ?? 0n, award?.stake ?? 0n);
+    this.deps.events.emit(record.missionId, "settled", {
+      outcome,
+      workerPayout: paid.worker.toString(),
+      requesterPayout: paid.requester.toString(),
+    });
   }
 
   /** A failed call still counts against the cap: the payment may have gone through. */
   private async payForReplay(record: RequesterRecord, url: string): Promise<RequesterRecord> {
     let next: RequesterRecord = { ...record, paidReplays: record.paidReplays + 1 };
     try {
-      const verdict = await this.deps.verifiers.requestReplay(url, record.missionId);
+      const { verdict, payment } = await this.deps.verifiers.requestReplay(url, record.missionId);
       next = { ...next, verdicts: { ...next.verdicts, [url]: verdict } };
-      this.deps.events.emit(record.missionId, "replay.paid", { verifier: url, outcome: verdict.outcome });
+      const verifier = this.config.verifiers.find((v) => v.url === url)!.address;
+      if (payment.challenged) this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: 402, amount: payment.amount.toString() });
+      this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: "paid", amount: payment.amount.toString() });
+      await this.audit({ missionId: record.missionId, verifier: url, outcome: verdict.outcome });
     } catch (error) {
       next = { ...next, note: `Replay at ${url} failed: ${String(error)}` };
     }
     this.deps.records.put(next);
     return next;
+  }
+
+  /** The audit log is best-effort: a failed HCS write never blocks settlement. */
+  private async audit(entry: Omit<PaymentRecord, "at">): Promise<void> {
+    try {
+      await this.deps.audit?.recordPayment({ ...entry, at: new Date(this.deps.clock.now() * 1000).toISOString() });
+    } catch (error) {
+      console.error("HCS audit write failed:", error);
+    }
   }
 
   /** One answer per Verifier; a Verifier that errors counts as no answer. */

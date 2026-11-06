@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { seedCommitment, type Hex } from "../src/formats";
+import { seedCommitment, toBaseUnits, type Hex } from "../src/formats";
+import type { AuditPort, PaymentRecord } from "../src/requester/audit";
 import { RIVAL, ME, SALT, SEED, VERIFIER_URLS, requesterIn, world } from "./fakes";
 
 const randoms = (): (() => Hex) => {
@@ -11,7 +12,7 @@ function setupRequester() {
   const w = world();
   const r = requesterIn(w, { random: randoms() });
   const bid = (worker: Hex, price: number) =>
-    w.board.bids.push({ missionId: "m1", worker, policyHash: "0x00", workerPubKey: `${worker}ff`, sealedPrice: [`enc(${price})@k`] });
+    w.board.bids.push({ missionId: "m1", worker, policyHash: "0x00", workerPubKey: `${worker}ff`, sealedPrice: [`enc(${toBaseUnits(price)})@k`] });
   const post = () => r.requester.post({ difficulty: "medium", maxBounty: 10, riskWeight: 0.5 });
   const closeBidding = () => (w.clock.t += 61);
   return { ...w, ...r, bid, post, closeBidding };
@@ -24,7 +25,7 @@ async function staked() {
   s.bid(ME, 2);
   s.closeBidding();
   await s.requester.tick();
-  await s.escrow.stake("m1", 0.5);
+  await s.escrow.stake("m1", 500_000n);
   await s.requester.tick();
   return s;
 }
@@ -35,10 +36,10 @@ describe("Requester: posting", () => {
     const missionId = await s.post();
 
     const { terms } = await s.escrow.getMission(missionId);
-    expect(terms).toMatchObject({ maxBounty: 10, difficultyClass: "medium", riskWeightBps: 5000 });
+    expect(terms).toMatchObject({ maxBounty: 10_000_000n, difficultyClass: "medium", riskWeightBps: 5000 });
     expect(terms.seedCommitment).toBe(seedCommitment(SEED, SALT));
-    expect(terms.deadlines.biddingClosesAt).toBe(s.clock.t + 60);
-    expect(JSON.stringify(s.board.listings)).not.toContain(SEED.slice(2));
+    expect(terms.deadlines).toMatchObject({ biddingClosesAt: s.clock.t + 60, rescueAt: s.clock.t + 3600 });
+    expect(JSON.stringify(s.board.listings, (_k, v) => (typeof v === "bigint" ? String(v) : v))).not.toContain(SEED.slice(2));
     expect(s.stage()).toBe("BIDDING");
   });
 });
@@ -61,7 +62,7 @@ describe("Requester: Award", () => {
     await s.requester.tick();
 
     expect(s.escrow.awards).toHaveLength(1);
-    expect(s.escrow.awards[0]?.award).toMatchObject({ worker: RIVAL, price: 1.5 });
+    expect(s.escrow.awards[0]?.award).toMatchObject({ worker: RIVAL, price: 1_500_000n });
     expect(s.escrow.awards[0]?.signatures).toHaveLength(2);
     expect(s.stage()).toBe("AWARDED");
   });
@@ -146,5 +147,33 @@ describe("Requester: Seed Release and settlement", () => {
     expect(s.records.get("m1")?.paidReplays).toBe(3);
     expect(s.escrow.settlements).toHaveLength(0);
     expect(s.records.get("m1")?.note).toContain("Replay budget");
+  });
+});
+
+describe("Requester: HCS spending log", () => {
+  async function settledWith(audit: AuditPort) {
+    const w = world();
+    const r = requesterIn(w, { audit });
+    const missionId = await r.requester.post({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5 });
+    w.board.bids.push({ missionId, worker: ME, policyHash: "0x00", workerPubKey: "0x04", sealedPrice: ["enc(2000000)@k"] });
+    w.clock.t += 61;
+    await r.requester.tick();
+    await w.escrow.stake(missionId, 500_000n);
+    await r.requester.tick();
+    await w.registry.submitEpisode(missionId, "0x01", "0x02", 3);
+    await r.requester.tick();
+    return { w, missionId };
+  }
+
+  it("records every paid Replay", async () => {
+    const records: PaymentRecord[] = [];
+    const { missionId } = await settledWith({ recordPayment: async (r) => void records.push(r) });
+    expect(records.map((r) => r.verifier)).toEqual(VERIFIER_URLS);
+    expect(records[0]).toMatchObject({ missionId, outcome: "Pass" });
+  });
+
+  it("still settles when the audit log is down", async () => {
+    const { w } = await settledWith({ recordPayment: async () => Promise.reject(new Error("HCS down")) });
+    expect(w.escrow.settlements).toHaveLength(1);
   });
 });

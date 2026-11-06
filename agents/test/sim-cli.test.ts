@@ -1,15 +1,21 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { SimCli } from "../src/shared/sim-cli";
 import { runEpisode } from "../src/worker/episode";
 import { ScriptedInference, SEED, policy } from "./fakes";
 
 const fakeSim = fileURLToPath(new URL("./fixtures/fake-sim.mjs", import.meta.url));
-const sim = new SimCli(["node", fakeSim]);
+const runs = mkdtempSync(join(tmpdir(), "dewo-runs-"));
+const sim = new SimCli(["node", fakeSim], runs);
+const MISSION = `0x${"ab".repeat(32)}`;
+afterAll(() => rmSync(runs, { recursive: true, force: true }));
 
 describe("SimCli (I1 over JSON lines)", () => {
   it("drives a whole Episode through a real child process", async () => {
-    const session = await sim.openSession(SEED, "easy");
+    const session = await sim.openSession(SEED, "easy", MISSION);
     const result = await runEpisode({ policy, session, inference: new ScriptedInference(["FORWARD", "FORWARD", "FORWARD"]) });
     await session.close();
 
@@ -18,13 +24,33 @@ describe("SimCli (I1 over JSON lines)", () => {
     expect(new Set(result.decisions.map((d) => d.frameHash)).size).toBe(3);
   });
 
+  it("writes frames under runs/<missionId>/frames and reports their path relative to runs/", async () => {
+    const session = await sim.openSession(SEED, "easy", MISSION);
+    const observation = await session.observe();
+    await session.close();
+
+    expect(observation.framePath).toBe(`${MISSION}/frames/frame_0000.png`);
+    expect(existsSync(join(runs, observation.framePath))).toBe(true);
+  });
+
+  it("refuses a Mission id that is not 0x + 64 hex", async () => {
+    await expect(sim.openSession(SEED, "easy", "../escape")).rejects.toThrow(/invalid missionId/);
+  });
+
   it("reports a collision from the sim", async () => {
-    const session = await sim.openSession(SEED, "easy");
+    const session = await sim.openSession(SEED, "easy", MISSION);
     expect(await session.act("TURN_LEFT")).toEqual({ collision: true, atGoal: false });
     await session.close();
   });
 
+  it("turns an {error} reply into an exception instead of reading it as no collision", async () => {
+    const session = await sim.openSession(SEED, "easy", MISSION);
+    await session.act("TURN_LEFT");
+    await expect(session.act("FORWARD")).rejects.toThrow(/episode already ended/);
+    await session.close();
+  });
+
   it("fails loudly when the sim CLI fails", async () => {
-    await expect(new SimCli(["node", fakeSim, "bogus"]).openSession(SEED, "easy")).rejects.toThrow(/sim course failed/);
+    await expect(new SimCli(["node", fakeSim, "bogus"], runs).openSession(SEED, "easy", MISSION)).rejects.toThrow(/sim course failed/);
   });
 });

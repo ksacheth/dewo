@@ -1,7 +1,8 @@
 // What the Worker needs from the outside world. Real adapters (Arkiv via @dewo/board,
 // Hedera MissionEscrow, 0G Compute / Storage / EpisodeRegistry, the sim CLI) implement
-// these once M1, M2 and M3 land; tests use in-memory fakes. Amounts are in USDC.
+// these once M1, M2 and M3 land; tests use in-memory fakes. Money is USDC base units (bigint).
 import type { Action, ChatReceipt, Hex } from "../formats";
+import type { EventData, EventType } from "../shared/events";
 
 export type DifficultyClass = "easy" | "medium" | "hard";
 
@@ -14,11 +15,13 @@ export interface MissionDeadlines {
   seedReleaseWindow: number;
   /** After the Seed Release. */
   episodeWindow: number;
+  /** Absolute; after it only rescue() can close the Mission. */
+  rescueAt: number;
 }
 
 /** The Mission terms fixed on-chain by createMission (ADR 0003). */
 export interface MissionTerms {
-  maxBounty: number;
+  maxBounty: bigint;
   difficultyClass: DifficultyClass;
   riskWeightBps: number;
   seedCommitment: Hex;
@@ -27,8 +30,8 @@ export interface MissionTerms {
 
 export interface Award {
   worker: Hex;
-  price: number;
-  stake: number;
+  price: bigint;
+  stake: bigint;
   awardedAt: number;
 }
 
@@ -42,7 +45,7 @@ export interface EscrowMission {
 
 export interface EscrowPort {
   getMission(missionId: string): Promise<EscrowMission>;
-  stake(missionId: string, amount: number): Promise<void>;
+  stake(missionId: string, amount: bigint): Promise<void>;
 }
 
 export interface SeedRelease {
@@ -63,8 +66,9 @@ export interface BidEntity {
 export interface BoardPort {
   listOpenMissionIds(): Promise<string[]>;
   reliabilityOf(worker: Hex): Promise<number>;
-  sealBid(price: number, verifierPubKeys: readonly Hex[]): Promise<readonly string[]>;
-  placeBid(bid: BidEntity): Promise<void>;
+  sealBid(price: bigint, verifierPubKeys: readonly Hex[]): Promise<readonly string[]>;
+  /** Returns the Arkiv entity key of the Bid. */
+  placeBid(bid: BidEntity): Promise<{ key: string }>;
   /** The Seed Release for this Worker, decrypted, or null if not released yet. */
   readSeedRelease(missionId: string): Promise<SeedRelease | null>;
 }
@@ -92,6 +96,8 @@ export interface InferencePort {
 export interface Observation {
   frame: Uint8Array;
   frameHash: Hex;
+  /** Where the frame file lives, relative to the runs/ folder (e.g. <missionId>/frames/frame_0000.png). */
+  framePath: string;
 }
 
 export interface ActResult {
@@ -106,16 +112,20 @@ export interface SimSession {
 }
 
 export interface SimPort {
-  openSession(seed: Hex, difficulty: DifficultyClass): Promise<SimSession>;
+  /** Frames are written under runs/<missionId>/frames/ so the web can serve them. */
+  openSession(seed: Hex, difficulty: DifficultyClass, missionId: string): Promise<SimSession>;
 }
 
 export interface BalancesPort {
-  wallet(): Promise<number>;
+  /** USDC base units. */
+  wallet(): Promise<bigint>;
+  /** 0G Compute ledger balance, in the same unit as the strategy's zeroGPerDecision. */
   zeroG(): Promise<number>;
 }
 
 export interface EventsPort {
-  emit(missionId: string, type: string, data: Record<string, unknown>): void;
+  /** Typed by event type, so a payload that drifts from the I8 schema does not compile. */
+  emit<T extends EventType>(missionId: string, type: T, data: EventData[T], txUrl?: string): void;
 }
 
 export interface Clock {

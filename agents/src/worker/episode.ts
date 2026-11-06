@@ -13,7 +13,8 @@ export interface EpisodeInput {
   policy: Policy;
   session: SimSession;
   inference: InferencePort;
-  onDecision?: (decision: Decision) => void;
+  /** Called after each Decision, with where its frame file lives (relative to runs/). */
+  onDecision?: (decision: Decision, framePath: string) => void;
 }
 
 export async function runEpisode(input: EpisodeInput): Promise<EpisodeResult> {
@@ -21,11 +22,12 @@ export async function runEpisode(input: EpisodeInput): Promise<EpisodeResult> {
   const end = (endReason: EndReason): EpisodeResult => ({ decisions, endReason });
 
   while (decisions.length < DECISION_CAP) {
-    const decision = await decide(input, decisions.length, decisions.map((d) => d.action));
+    const decided = await decide(input, decisions.length, decisions.map((d) => d.action));
     // 0G unreachable: the rover halts. Never fake a Decision.
-    if (!decision) return end("SAFE_STOP");
+    if (!decided) return end("SAFE_STOP");
+    const { decision, framePath } = decided;
     decisions.push(decision);
-    input.onDecision?.(decision);
+    input.onDecision?.(decision, framePath);
 
     const result = await input.session.act(decision.action);
     if (decision.action === "STOP") return end("STOP");
@@ -35,8 +37,8 @@ export async function runEpisode(input: EpisodeInput): Promise<EpisodeResult> {
   return end("DECISION_CAP");
 }
 
-/** One Decision, or null if 0G could not be reached. */
-async function decide(input: EpisodeInput, step: number, history: Action[]): Promise<Decision | null> {
+/** One Decision (with its frame path), or null if 0G could not be reached. */
+async function decide(input: EpisodeInput, step: number, history: Action[]): Promise<{ decision: Decision; framePath: string } | null> {
   const { policy, session, inference } = input;
   const observation = await session.observe();
   const request = buildRequest(policy, observation.frame, history);
@@ -48,7 +50,7 @@ async function decide(input: EpisodeInput, step: number, history: Action[]): Pro
     return null;
   }
 
-  return {
+  const decision: Decision = {
     step,
     frameHash: observation.frameHash,
     chatID: reply.chatID,
@@ -58,4 +60,5 @@ async function decide(input: EpisodeInput, step: number, history: Action[]): Pro
     action: parseAction(reply.rawResponse),
     ...(reply.receipt ? { receipt: reply.receipt } : {}),
   };
+  return { decision, framePath: observation.framePath };
 }

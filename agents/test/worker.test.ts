@@ -25,7 +25,7 @@ describe("Worker: bidding", () => {
 
   it("skips using the on-chain max bounty", async () => {
     const w = setup();
-    w.post("m1", terms({ maxBounty: 1 }));
+    w.post("m1", terms({ maxBounty: 1_000_000n }));
     await w.worker.tick();
     expect(w.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "PRICE_ABOVE_MAX_BOUNTY" });
     expect(w.board.bids).toHaveLength(0);
@@ -65,9 +65,9 @@ describe("Worker: Award and stake", () => {
     const w = setup();
     w.post();
     await w.worker.tick();
-    w.escrow.grant("m1", { stake: 0.7 });
+    w.escrow.grant("m1", { stake: 700_000n });
     await w.worker.tick();
-    expect(w.escrow.stakes).toEqual([{ missionId: "m1", amount: 0.7 }]);
+    expect(w.escrow.stakes).toEqual([{ missionId: "m1", amount: 700_000n }]);
     expect(w.stage()).toBe("STAKED");
   });
 

@@ -29,7 +29,10 @@ export function createMockVerifier(options: MockVerifierOptions): Server {
       res.writeHead(status, { "content-type": "application/json", ...headers });
       res.end(JSON.stringify(body));
     };
-    if (req.method === "POST" && req.url === "/award") return json(200, options.award);
+    if (req.method === "POST" && req.url === "/award") {
+      const { award } = options;
+      return json(200, award && { ...award, price: award.price.toString(), stake: award.stake.toString() });
+    }
     if (req.method !== "POST" || req.url !== "/replay") return json(404, { error: "not found" });
 
     if (!req.headers["payment-signature"]) {

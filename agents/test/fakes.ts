@@ -1,11 +1,12 @@
 // In-memory stand-ins for Arkiv, Hedera, 0G and the simulator.
 import { keccak256, toBytes, toHex } from "viem";
-import { seedCommitment, type Action, type Hex, type Policy } from "../src/formats";
+import { fromBaseUnits, seedCommitment, toBaseUnits, type Action, type Hex, type Policy } from "../src/formats";
 import type {
   ActResult,
   Award,
   BidEntity,
   BoardPort,
+  DifficultyClass,
   EscrowMission,
   EscrowPort,
   InferencePort,
@@ -18,6 +19,7 @@ import type {
   SimSession,
   StoragePort,
 } from "../src/worker/ports";
+import type { AuditPort } from "../src/requester/audit";
 import type {
   AwardTerms,
   MissionListing,
@@ -25,6 +27,7 @@ import type {
   RequesterBoardPort,
   RequesterEscrowPort,
   SignedAward,
+  ReplayResult,
   SignedVerdict,
   VerifiersPort,
 } from "../src/requester/ports";
@@ -57,18 +60,18 @@ export class FakeClock {
 
 export function terms(overrides: Partial<MissionTerms> = {}): MissionTerms {
   return {
-    maxBounty: 10,
+    maxBounty: 10_000_000n,
     difficultyClass: "easy",
     riskWeightBps: 5000,
     seedCommitment: seedCommitment(SEED, SALT),
-    deadlines: { biddingClosesAt: 1_060, stakeWindow: 30, seedReleaseWindow: 30, episodeWindow: 300 },
+    deadlines: { biddingClosesAt: 1_060, stakeWindow: 30, seedReleaseWindow: 30, episodeWindow: 300, rescueAt: 4_600 },
     ...overrides,
   };
 }
 
 export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
   missions = new Map<string, EscrowMission>();
-  stakes: { missionId: string; amount: number }[] = [];
+  stakes: { missionId: string; amount: bigint }[] = [];
   /** Every Award ever made, including lapsed ones. */
   awards: { missionId: string; award: AwardTerms; signatures: readonly Hex[] }[] = [];
   settlements: { missionId: string; outcome: Outcome; evidenceHash: Hex; signatures: readonly Hex[] }[] = [];
@@ -97,7 +100,7 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
 
   /** Test helper: sets the current Award directly. */
   grant(missionId: string, award: Partial<Award> = {}): void {
-    const awarded = { worker: ME, price: 1.5, stake: 0.5, awardedAt: this.clock.now(), ...award };
+    const awarded = { worker: ME, price: 1_500_000n, stake: 500_000n, awardedAt: this.clock.now(), ...award };
     this.patch(missionId, { award: awarded });
   }
 
@@ -109,7 +112,7 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
     return this.mission(missionId);
   }
 
-  async stake(missionId: string, amount: number): Promise<void> {
+  async stake(missionId: string, amount: bigint): Promise<void> {
     this.stakes.push({ missionId, amount });
     this.patch(missionId, { stakedAt: this.clock.now() });
   }
@@ -131,15 +134,17 @@ export class FakeBoard implements BoardPort, RequesterBoardPort {
 
   constructor(private readonly clock: FakeClock) {}
 
-  async postMission(listing: MissionListing): Promise<void> {
+  async postMission(listing: MissionListing): Promise<{ key: string }> {
     this.listings.push(listing);
     this.open.push(listing.missionId);
+    return { key: `arkiv-mission-${this.listings.length}` };
   }
   async workerPubKey(missionId: string, worker: Hex): Promise<Hex | null> {
     return this.bids.find((b) => b.missionId === missionId && b.worker === worker)?.workerPubKey ?? null;
   }
-  async releaseSeed(missionId: string, seed: Hex, salt: Hex): Promise<void> {
+  async releaseSeed(missionId: string, seed: Hex, salt: Hex): Promise<{ key: string }> {
     this.releases.set(missionId, { seed, salt, releasedAt: this.clock.now() });
+    return { key: `arkiv-seed-${missionId}` };
   }
   async revealSeed(missionId: string, seed: Hex, salt: Hex): Promise<void> {
     this.reveals.set(missionId, { seed, salt });
@@ -151,11 +156,12 @@ export class FakeBoard implements BoardPort, RequesterBoardPort {
   async reliabilityOf(): Promise<number> {
     return this.reliability;
   }
-  async sealBid(price: number, keys: readonly Hex[]): Promise<readonly string[]> {
+  async sealBid(price: bigint, keys: readonly Hex[]): Promise<readonly string[]> {
     return keys.map((key) => `enc(${price})@${key}`);
   }
-  async placeBid(bid: BidEntity): Promise<void> {
+  async placeBid(bid: BidEntity): Promise<{ key: string }> {
     this.bids.push(bid);
+    return { key: `arkiv-bid-${this.bids.length}` };
   }
   async readSeedRelease(missionId: string): Promise<SeedRelease | null> {
     return this.releases.get(missionId) ?? null;
@@ -188,8 +194,8 @@ export class FakeSim implements SimPort {
   sessions: CorridorSession[] = [];
   constructor(private readonly goalAt = 3) {}
 
-  async openSession(): Promise<SimSession> {
-    const session = new CorridorSession(this.goalAt);
+  async openSession(_seed: Hex, _difficulty: DifficultyClass, missionId: string): Promise<SimSession> {
+    const session = new CorridorSession(this.goalAt, missionId);
     this.sessions.push(session);
     return session;
   }
@@ -199,11 +205,15 @@ export class CorridorSession implements SimSession {
   position = 0;
   actions: Action[] = [];
   closed = false;
-  constructor(private readonly goalAt: number) {}
+  constructor(
+    private readonly goalAt: number,
+    private readonly missionId = "m1",
+  ) {}
 
   async observe(): Promise<Observation> {
     const frame = new Uint8Array([this.position]);
-    return { frame, frameHash: toHex(frame, { size: 32 }) };
+    const framePath = `${this.missionId}/frames/frame_${String(this.actions.length).padStart(4, "0")}.png`;
+    return { frame, frameHash: toHex(frame, { size: 32 }), framePath };
   }
   async act(action: Action): Promise<ActResult> {
     this.actions.push(action);
@@ -252,20 +262,21 @@ export class FakeVerifiers implements VerifiersPort {
     const lapsed = new Set(this.escrow.awards.filter((a) => a.missionId === missionId).map((a) => a.award.worker));
     const bids = this.board.bids
       .filter((b) => b.missionId === missionId && !lapsed.has(b.worker))
-      .map((b) => ({ worker: b.worker, price: Number(/enc\((.*)\)@/.exec(b.sealedPrice[0]!)![1]) }))
-      .sort((a, b) => a.price - b.price);
+      .map((b) => ({ worker: b.worker, price: BigInt(/enc\((.*)\)@/.exec(b.sealedPrice[0]!)![1]!) }))
+      .sort((a, b) => Number(a.price - b.price));
     const best = bids[0];
     if (!best) return null;
-    const stake = expectedStake(mission.terms.maxBounty, this.board.reliability);
+    const stake = toBaseUnits(expectedStake(fromBaseUnits(mission.terms.maxBounty), this.board.reliability));
     return { ...best, stake, signature: sign(url, missionId) };
   }
 
-  async requestReplay(url: string, missionId: string): Promise<SignedVerdict> {
+  async requestReplay(url: string, missionId: string): Promise<ReplayResult> {
     this.failIfBroken(url);
     this.replays.push(url);
     const submitted = await this.registry.isSubmitted(missionId);
     const outcome: Outcome = this.dissenting.has(url) ? "Fail" : submitted ? "Pass" : "NoShow";
-    return { outcome, evidenceHash: keccak256(toBytes(`${missionId}:${outcome}`)), signature: sign(url, missionId) };
+    const verdict: SignedVerdict = { outcome, evidenceHash: keccak256(toBytes(`${missionId}:${outcome}`)), signature: sign(url, missionId) };
+    return { verdict, payment: { challenged: true, amount: REPLAY_PRICE } };
   }
 
   private failIfBroken(url: string): void {
@@ -276,6 +287,8 @@ export class FakeVerifiers implements VerifiersPort {
 const sign = (url: string, missionId: string): Hex => keccak256(toBytes(`${url}:${missionId}`));
 
 export const VERIFIER_URLS = ["http://v1", "http://v2", "http://v3"];
+export const VERIFIER_ADDRESSES: Hex[] = VERIFIER_URLS.map((_, i) => toHex(i + 1, { size: 20 }));
+export const REPLAY_PRICE = 100_000n;
 
 /** The shared fakes that a Requester and Workers meet in. */
 export function world() {
@@ -285,22 +298,22 @@ export function world() {
   const registry = new FakeRegistry();
   const storage = new FakeStorage();
   const verifiers = new FakeVerifiers(board, escrow, registry);
-  const events: { missionId: string; type: string }[] = [];
-  const emit = { emit: (missionId: string, type: string) => void events.push({ missionId, type }) };
+  const events: { missionId: string; type: string; data: unknown }[] = [];
+  const emit = { emit: (missionId: string, type: string, data: unknown) => void events.push({ missionId, type, data }) };
   return { clock, escrow, board, registry, storage, verifiers, events, emit };
 }
 
 export type World = ReturnType<typeof world>;
 
-export function requesterIn(w: World, options: { random?: () => Hex } = {}) {
+export function requesterIn(w: World, options: { random?: () => Hex; audit?: AuditPort } = {}) {
   const records = new MemoryRecordStore<RequesterRecord>();
   const requester = new Requester(
     {
-      verifiers: VERIFIER_URLS.map((url, i) => ({ url, address: toHex(i + 1, { size: 20 }) })),
+      verifiers: VERIFIER_URLS.map((url, i) => ({ url, address: VERIFIER_ADDRESSES[i]! })),
       windows: DEFAULT_WINDOWS,
       maxPaidReplays: 3,
     },
-    { ...w, events: w.emit, records, random: options.random },
+    { ...w, events: w.emit, records, random: options.random, audit: options.audit },
   );
   return { requester, records, stage: (missionId = "m1") => records.get(missionId)?.stage };
 }
@@ -314,7 +327,13 @@ export function workerIn(w: World, options: { address?: Hex; answers?: string[];
     publicKey: "0x04ab",
     policy,
     verifierPubKeys: ["0x01", "0x02", "0x03"],
-    strategy: { costPerDecision: 0.05, expectedDecisions: 15, txFees: 0.05, margin: options.margin ?? 1.6 },
+    strategy: {
+      costPerDecision: 0.05,
+      zeroGPerDecision: 0.05,
+      expectedDecisions: 15,
+      txFees: 0.05,
+      margin: options.margin ?? 1.6,
+    },
   };
   const worker = new Worker(config, {
     ...w,
@@ -322,7 +341,7 @@ export function workerIn(w: World, options: { address?: Hex; answers?: string[];
     inference,
     sim,
     records,
-    balances: { wallet: async () => 5, zeroG: async () => 5 },
+    balances: { wallet: async () => 5_000_000n, zeroG: async () => 5 },
   });
   return { worker, sim, inference, records, stage: (missionId = "m1") => records.get(missionId)?.stage };
 }

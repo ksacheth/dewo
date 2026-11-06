@@ -2,7 +2,15 @@
 import { PrivateKey } from "@hiero-ledger/sdk";
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { ExactHederaScheme, createClientHederaSigner } from "@x402/hedera";
-import type { SignedAward, SignedVerdict, VerifiersPort } from "./ports";
+import type { Hex } from "../formats";
+import type { ReplayPayment, ReplayResult, SignedAward, SignedVerdict, VerifiersPort } from "./ports";
+
+interface WireAward {
+  worker: Hex;
+  price: string;
+  stake: string;
+  signature: Hex;
+}
 
 export interface PayerConfig {
   /** Hedera account id of the Requester, e.g. 0.0.12345. */
@@ -12,11 +20,15 @@ export interface PayerConfig {
   maxAtomicAmountPerReplay: bigint;
 }
 
-/** fetch that pays any 402 through x402 on Hedera testnet, refusing anything above the cap. */
-export function payingFetch(config: PayerConfig): typeof fetch {
+/** Builds a fetch that pays any 402 on top of `base`. HttpVerifiers hands it a recording `base` per Replay. */
+export type PayFetchFactory = (base: typeof fetch) => typeof fetch;
+
+/** Pays any 402 through x402 on Hedera testnet, refusing anything above the cap. */
+export function payingFetch(config: PayerConfig): PayFetchFactory {
   const signer = createClientHederaSigner(config.accountId, PrivateKey.fromString(config.privateKey), { network: "testnet" });
   const client = new x402Client().register("hedera:*", new ExactHederaScheme(signer));
-  return wrapFetchWithPayment(fetch, withSpendCap(client, config.maxAtomicAmountPerReplay));
+  const capped = withSpendCap(client, config.maxAtomicAmountPerReplay);
+  return (base) => wrapFetchWithPayment(base, capped);
 }
 
 /** Drops any payment option above `maxAtomicAmount`; with none left, the payment is refused. */
@@ -25,16 +37,21 @@ export function withSpendCap(client: x402Client, maxAtomicAmount: bigint): x402C
 }
 
 export class HttpVerifiers implements VerifiersPort {
-  constructor(private readonly payFetch: typeof fetch) {}
+  constructor(private readonly payFetch: PayFetchFactory) {}
 
   /** A `null` body means there is no valid Bid to award. */
   async requestAward(verifierUrl: string, missionId: string): Promise<SignedAward | null> {
-    return (await post(fetch, `${verifierUrl}/award`, missionId)) as SignedAward | null;
+    const body = (await post(fetch, `${verifierUrl}/award`, missionId)) as WireAward | null;
+    if (!body) return null;
+    // Amounts travel as decimal strings of USDC base units (JSON has no bigint).
+    return { worker: body.worker, price: BigInt(body.price), stake: BigInt(body.stake), signature: body.signature };
   }
 
-  async requestReplay(verifierUrl: string, missionId: string): Promise<SignedVerdict> {
-    const body = (await post(this.payFetch, `${verifierUrl}/replay`, missionId)) as { verdict: SignedVerdict["outcome"] } & SignedVerdict;
-    return { outcome: body.verdict ?? body.outcome, evidenceHash: body.evidenceHash, signature: body.signature };
+  async requestReplay(verifierUrl: string, missionId: string): Promise<ReplayResult> {
+    const payment: ReplayPayment = { challenged: false, amount: 0n };
+    const body = (await post(this.payFetch(recordingFetch(payment)), `${verifierUrl}/replay`, missionId)) as { verdict: SignedVerdict["outcome"] } & SignedVerdict;
+    const verdict = { outcome: body.verdict ?? body.outcome, evidenceHash: body.evidenceHash, signature: body.signature };
+    return { verdict, payment };
   }
 }
 
@@ -46,4 +63,32 @@ async function post(doFetch: typeof fetch, url: string, missionId: string): Prom
   });
   if (!response.ok) throw new Error(`${url} answered ${response.status}: ${await response.text()}`);
   return response.json();
+}
+
+/** Passes calls through to fetch and notes the 402 challenge and the amount of the payment that answers it. */
+function recordingFetch(payment: ReplayPayment): typeof fetch {
+  let quoted = 0n;
+  return async (input, init) => {
+    const signature = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined)).get("PAYMENT-SIGNATURE");
+    const response = await fetch(input, init);
+    if (response.status === 402) {
+      payment.challenged = true;
+      quoted = decodedAmount(response.headers.get("PAYMENT-REQUIRED"), "accepts") ?? quoted;
+    }
+    if (signature) payment.amount = decodedAmount(signature, "accepted") ?? quoted;
+    return response;
+  };
+}
+
+/** The `amount` in a base64 JSON x402 header: of the first option under "accepts", or of the "accepted" one. */
+function decodedAmount(header: string | null, field: "accepts" | "accepted"): bigint | undefined {
+  if (!header) return undefined;
+  try {
+    const body = JSON.parse(Buffer.from(header, "base64").toString()) as Record<string, { amount?: string } | { amount?: string }[]>;
+    const chosen = body[field];
+    const amount = (Array.isArray(chosen) ? chosen[0] : chosen)?.amount;
+    return amount === undefined ? undefined : BigInt(amount);
+  } catch {
+    return undefined;
+  }
 }
