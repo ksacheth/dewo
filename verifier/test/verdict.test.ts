@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SimInputError } from "../src/adapters/sim-cli.js";
 import { verifyEpisode, type EpisodeInput } from "../src/checks/index.js";
-import { NotJson } from "../src/ports.js";
+import { NotJson, NotUploaded } from "../src/ports.js";
 import { Outcome } from "../src/sign.js";
 import { FakeSim, honestEpisode, zeroG, frameHashFor, pngFor, POLICY, ROUTER_POLICY } from "./fixtures/builders.js";
 import { buildRequest, policyHash, type Policy } from "@dewo/agents/formats";
@@ -223,7 +223,7 @@ describe("Worker documents that are not valid content (issue #47: a Fail, never 
   const withPolicy = (policy: unknown): EpisodeInput => {
     const ep = honestEpisode();
     // The Bid commits to exactly these bytes, so only the format check can catch them.
-    const committed = policy instanceof NotJson ? ep.bid.policyHash : policyHash(policy as Policy);
+    const committed = policy instanceof NotJson || policy instanceof NotUploaded ? ep.bid.policyHash : policyHash(policy as Policy);
     return { ...ep, bid: { ...ep.bid, policyHash: committed }, policy: policy as EpisodeInput["policy"] };
   };
 
@@ -263,6 +263,16 @@ describe("Worker documents that are not valid content (issue #47: a Fail, never 
   ])("fails a Policy that is JSON in the wrong shape, even when the Bid committed to it (%s)", async (_name, policy) => {
     const v = await verifyEpisode(deps(), withPolicy(policy));
     expect(v).toMatchObject({ outcome: Outcome.Fail, failedCheck: "policy", reason: POLICY_BAD_FORMAT });
+  });
+
+  it("fails a never-uploaded Episode Log at the header check and a never-uploaded Policy at the policy check (issue #64)", async () => {
+    const log = await verifyEpisode(deps(), withLog(new NotUploaded(), 3));
+    expect(log).toMatchObject({ outcome: Outcome.Fail, failedCheck: "header", reason: "episode log was never uploaded to 0G Storage", pathCost: 0 });
+    const policy = await verifyEpisode(deps(), withPolicy(new NotUploaded()));
+    expect(policy).toMatchObject({ outcome: Outcome.Fail, failedCheck: "policy", reason: "policy was never uploaded to 0G Storage" });
+    // The reason is in the evidence: a missing upload never hashes like bytes that are not JSON.
+    expect(log.evidenceHash).not.toBe((await verifyEpisode(deps(), withLog(new NotJson(), 3))).evidenceHash);
+    expect(policy.evidenceHash).not.toBe((await verifyEpisode(deps(), withPolicy(new NotJson()))).evidenceHash);
   });
 
   it("keeps the spec order: an unsolvable Course is Invalid Course before the Policy is judged", async () => {

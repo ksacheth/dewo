@@ -1,10 +1,29 @@
 import type { EpisodeLog, Policy } from "@dewo/agents/formats";
 import type { Hex } from "viem";
-import { PendingError } from "./errors.js";
-import type { BoardPort, EpisodeRegistryPort, EpisodeSource, EscrowPort, LoadedEpisode, NotJson, SeedPort, StoragePort } from "./ports.js";
+import { PendingError, StorageUnavailableError } from "./errors.js";
+import {
+  NotUploaded, type BoardPort, type EpisodeRegistryPort, type EpisodeSource, type EscrowPort, type Fetched, type LoadedEpisode,
+  type SeedPort, type StoragePort, type UploadRecordPort,
+} from "./ports.js";
 
 export interface EpisodeSourceDeps {
-  board: BoardPort; chain: EscrowPort; seeds: SeedPort; registry: EpisodeRegistryPort; storage: StoragePort;
+  board: BoardPort; chain: EscrowPort; seeds: SeedPort; registry: EpisodeRegistryPort; storage: StoragePort; uploads: UploadRecordPort;
+}
+
+/** Slack before the stake for clock skew between Hedera consensus time and Galileo block time. */
+export const UPLOAD_CLOCK_SKEW = 300;
+
+/**
+ * The Worker's two documents. Whether each was uploaded is decided from the chain alone: a root with no Flow submission between the
+ * Worker's stake and its Episode Submission is NotUploaded (a Fail) without downloading it, so a Verifier whose download would have
+ * worked and one whose download fails reach the same Verdict. A submitted root that 0G Storage cannot serve is infrastructure
+ * (StorageUnavailableError, no Verdict), and so is a Flow lookup that fails.
+ */
+async function fetchDocuments(deps: EpisodeSourceDeps, roots: [Hex, Hex], window: { from: number; to: number }): Promise<unknown[]> {
+  const submitted = await deps.uploads.submittedBetween(roots, window.from, window.to).catch((e: unknown) => {
+    throw new StorageUnavailableError(`0G Flow lookup failed: ${e instanceof Error ? e.message : String(e)}`);
+  });
+  return Promise.all(roots.map((root, i) => (submitted[i] ? deps.storage.downloadJson(root) : new NotUploaded())));
 }
 
 /**
@@ -29,11 +48,11 @@ export function createEpisodeSource(deps: EpisodeSourceDeps): EpisodeSource {
       const bid = bids.find((b) => b.worker.toLowerCase() === award.worker.toLowerCase());
       if (!submission || !reveal || !bid) return { mission, worker: award.worker, timeline };
 
-      // Content that is not JSON or not well formed is passed on for the checks to Fail; a 0G outage rejects (no Verdict).
-      const [log, policy] = (await Promise.all([
-        deps.storage.downloadJson(submission.episodeLogRoot),
-        deps.storage.downloadJson(submission.policyRoot),
-      ])) as [EpisodeLog | NotJson, Policy | NotJson];
+      // Content that is not JSON, not well formed or never uploaded is passed on for the checks to Fail; a 0G outage rejects (no Verdict).
+      const window = { from: award.stakedAt - UPLOAD_CLOCK_SKEW, to: submission.timestamp };
+      const [log, policy] = (await fetchDocuments(deps, [submission.episodeLogRoot, submission.policyRoot], window)) as [
+        Fetched<EpisodeLog>, Fetched<Policy>,
+      ];
       return {
         mission, worker: award.worker, timeline,
         episode: { bid, reveal, policy, log, episodeLogRoot: submission.episodeLogRoot, decisionCount: submission.decisionCount },

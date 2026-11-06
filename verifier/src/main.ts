@@ -7,6 +7,7 @@ import { arkivAdapters } from "./adapters/board.js";
 import { hederaEscrow, viemEscrowReader } from "./adapters/escrow-chain.js";
 import { cliSim, localRunner } from "./adapters/sim-cli.js";
 import { mainnetComputeBroker, zeroGCompute } from "./adapters/zerog-compute.js";
+import { GALILEO_FLOW, viemFlowReader, zeroGFlow } from "./adapters/zerog-flow.js";
 import { viemRegistryReader, zeroGRegistry } from "./adapters/zerog-registry.js";
 import { indexerAt, zeroGStorage } from "./adapters/zerog-storage.js";
 import { createEpisodeSource } from "./episodes.js";
@@ -73,6 +74,7 @@ async function main() {
       board, chain, seeds,
       registry: zeroGRegistry(viemRegistryReader(zgRpc, registryAddress)),
       storage: zeroGStorage(indexerAt(process.env.ZG_STORAGE_INDEXER ?? "https://indexer-storage-testnet-turbo.0g.ai")),
+      uploads: zeroGFlow(viemFlowReader(zgRpc, (process.env.ZG_FLOW_ADDRESS as Address | undefined) ?? GALILEO_FLOW)),
     }),
   });
   serve({ fetch: app.fetch, port });
