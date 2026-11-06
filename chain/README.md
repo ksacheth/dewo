@@ -75,28 +75,34 @@ Verifiers must select the winning Worker's record, never an arbitrary first even
 
 Copy `.env.example` to `.env` and populate local keys; never commit `.env`.
 The deployers need testnet gas, and the USDC smoke-test participants need test USDC,
-token association, and transfer approvals. Foundry reads `.env`; export the RPC
-variables in your shell before using the commands below.
+token association, and transfer approvals. Foundry reads `.env`; export the
+variables in your shell (`set -a; source .env; set +a`) before using the commands below.
 
 ```bash
-forge script script/DeployHedera.s.sol --rpc-url "$HEDERA_RPC_URL" --broadcast --skip-simulation
-python3 script/export_deployments.py hedera
+# Hedera: forge create, not forge script (see below)
+forge create src/MissionEscrow.sol:MissionEscrow --constructor-args "$HEDERA_USDC_ADDRESS" \
+  --rpc-url "$HEDERA_RPC_URL" --private-key "$HEDERA_PRIVATE_KEY" --broadcast
+python3 script/export_deployments.py hedera --tx <deployment tx hash> --rpc-url "$HEDERA_RPC_URL"
+
+# 0G Galileo
 forge script script/Deploy0G.s.sol --rpc-url "$OG_RPC_URL" --broadcast
 python3 script/export_deployments.py 0g
 ```
 
-`--skip-simulation` is required for Hedera: the constructor calls the HTS system contract
-at `0x167`, which does not exist in Foundry's local EVM, so the pre-broadcast simulation
-reverts. The deployment is therefore not simulated, so double-check the env vars first.
-If Hedera's relay rejects the transaction type, add `--legacy` (Foundry's option for
-non-EIP1559 transactions), and `--gas-estimate-multiplier <percent>` (default 130) can
-raise gas, but estimation is also skipped, so use `--gas-limit` if needed. The 0G script
-can be simulated by omitting `--broadcast`. Export only after successful broadcast,
-using the same compiled source revision. Scripts enforce chain 296 / 16602.
+Hedera cannot be deployed with `forge script`: Foundry always executes the script locally on a
+fork before broadcasting (`--skip-simulation` only skips the second, on-chain simulation), and on
+that fork the HTS system contract at `0x167` is not real code (Hedera's RPC returns `0xfe`), so the
+constructor's `associateToken` fails with `InvalidFEOpcode` and nothing is sent. `forge create` sends
+the deployment directly; Hedera's relay estimates gas with HTS support. If estimation fails, add
+`--gas-limit 3000000` (Hedera charges at least 80% of the limit). `DeployHedera.s.sol` stays for
+reference and checks. For an HBAR escrow, deploy with `--constructor-args 0x0000000000000000000000000000000000000000`.
+`export_deployments.py --tx` fetches the receipt from the chain, checks the chain ID and a successful
+contract creation, and writes `{ address, abi }` from the same compiled build. The 0G script can be
+simulated by omitting `--broadcast`. Scripts enforce chain 296 / 16602.
 USDC constructor association uses HTS `0x167`, checking success code 22 per the
 [official HTS interface](https://github.com/hiero-ledger/hiero-contracts/blob/main/contracts/token-service/IHederaTokenService.sol).
 
-For an explicit HBAR fallback deployment set `HEDERA_USE_HBAR=true`. Send exact
+For an explicit HBAR fallback deployment pass the zero address as the asset (above). Send exact
 native `msg.value` for bounty and stake. EVM native values and Hedera tinybars have
 different denominations; clients must perform the proper conversion. No automatic
 fallback happens if association fails. HBAR does not fulfill the USDC acceptance test.

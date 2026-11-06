@@ -4,8 +4,9 @@ pragma solidity 0.8.24;
 import {Script, console2} from "forge-std/Script.sol";
 import {MissionEscrow} from "../src/MissionEscrow.sol";
 
-/// @dev The MissionEscrow constructor calls the HTS system contract at 0x167, which Foundry's local
-/// simulation does not have. Run with `--broadcast --skip-simulation` (see README).
+/// @dev Not usable for a live Hedera deploy: forge script always runs run() on a local fork first, where the
+/// HTS system contract at 0x167 is not real code, so the constructor's associateToken reverts. Deploy with
+/// `forge create` instead (see README). Kept for its chain and asset checks.
 contract DeployHedera is Script {
     function run() external returns (MissionEscrow escrow) {
         require(block.chainid == 296, "Hedera testnet only");
