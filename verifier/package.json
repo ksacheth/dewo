@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx src/main.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "spike:x402": "tsx --env-file=.env.spike scripts/x402-live.ts"
   },
   "dependencies": {
     "@dewo/agents": "workspace:*",
