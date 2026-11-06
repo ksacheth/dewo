@@ -105,6 +105,18 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
 - **Decision:** ask on #10 to add an MIT `LICENSE` at the root (root files are frozen by the PRD). Arkiv requires
   an open-source license. If refused, the README states the license.
 
+## D13 **I4**: Seed Reveal is a public, long-lived entity (requested by M4 on #13)
+
+- **Decision:** `revealSeed(wallet, missionId, seed, salt)` writes a `dewo.seedReveal` entity (indexed `missionId`; `seed`, `salt` in the clear), owned by the Requester, `readonly`, 180 days like a Verdict. `readSeedReveal(missionId, requester?)` returns `{ seed, salt } | null`.
+- **Why:** the spec says the Course Seed becomes public after the Episode Submission but not where. Verifiers need it to re-run the Replay.
+- **Trust (D5):** only a reveal owned by the Mission's Requester counts; the earliest wins. The Mission entity expires after 60 min but the reveal lives 180 days, so after that pass `requester` explicitly. **Verifiers must still check `seed, salt` against the on-chain `seedCommitment`**; the board does not know the hash scheme.
+- **Symptom if violated:** Verifiers replay a Course the Requester never committed to (no commitment check), or read a stranger's fake seed (no owner filter).
+
+## D14: `listBids` already carries what the Requester needs (requested by M4 on #13)
+
+- `listBids(missionId)` rows include `worker` and `workerPubKey` (as `0x04…` hex). M4's `workerPubKey(missionId, worker)` is a one-line lookup over it.
+- **Adapter notes for M4's `BoardPort` / `RequesterBoardPort`:** our amounts are USDC base units as `bigint` (D11), `sealBid` returns `Uint8Array` ciphertexts (not hex strings), `postMission` takes `MissionInput` (`riskWeight` 0 to 1, `biddingClosesAt` seconds, `verifiers` comma-joined), and `reliabilityOf` is `reliability(await listVerdicts({ worker }))`.
+
 ## Also added to I4 (needed by the spec, missing from the function list)
 
 - `setMissionStatus(wallet, entityKey, status)`: the Mission `status` field needs a writer (M4's Requester).

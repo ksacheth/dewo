@@ -45,6 +45,10 @@ describe.skipIf(!enabled)("real Arkiv (Rabdi)", () => {
     await board.releaseSeed(wallet!, missionId, "42", "0xsalt", wallet!.account.publicKey)
     expect(await board.readSeedRelease(missionId, pk)).toEqual({ seed: "42", salt: "0xsalt" })
 
+    expect(await board.readSeedReveal(missionId)).toBeNull()
+    await board.revealSeed(wallet!, missionId, "0x2a", "0x5a17")
+    expect(await board.readSeedReveal(missionId)).toEqual({ seed: "0x2a", salt: "0x5a17" })
+
     await board.writeVerdict(wallet!, {
       missionId, worker: me, outcome: "Pass", steps: 10, collisions: 0, difficultyClass: "medium", stepBudget: 15,
       signature: "0x1234", evidenceHash: "0xev", episodeLogRoot: "0xroot",

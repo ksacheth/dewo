@@ -33,6 +33,9 @@ export type BidRow = BidInput & EntityMeta & { worker: Hex }
 
 export type SeedReleaseRow = EntityMeta & { missionId: Hex; worker: Hex; sealed: Uint8Array }
 
+/** The Course Seed and salt in the clear, public after the Episode so anyone can re-run the Replay (D13). */
+export type SeedRevealRow = EntityMeta & { missionId: Hex; seed: string; salt: string }
+
 export type VerdictInput = {
   missionId: Hex
   worker: Hex
@@ -83,6 +86,12 @@ export const SeedRelease = defineSchema("dewo.seedRelease", {
   sealed: bytes(), // ECIES({seed, salt}) to the Worker's public key
 })
 
+export const SeedReveal = defineSchema("dewo.seedReveal", {
+  missionId: str().indexed(),
+  seed: str(),
+  salt: str(),
+})
+
 export const Verdict = defineSchema("dewo.verdict", {
   missionId: str().indexed(),
   worker: addr().indexed(),
@@ -102,6 +111,7 @@ export const LIFETIME_MS = {
   bid: 60 * 60_000,
   seedRelease: 70 * 60_000,
   verdict: 180 * 24 * 60 * 60_000,
+  seedReveal: 180 * 24 * 60 * 60_000,
 } as const
 
 const OUTCOMES: Outcome[] = ["Pass", "Fail", "NoShow", "InvalidCourse", "NoSeedRelease"]

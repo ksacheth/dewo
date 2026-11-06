@@ -9,6 +9,7 @@ Why these choices: [`board/DECISIONS.md`](../board/DECISIONS.md) (D1 to D9).
 | `dewo.mission` | the Requester that posted it | 60 min (the Escrow rescue deadline) | mutable (`status` is patched) | Workers, Verifiers, Mission Board |
 | `dewo.bid` | the Worker that placed it | 60 min, same as its Mission | `readonly` | the 3 Verifiers (decrypt), Bid cards |
 | `dewo.seedRelease` | the Requester | 70 min (Episode deadline + 10 min) | `readonly` | the winning Worker |
+| `dewo.seedReveal` | the Requester | 180 days | `readonly` | Verifiers (re-run the Replay), anyone |
 | `dewo.verdict` | one of the 3 Verifiers | 180 days (chain max is about 182) | `readonly` | Verifiers (Award), leaderboard |
 
 ## `dewo.mission`
@@ -46,6 +47,13 @@ Why these choices: [`board/DECISIONS.md`](../board/DECISIONS.md) (D1 to D9).
 | `worker` | addr | yes | the winning Worker (derived from its public key) |
 | `sealed` | bytes | no | ECIES of `{ seed, salt }` to the Worker's public key |
 
+## `dewo.seedReveal`
+
+| Column | Type | Indexed | Meaning |
+|---|---|---|---|
+| `missionId` | str | yes | the Mission |
+| `seed`, `salt` | str | no | the Course Seed and salt in the clear, published after the Episode so anyone can Replay. Verifiers check them against the on-chain `seedCommitment` |
+
 ## `dewo.verdict`
 
 | Column | Type | Indexed | Meaning |
@@ -68,6 +76,7 @@ All in [`board/src`](../board/src). Every read filters by the writer it trusts, 
 | Mission Board (`listOpenMissions`) | `mission where status = "open" and biddingClosesAt > now [and difficultyClass = ...]`, order by key | none: Escrow is the real check |
 | Verifiers and Bid cards (`listBids`) | `bid where missionId = ...` | drop a Bid whose `$owner` is not its `worker`; keep only each Worker's first |
 | Worker (`readSeedRelease`) | `seedRelease where missionId = ... and worker = me` | `ownedBy` the Mission's `requester` |
+| Verifiers (`readSeedReveal`) | `seedReveal where missionId = ...` | `ownedBy` the Mission's `requester`; earliest wins |
 | Award and leaderboard (`listVerdicts`) | `verdict where ($owner = V1 or V2 or V3) [and worker = ...]` | the 3 addresses in `VERIFIER_ADDRESSES` |
 
 ## Writer wallets

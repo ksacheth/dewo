@@ -136,6 +136,37 @@ describe("Seed Release", () => {
   })
 })
 
+describe("Seed Reveal", () => {
+  it("is public: anyone can read the seed once the Requester reveals it", async () => {
+    await board.postMission(requester, mission(1))
+    expect(await board.readSeedReveal(mid(1))).toBeNull()
+    await board.revealSeed(requester, mid(1), "0x2a", "0x5a17")
+    expect(await board.readSeedReveal(mid(1))).toEqual({ seed: "0x2a", salt: "0x5a17" })
+  })
+
+  it("ignores a reveal written by someone other than the Requester", async () => {
+    await board.postMission(requester, mission(1))
+    await board.revealSeed(workerA, mid(1), "0xbad", "0xbad")
+    expect(await board.readSeedReveal(mid(1))).toBeNull()
+  })
+
+  it("the first reveal from the Requester counts", async () => {
+    await board.postMission(requester, mission(1))
+    await board.revealSeed(requester, mid(1), "0x01", "0x02")
+    vi.setSystemTime(NOW + 1000)
+    await board.revealSeed(requester, mid(1), "0x03", "0x04")
+    expect(await board.readSeedReveal(mid(1))).toEqual({ seed: "0x01", salt: "0x02" })
+  })
+
+  it("outlives the Mission (long-lived like a Verdict)", async () => {
+    await board.postMission(requester, mission(1))
+    await board.revealSeed(requester, mid(1), "0x2a", "0x5a17")
+    vi.setSystemTime(NOW + 2 * 60 * 60_000)
+    expect(await board.getMission(mid(1))).toBeNull()
+    expect(await board.readSeedReveal(mid(1), requester.account.address)).toEqual({ seed: "0x2a", salt: "0x5a17" })
+  })
+})
+
 describe("Verdicts and leaderboard", () => {
   it("only reads Verdicts written by the trusted Verifiers", async () => {
     await board.writeVerdict(verifiers[0], verdict(1, workerA.account.address, "Pass"))

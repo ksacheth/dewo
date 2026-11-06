@@ -9,7 +9,7 @@ import { decrypt, encrypt } from "../src/crypto"
 import { firstBidPerWorker } from "../src/bids"
 import { runsDir } from "../src/events"
 import { LIFETIME_MS } from "../src/schemas"
-import type { BidInput, BidRow, DifficultyClass, Hex, MissionInput, MissionRow, MissionStatus, SeedReleaseRow, VerdictInput, VerdictRow, WalletLike } from "../src/schemas"
+import type { BidInput, BidRow, DifficultyClass, Hex, MissionInput, MissionRow, MissionStatus, SeedReleaseRow, SeedRevealRow, VerdictInput, VerdictRow, WalletLike } from "../src/schemas"
 import { leaderboardFrom, trustedVerifiers } from "../src/verdicts"
 import type { LeaderboardRow, VerdictFilter } from "../src/verdicts"
 
@@ -21,8 +21,8 @@ export { BidOpenError, openBid, sealBid } from "../src/bids"
 export { leaderboardFrom, trustedVerifiers } from "../src/verdicts"
 export type { LeaderboardRow, VerdictFilter } from "../src/verdicts"
 
-type Store = { missions: MissionRow[]; bids: BidRow[]; seedReleases: SeedReleaseRow[]; verdicts: VerdictRow[] }
-const empty = (): Store => ({ missions: [], bids: [], seedReleases: [], verdicts: [] })
+type Store = { missions: MissionRow[]; bids: BidRow[]; seedReleases: SeedReleaseRow[]; seedReveals: SeedRevealRow[]; verdicts: VerdictRow[] }
+const empty = (): Store => ({ missions: [], bids: [], seedReleases: [], seedReveals: [], verdicts: [] })
 type Written = { entityKey: Hex; txHash: Hex }
 
 // JSON can't hold bigint or bytes, so tag them.
@@ -36,7 +36,7 @@ const reviver = (_: string, v: unknown) => {
 }
 
 const file = () => process.env.BOARD_MOCK_FILE ?? join(runsDir(), "board-mock.json")
-const load = (): Store => (existsSync(file()) ? JSON.parse(readFileSync(file(), "utf8"), reviver) : empty())
+const load = (): Store => (existsSync(file()) ? { ...empty(), ...JSON.parse(readFileSync(file(), "utf8"), reviver) } : empty())
 function save(s: Store) {
   mkdirSync(dirname(file()), { recursive: true })
   const tmp = `${file()}.${process.pid}.tmp`
@@ -116,6 +116,20 @@ export async function readSeedRelease(missionId: Hex, workerPrivKey: Hex): Promi
   const worker = privateKeyToAccount(workerPrivKey).address
   const row = live(load().seedReleases).find((r) => r.missionId === missionId && same(r.worker, worker) && same(r.$owner, mission.requester))
   return row ? JSON.parse(decrypt(workerPrivKey, row.sealed)) : null
+}
+
+export async function revealSeed(wallet: WalletLike, missionId: Hex, seed: string, salt: string): Promise<Written> {
+  const owner = wallet.account.address
+  return write("seedReveals", () => ({ ...meta(owner, LIFETIME_MS.seedReveal), missionId, seed, salt }))
+}
+
+export async function readSeedReveal(missionId: Hex, requester?: Hex): Promise<{ seed: string; salt: string } | null> {
+  const owner = requester ?? (await getMission(missionId))?.requester
+  if (!owner) return null
+  const row = live(load().seedReveals)
+    .filter((r) => r.missionId === missionId && same(r.$owner, owner))
+    .sort((a, b) => a.$createdAt - b.$createdAt || (a.$key < b.$key ? -1 : 1))[0]
+  return row ? { seed: row.seed, salt: row.salt } : null
 }
 
 export async function writeVerdict(wallet: WalletLike, v: VerdictInput): Promise<Written> {
