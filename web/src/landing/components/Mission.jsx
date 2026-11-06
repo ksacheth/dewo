@@ -35,7 +35,7 @@ export default function Mission() {
       <header className="sec-head reveal">
         <span className="kicker">04 · The first Mission</span>
         <h2>Real decisions.<br /><span>A simulated world.</span></h2>
-        <p className="lede">A rover, a public obstacle Course, a goal to reach within the Requester's limits. Physical AI is Dewo's first proving ground.</p>
+        <p className="lede">A rover to drive to its charger or a drone to fly through a hoop, on a public obstacle Course, within the Requester's limits. Physical AI is Dewo's first proving ground.</p>
       </header>
       <div className="rover-panel reveal" ref={boxRef}>
         <div className="rover-bar"><span>Illustrative Mission</span><span>rover / 001</span></div>

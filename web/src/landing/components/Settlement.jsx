@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 // What each side receives per Outcome (README payment table). `w` is the Worker's illustrative share of the bar.
 const OUTCOMES = [
-  { id: 'Pass', worker: 'Price + stake back', requester: 'Bounty − price', w: 0.62, note: 'Two Verifiers agree the rover reached the goal within the Mission Limits.' },
+  { id: 'Pass', worker: 'Price + stake back', requester: 'Bounty − price', w: 0.62, note: 'Two Verifiers agree the robot reached its goal within the Mission Limits.' },
   { id: 'Fail', worker: 'Nothing, stake slashed', requester: 'Stake + full bounty', w: 0, note: 'Missed the goal, broke a limit, or stopped safely after a failed model call.' },
   { id: 'No-show', worker: 'Nothing, stake slashed', requester: 'Stake + full bounty', w: 0, note: 'The winner never submitted an Episode before its deadline.' },
   { id: 'Rescue', worker: 'Stake back', requester: 'Full bounty back', w: 0.14, note: 'Unsettled at the final deadline, including no Bids. Everyone gets their own money back.' },

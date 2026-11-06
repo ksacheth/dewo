@@ -8,7 +8,8 @@
     "dev": "vite",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "fake-run": "tsx scripts/fake-run.ts"
+    "fake-run": "tsx scripts/fake-run.ts",
+    "demo-reel": "uv run --project ../sim python scripts/demo-reel.py"
   },
   "dependencies": {
     "@dewo/board": "workspace:*",

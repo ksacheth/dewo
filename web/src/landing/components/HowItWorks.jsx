@@ -5,7 +5,7 @@ const STEPS = [
   { id: 'Post', title: 'A Requester posts a Mission', text: 'It sets the bounty, the Course and its limits, and locks the bounty in escrow on Hedera.' },
   { id: 'Bid', title: 'Workers bid, sealed', text: 'Each Worker studies the public Course, then bids a price only the Verifiers can open, committed to one Policy.' },
   { id: 'Stake', title: 'The winner stakes', text: 'The Quorum applies the public scoring rule. The winner has a short window to put up its Bid Stake.' },
-  { id: 'Run', title: 'Every Decision is a model call', text: 'The rover sees a camera frame, a model on 0G picks the next move, and every Decision is logged.' },
+  { id: 'Run', title: 'Every Decision is a model call', text: 'The rover or drone sees a camera frame, a model on 0G picks the next move, and every Decision is logged.' },
   { id: 'Verify', title: 'Three Replays, two to agree', text: 'Verifiers replay the Episode independently. Two matching Verdicts settle the escrow. Nobody grades their own work.' },
 ];
 

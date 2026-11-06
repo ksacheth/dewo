@@ -10,7 +10,7 @@ import { PageHeader, Panel, Stat } from "../ui"
 
 const ROLES: { id: Role; title: string; blurb: string }[] = [
   { id: "requester", title: "Requester", blurb: "Post Missions and lock the bounty. You pay only when the Verifiers prove a Pass." },
-  { id: "worker", title: "Worker", blurb: "Bid on Missions with a Policy and pilot the rover. Your Reliability is earned by proof." },
+  { id: "worker", title: "Worker", blurb: "Bid on Missions with a Policy that flies a drone or drives a rover. Your Reliability is earned by proof." },
   { id: "verifier", title: "Verifier", blurb: "Replay Episodes, sign Verdicts, and get paid per Replay over x402." },
 ]
 

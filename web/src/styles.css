@@ -158,13 +158,26 @@ th.num { text-align:right; } td.num { text-align:right; font-family:var(--mono);
 .flip-in { animation:flipIn .6s var(--ease-out) both; } @keyframes flipIn { from { opacity:0; transform:translate3d(0,8px,0); } }
 
 /* run */
-.run { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); }
+.run { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(0,1fr); }
 .run > * + * { border-left:1px solid var(--line); }
 .run-frame { padding:18px; display:flex; flex-direction:column; gap:12px; align-items:center; }
 .run-frame .frame { max-width:440px; }
 .run-frame > :not(.frame) { align-self:stretch; }
 .frame { width:100%; aspect-ratio:1; image-rendering:pixelated; background:#05080a; border-radius:var(--r); box-shadow:inset 0 0 0 1px var(--line); object-fit:contain; display:block; }
-.decisions { max-height:520px; overflow:auto; }
+.decisions { max-height:680px; overflow:auto; }
+
+/* arena view, laid out like the demo reels (sim/overview/demo.py): MuJoCo arena, onboard camera inset bottom right */
+.arena-view { position:relative; margin:0; width:100%; max-width:660px; aspect-ratio:1; border-radius:var(--r); overflow:hidden; background:#9fb4d3; box-shadow:inset 0 0 0 1px var(--line); }
+.run-frame > .arena-view { align-self:center; }
+.arena-img { display:block; width:100%; height:100%; object-fit:cover; }
+.arena-img.pixel { image-rendering:pixelated; }
+.arena-img.empty { background:#05080a; background-image:linear-gradient(#ffffff05 1px, transparent 1px), linear-gradient(90deg, #ffffff05 1px, transparent 1px); background-size:30px 30px; }
+.arena-inset { --bar:#5a5a64; position:absolute; right:2.5%; bottom:3.3%; width:31%; padding:4px; background:#fff; box-shadow:0 6px 0 var(--bar), 0 10px 28px #0000004d; transition:box-shadow .2s var(--ease-out); }
+.arena-inset img { display:block; width:100%; aspect-ratio:1; }
+.arena-inset.goal { --bar:#28c85a; } .arena-inset.hit { --bar:#dc3c3c; }
+.arena-hud { position:absolute; left:12px; top:12px; display:flex; gap:10px; align-items:baseline; padding:6px 10px; border-radius:6px; background:#0b0f12c4; backdrop-filter:blur(6px); color:#f2f3ef; font:12px var(--mono); }
+.arena-hud strong { font-weight:500; color:var(--accent); }
+.arena-hud .dim { color:#ffffff80; }
 .step { display:grid; grid-template-columns:64px 1fr auto; gap:10px; align-items:center; min-height:44px; padding:0 18px; border-bottom:1px solid var(--line); cursor:pointer; font-size:13px; transition:background .25s var(--ease-out); }
 .step strong { font-family:var(--mono); font-size:12px; font-weight:400; color:var(--fg); }
 .step > span:first-child { font-family:var(--mono); font-size:12px; color:var(--dim); }
@@ -218,11 +231,15 @@ th.num { text-align:right; } td.num { text-align:right; font-family:var(--mono);
 .proof dt { color:var(--dim); } .proof dd { margin:0; }
 .proof a { text-decoration:underline; }
 .replay { display:flex; flex-direction:column; gap:12px; }
-.replay .frame { max-width:420px; }
+.replay .frame, .replay .arena-view { max-width:480px; }
 .replay .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 .course-map { width:100%; max-width:420px; display:block; background:#05080a; border-radius:var(--r); box-shadow:inset 0 0 0 1px var(--line); }
 .course-map .arena { fill:#0b1013; stroke:var(--line-strong); stroke-width:.03; }
 .course-map .obstacle-box { fill:#1c262a; stroke:#34454a; stroke-width:.02; }
+.course-map .obstacle-box.block { fill:#3a4d53; stroke:#5c7379; }
+.course-map .map-label { font-family:var(--mono); font-size:.2px; fill:#c9d3d6; }
+.course-map .map-label.goal { fill:var(--accent); }
+.course-figure { margin:0; display:grid; gap:8px; }
 .course-map .goal-dot { fill:#cceddd24; stroke:var(--accent); stroke-width:.03; }
 .course-map .route { fill:none; stroke:var(--cyan); stroke-width:.05; stroke-linejoin:round; stroke-linecap:round; stroke-dasharray:1; stroke-dashoffset:0; }
 .enter .course-map .route { animation:draw 1.6s var(--ease-out) both; }
@@ -341,9 +358,3 @@ th.num { text-align:right; } td.num { text-align:right; font-family:var(--mono);
 @keyframes vtOut { to { opacity:0; transform:translate3d(0,-6px,0); } }
 @keyframes vtIn { from { opacity:0; transform:translate3d(0,10px,0); } }
 @media (prefers-reduced-motion:reduce) { ::view-transition-old(root), ::view-transition-new(root) { animation:none; } }
-.arena { display:grid; gap:12px; width:100%; max-width:440px; }
-.arena .frame { image-rendering:auto; }
-.arena .onboard { display:flex; gap:12px; align-items:center; }
-.arena .onboard img { width:88px; height:88px; flex:none; image-rendering:pixelated; border-radius:var(--r); box-shadow:inset 0 0 0 1px var(--line); }
-.arena .onboard div { display:flex; flex-direction:column; gap:4px; min-width:0; font-size:12px; }
-.arena .onboard strong { font:400 18px var(--mono); }

@@ -198,6 +198,7 @@ function frame(rel: string, res: ServerResponse, RUNS: string) {
   const path = resolve(RUNS, decodeURIComponent(rel))
   if (!path.startsWith(RUNS + sep) || !/\.(png|jpg|jpeg)$/.test(path) || !existsSync(path)) return send(res, 404, { error: "not found" })
   res.setHeader("content-type", path.endsWith(".png") ? "image/png" : "image/jpeg")
+  res.setHeader("cache-control", "private, max-age=3600") // frames are written once; the arena view preloads them before showing
   res.end(readFileSync(path))
 }
 

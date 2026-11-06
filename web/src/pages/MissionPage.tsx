@@ -38,7 +38,7 @@ export default function MissionPage() {
     <main className="page">
       <PageHeader
         meta={<><Link viewTransition to="/app">Missions</Link><span aria-hidden>/</span><span className="mono">{short(id)}</span></>}
-        title={state.posted ? <><span style={{ textTransform: "capitalize" }}>{state.posted.difficultyClass}</span> Mission</> : "Mission"}
+        title={state.posted ? <><span style={{ textTransform: "capitalize" }}>{state.posted.difficultyClass}</span> {state.posted.task === "drone" ? "drone" : "rover"} Mission</> : "Mission"}
         description={state.posted ? `${usdc(state.posted.maxBounty)} USDC bounty · at most ${state.posted.maxSteps} Decisions and ${plural(state.posted.maxCollisions, "collision")} · Risk Weight ${state.posted.riskWeight}` : undefined}
         actions={<>
           <Tag tone={state.phase === "settled" ? "ok" : "accent"} live={state.phase !== "settled" && state.phase !== "waiting"}>{PHASE[state.phase]}</Tag>

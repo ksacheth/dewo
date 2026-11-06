@@ -55,7 +55,7 @@ export function ResultCard({ state, animate, onReplay }: { state: MissionState; 
       {!verdict && <div className="pnl-body"><Placeholder title="Verdict details" endpoint="GET /api/board/verdicts?missionId=…" note="Shown as soon as a Verifier's Verdict entity is on the board." /></div>}
 
       <div className="result-media">
-        <div><h3 className="sub">The run</h3><ReplayPlayer decisions={state.decisions} maxSteps={maxSteps} /></div>
+        <div><h3 className="sub">The run</h3><ReplayPlayer state={state} maxSteps={maxSteps} /></div>
         <div>
           <h3 className="sub">The Course</h3>
           {course ? <CourseMap course={course} actions={actions} /> : <Placeholder title="Top-down map" endpoint="GET /api/missions/:id/course" note="Drawn from the public Course Seed on the Mission entity, when the sim is reachable." />}

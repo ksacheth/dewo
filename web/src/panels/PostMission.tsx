@@ -58,6 +58,7 @@ export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: 
       <form className="form" onSubmit={(e) => { e.preventDefault(); void submit() }}>
         <div className="field"><span>Robot</span>
           <Segmented label="Robot" value={task as "rover" | "drone"} options={["rover", "drone"] as const} onChange={setTask} />
+          <small className="hint">{task === "drone" ? "Fly through the hoop: towers, blocks to fly over, five altitudes." : "Drive to the charger around the obstacles."} The Course Seed carries it, so it cannot change after posting.</small>
         </div>
         <div className="field"><span>Difficulty Class</span>
           <Segmented label="Difficulty Class" value={difficultyClass as "easy" | "medium" | "hard"} options={["easy", "medium", "hard"] as const} onChange={setDifficulty} />

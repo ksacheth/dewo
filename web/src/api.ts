@@ -25,16 +25,17 @@ export const API = {
 } as const
 
 export type { Bid, Leader, Mission }
-export type RunSummary = { missionId: string; mtime: number; posted?: { difficultyClass: string; maxBounty: string; riskWeight: number; biddingClosesAt: number } }
+export type RunSummary = { missionId: string; mtime: number; posted?: { difficultyClass: string; task?: string; maxBounty: string; riskWeight: number; biddingClosesAt: number } }
 /** A Verifier's Verdict entity. `steps` counts moving Actions in the Replay (every Decision except STOP). */
 export type Verdict = {
   missionId: string; worker: string; outcome: string; steps: number
   collisions: number; difficultyClass: string; evidenceHash: string; episodeLogRoot: string; $key: string
 }
+/** `sim course` output. A drone Course (ADR 0007) adds altitudes: the start's and the hoop's `z`, and each obstacle's `top` (a tower reaches the ceiling). A Course without `task` is a rover Course. */
 export type Course = {
-  seed: string; difficulty: string; version: string
-  start: { x: number; y: number; yaw: number }; goal: { x: number; y: number; r: number }
-  obstacles: { x: number; y: number; w: number; h: number }[]
+  seed: string; difficulty: string; version: string; task?: "rover" | "drone"
+  start: { x: number; y: number; yaw: number; z?: number }; goal: { x: number; y: number; r: number; z?: number }
+  obstacles: { x: number; y: number; w: number; h: number; top?: number }[]
 }
 export type Role = "requester" | "worker" | "verifier"
 export type Operator = { address: string | null; open: boolean; role: Role | null }

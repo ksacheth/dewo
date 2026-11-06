@@ -29,7 +29,7 @@ export default function Home() {
                   {(runs ?? []).slice(0, all ? undefined : 8).map((r) => (
                     <li key={r.missionId}>
                       <Link viewTransition to={`/app/mission/${r.missionId}`} className="row-item" style={{ gridTemplateColumns: "minmax(0,1fr) auto auto" }}>
-                        <span className="row-title">{r.posted?.difficultyClass ?? "Mission"}</span>
+                        <span className="row-title">{r.posted ? `${r.posted.task === "drone" ? "Drone" : "Rover"} · ${r.posted.difficultyClass}` : "Mission"}</span>
                         {r.posted ? <span className="value">{usdc(r.posted.maxBounty)}<small>USDC</small></span> : <span />}
                         <span className="row-end"><span className="mono hide-sm">{short(r.missionId)}</span><span className="chev" aria-hidden>→</span></span>
                       </Link>

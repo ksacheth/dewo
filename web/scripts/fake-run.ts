@@ -1,6 +1,8 @@
 // Emits a plausible full Mission through the real emit(): the test fixture, and a way to build the UI before M4/M5 exist.
-// pnpm --filter web fake-run [delayMs] [missionId]   (default 800 ms between Decisions; pass the id of a Mission posted from the UI to drive it)
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+// pnpm --filter web fake-run [delayMs] [missionId] [rover|drone]   (default 800 ms between Decisions; pass the id of a Mission posted from the UI to drive it)
+// With a demo reel in runs/_reels/ (scripts/demo-reel.py) the run is a real sim run: its Course, the onboard frames
+// the model would see and the MuJoCo arena images as rover.moved events. Without one it draws placeholder squares.
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { deflateSync } from "node:zlib"
@@ -44,19 +46,41 @@ const VERIFIERS = [addr(0xe1), addr(0xe2), addr(0xe3)]
 const FIX = fileURLToPath(new URL("../../sim/tests/fixtures/", import.meta.url))
 const fixture = (name: string) => (existsSync(`${FIX}${name}`) ? JSON.parse(readFileSync(`${FIX}${name}`, "utf8")) : null)
 const ACTIONS: string[] = fixture("actions_medium.json") ?? ["FORWARD", "FORWARD", "TURN_LEFT", "FORWARD", "FORWARD", "FORWARD", "TURN_RIGHT", "FORWARD", "FORWARD", "FORWARD", "TURN_LEFT", "FORWARD", "FORWARD", "FORWARD", "FORWARD"]
+/** A real sim run saved by scripts/demo-reel.py; paths are relative to its folder. */
+type Reel = { task: string; difficulty: string; decisions: { step: number; frame: string; action: string }[]; moves: { step: number; images: string[]; collision: boolean; atGoal: boolean }[] }
+/** The reel for this task, preferring the difficulty asked for. */
+function findReel(dir: string, task: string, difficulty: string): { reel: Reel; base: string } | null {
+  const root = join(dir, "_reels")
+  if (!existsSync(root)) return null
+  const names = readdirSync(root).filter((n) => n.startsWith(`${task}-`) && existsSync(join(root, n, "reel.json")))
+  const name = names.find((n) => n === `${task}-${difficulty}`) ?? names[0]
+  return name ? { reel: JSON.parse(readFileSync(join(root, name, "reel.json"), "utf8")), base: `_reels/${name}` } : null
+}
+/** The mission.posted a Mission posted from the UI already has. */
+function postedOf(dir: string, missionId: string): { task?: string; difficultyClass?: string } | null {
+  const folder = join(dir, missionId)
+  if (!existsSync(folder)) return null
+  for (const f of readdirSync(folder).filter((n) => n.endsWith(".ndjson")))
+    for (const line of readFileSync(join(folder, f), "utf8").split("\n").filter(Boolean)) {
+      const e = JSON.parse(line)
+      if (e.type === "mission.posted") return e.data
+    }
+  return {}
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const hs = (id: string) => `https://hashscan.io/testnet/transaction/${id}`
 
 /** Writes one complete winning Mission to <dir>/<missionId>/ and returns its id. */
 /** `stageMs` is the pause before the Award, the stake and the first Decision, so a watched run shows each stage. */
-export async function fakeRun({ dir = runsDir(), delayMs = 800, stageMs = 2, missionId = `0x${randomBytes(32).toString("hex")}` }: { dir?: string; delayMs?: number; stageMs?: number; missionId?: string } = {}) {
+export async function fakeRun({ dir = runsDir(), delayMs = 800, stageMs = 2, missionId = `0x${randomBytes(32).toString("hex")}`, task = "rover" }: { dir?: string; delayMs?: number; stageMs?: number; missionId?: string; task?: string } = {}) {
   process.env.RUNS_DIR = dir
-  const posted = existsSync(join(dir, missionId)) // a Mission already posted from the UI keeps its own mission.posted
+  const posted = postedOf(dir, missionId) // a Mission already posted from the UI keeps its own mission.posted
+  const found = findReel(dir, posted?.task ?? task, posted?.difficultyClass ?? "medium")
   mkdirSync(join(dir, missionId, "frames"), { recursive: true })
-  const course = fixture("course_medium.json")
+  const course = found ? JSON.parse(readFileSync(join(dir, found.base, "course.json"), "utf8")) : fixture("course_medium.json")
   if (course) writeFileSync(join(dir, missionId, "course.json"), JSON.stringify(course))
   const e = emit
-  if (!posted) e(missionId, "requester", { type: "mission.posted", data: { difficultyClass: "medium", task: "rover", maxBounty: "10000000", riskWeight: 0.5, maxSteps: 60, maxCollisions: 0, biddingClosesAt: Math.floor(Date.now() / 1000) + 60, arkivKey: addr(0xa1) }, txUrl: hs("0.0.1001@1.1") })
+  if (!posted) e(missionId, "requester", { type: "mission.posted", data: { difficultyClass: found?.reel.difficulty ?? "medium", task: found?.reel.task ?? "rover", maxBounty: "10000000", riskWeight: 0.5, maxSteps: 60, maxCollisions: 0, biddingClosesAt: Math.floor(Date.now() / 1000) + 60, arkivKey: addr(0xa1) }, txUrl: hs("0.0.1001@1.1") })
   for (const w of WORKERS) { e(missionId, `worker-${w.name.toLowerCase().replace(/ /g, "-")}`, { type: "bid.sealed", data: { worker: w.worker, workerName: w.name, policyHash: `0x${w.name.length}abc`, arkivKey: addr(0xb0 + w.name.length) } }); await sleep(Math.max(2, stageMs / 2)) }
   const winner = WORKERS[1]
   e(missionId, "verifier-1", { type: "bids.revealed", data: { bids: WORKERS.map((w) => ({ worker: w.worker, workerName: w.name, price: w.price, R: w.R, score: w.R ** 0.5 / (Number(w.price) / 1e6) ** 0.5 })), winner: winner.worker } })
@@ -65,12 +89,28 @@ export async function fakeRun({ dir = runsDir(), delayMs = 800, stageMs = 2, mis
   await sleep(stageMs) // distinct timestamps, so replay order is unambiguous
   e(missionId, "worker-cheap-and-blind", { type: "stake.deposited", data: { worker: winner.worker, stake: "790000" }, txUrl: hs("0.0.1003@3.3") })
   await sleep(stageMs) // distinct timestamps, so replay order is unambiguous
-  for (let i = 0; i < 15; i++) {
-    writeFileSync(join(dir, missionId, "frames", `${String(i + 1).padStart(3, "0")}.png`), png(i))
-    e(missionId, "worker-cheap-and-blind", { type: "decision.made", data: { step: i, frame: `${missionId}/frames/${String(i + 1).padStart(3, "0")}.png`, chatID: `chat-${randomBytes(6).toString("hex")}`, action: ACTIONS[i] } })
-    await sleep(delayMs)
+  const worker = "worker-cheap-and-blind"
+  const chat = () => `chat-${randomBytes(6).toString("hex")}`
+  let decisionCount = 15
+  if (found) {
+    // Like the Worker: the arena view answers a move once it has seen the next, so each rover.moved lands one move late.
+    const { reel, base } = found
+    const moved = (k: number) => { const m = reel.moves[k]; if (m) e(missionId, worker, { type: "rover.moved", data: { ...m, images: m.images.map((i) => `${base}/${i}`) } }) }
+    for (const d of reel.decisions) {
+      e(missionId, worker, { type: "decision.made", data: { step: d.step, frame: `${base}/${d.frame}`, chatID: chat(), action: d.action } })
+      moved(d.step)
+      await sleep(delayMs)
+    }
+    for (let k = reel.decisions.length; k < reel.moves.length; k++) moved(k)
+    decisionCount = reel.decisions.length
+  } else {
+    for (let i = 0; i < 15; i++) {
+      writeFileSync(join(dir, missionId, "frames", `${String(i + 1).padStart(3, "0")}.png`), png(i))
+      e(missionId, worker, { type: "decision.made", data: { step: i, frame: `${missionId}/frames/${String(i + 1).padStart(3, "0")}.png`, chatID: chat(), action: ACTIONS[i] } })
+      await sleep(delayMs)
+    }
   }
-  e(missionId, "worker-cheap-and-blind", { type: "episode.submitted", data: { episodeLogRoot: "0xroot123", policyRoot: "0xpolicy456", decisionCount: 15 }, txUrl: "https://chainscan-galileo.0g.ai/tx/0xdeadbeef" })
+  e(missionId, worker, { type: "episode.submitted", data: { episodeLogRoot: "0xroot123", policyRoot: "0xpolicy456", decisionCount }, txUrl: "https://chainscan-galileo.0g.ai/tx/0xdeadbeef" })
   for (const [i, v] of VERIFIERS.entries()) {
     // D15: the Requester reports the 402 challenge; the Verifier owns "paid" with the settlement link.
     e(missionId, "requester", { type: "replay.paid", data: { verifier: v, status: 402, amount: "50000" } })
@@ -110,10 +150,13 @@ async function seedBoard(missionId: string, dir: string) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const delayMs = Number(process.argv[2] ?? 800)
-  const missionId = process.argv[3]
+  // Arguments in any order: a number is the delay, a 0x id the Mission, rover or drone the task of a new Mission.
+  const args = process.argv.slice(2)
+  const delayMs = Number(args.find((a) => /^\d+$/.test(a)) ?? 800)
+  const missionId = args.find((a) => a.startsWith("0x"))
+  const task = args.find((a) => a === "rover" || a === "drone") ?? "rover"
   if (missionId && !/^0x[0-9a-fA-F]{64}$/.test(missionId)) throw new Error("missionId must be a 0x-prefixed 32-byte hex")
-  const id = await fakeRun({ delayMs, stageMs: delayMs * 4, ...(missionId && { missionId }) })
+  const id = await fakeRun({ delayMs, stageMs: delayMs * 4, task, ...(missionId && { missionId }) })
   await seedBoard(id, runsDir())
   console.log(`fake Mission ${id} written to ${runsDir()}`)
 }
