@@ -48,7 +48,12 @@ def main(argv=None):
     else:
         from .replay import replay
 
-        print(json.dumps(replay(_load(a.course), _load(a.actions))))
+        try:
+            result = replay(_load(a.course), _load(a.actions))
+        except ValueError as e:  # bad actions file: unknown Action, non-list, invalid JSON
+            print(json.dumps({"error": str(e)}))
+            raise SystemExit(1)
+        print(json.dumps(result))
 
 
 if __name__ == "__main__":
