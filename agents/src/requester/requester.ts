@@ -350,7 +350,8 @@ export class Requester {
   /** Waits for the Episode Submission or the end of its window, stakedAt + episodeWindow (a No-show). */
   private async awaitEpisode(record: RequesterRecord, mission: EscrowMission): Promise<void> {
     const submitted = mission.award ? await this.deps.registry.isSubmitted(record.missionId, mission.award.worker) : false;
-    const windowOver = this.deps.clock.now() > (mission.stakedAt ?? 0) + mission.terms.deadlines.episodeWindow;
+    // A stale RPC read can lag the stake this record already saw; without stakedAt the window cannot be over yet.
+    const windowOver = mission.stakedAt !== null && this.deps.clock.now() > mission.stakedAt + mission.terms.deadlines.episodeWindow;
     if (submitted || windowOver) this.move(record, "VERIFYING");
   }
 

@@ -250,8 +250,10 @@ export class Worker {
   /** The Course Seed is public in the escrow (ADR 0006), so the Episode can start right after the stake. */
   private async fly(record: MissionRecord, mission: EscrowMission): Promise<void> {
     const { terms } = mission;
+    // Right after our stake tx, a lagging RPC node can still answer stakedAt null: wait for the next tick, never read it as 0.
+    if (mission.stakedAt === null) return;
     // The Verifiers judge the Episode Submission against stakedAt + episodeWindow.
-    const deadline = (mission.stakedAt ?? 0) + terms.deadlines.episodeWindow;
+    const deadline = mission.stakedAt + terms.deadlines.episodeWindow;
     if (this.deps.clock.now() > deadline) return this.move(record, "GAVE_UP", "Episode window already over");
 
     this.move(record, "EPISODE_RUNNING");
