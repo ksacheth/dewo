@@ -228,8 +228,15 @@ export class FakeRegistry implements RegistryPort {
 
 export class FakeStorage implements StoragePort {
   files = new Map<Hex, string>();
+  /** Uploads that never settle, like a 0G storage node that never syncs. */
+  hang = false;
+
+  async rootOf(bytes: Uint8Array): Promise<Hex> {
+    return keccak256(bytes);
+  }
 
   async upload(bytes: Uint8Array): Promise<Hex> {
+    if (this.hang) return new Promise<Hex>(() => {});
     const root = keccak256(bytes);
     this.files.set(root, new TextDecoder().decode(bytes));
     return root;
@@ -399,6 +406,7 @@ export function workerIn(w: World, options: { address?: Hex; answers?: string[];
     policy: options.policy ?? policy,
     verifierPubKeys: ["0x01", "0x02", "0x03"],
     verifierAddresses: VERIFIER_ADDRESSES,
+    uploadWaitSeconds: 0.02,
     strategy: {
       costPerDecision: 0.05,
       zeroGPerDecision: 0.05,

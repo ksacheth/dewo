@@ -45,7 +45,7 @@ object or that set a reserved field.
   throws, so the Episode safe-stops; a failed receipt fetch is logged and the Decision is kept without `receipt`.
 - `broker`: the older direct broker flow (`src/shared/zg-compute.ts`) on Galileo with `WORKER_PRIVATE_KEY`.
 
-**Feasibility skip (ADR 0006).** Before bidding, a Worker runs the advisory `sim plan` on the escrow's public `courseSeed`, searched up to `min(maxSteps, MAX_STEPS)` moving Actions, and skips with `LIMITS_UNREACHABLE` when no collision-free path fits (or the plan cannot run). It starts no new Decision after `stakedAt + episodeWindow - WORKER_SUBMIT_MARGIN_SECONDS` (default 90), so its log is still uploaded and submitted on time.
+**Feasibility skip (ADR 0006).** Before bidding, a Worker runs the advisory `sim plan` on the escrow's public `courseSeed`, searched up to `min(maxSteps, MAX_STEPS)` moving Actions, and skips with `LIMITS_UNREACHABLE` when no collision-free path fits (or the plan cannot run). It starts no new Decision after `stakedAt + episodeWindow - WORKER_SUBMIT_MARGIN_SECONDS` (default 90), so its log is still uploaded and submitted on time. Each tick waits at most 30 s on the 0G Storage uploads (an upload still in flight is rejoined, not restarted); from 60 s before the deadline it submits the Episode with the roots it computed locally even if 0G Storage has not confirmed them, so a storage node that never syncs leaves a root the Verifiers count as infrastructure (no Verdict, rescue returns the stake) rather than a No-show.
 
 **Balance for the skip rule.** "0G balance covers the Mission's `maxSteps` Decisions" reads `BalancesPort.zeroG()`, in 0G. The source
 is pluggable (`src/shared/zg-balance.ts`): with the Router it is the account's `total_balance` from

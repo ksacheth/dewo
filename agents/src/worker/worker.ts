@@ -35,6 +35,7 @@ import type {
 } from "./ports";
 import { expectedStake, price } from "./pricing";
 import { ACTIVE_STAGES, BUSY_STAGES, type MissionRecord, type RecordStore, type Stage } from "./records";
+import { PendingUploads } from "./uploads";
 import { shouldSkip, type SkipReason } from "./skip";
 
 /** Stages where the Worker has not staked yet, so it can still walk away from a Mission. */
@@ -64,10 +65,19 @@ export interface WorkerConfig {
    * submitEpisode: no Decision starts after deadline - submitMarginSeconds (DEFAULT_SUBMIT_MARGIN_SECONDS when unset).
    */
   submitMarginSeconds?: number;
+  /** Longest one tick waits on 0G Storage uploads before trying again on the next (DEFAULT_UPLOAD_WAIT_SECONDS when unset). */
+  uploadWaitSeconds?: number;
 }
 
 /** Hashio and Galileo transactions take 20 to 40 s each; the uploads and submitEpisode fit comfortably in 90 s. */
 export const DEFAULT_SUBMIT_MARGIN_SECONDS = 90;
+export const DEFAULT_UPLOAD_WAIT_SECONDS = 30;
+/**
+ * Kept for submitEpisode alone: from deadline - this, the Worker submits the Episode with its locally computed roots even when
+ * 0G Storage has not confirmed the uploads. A root submitted to the Flow contract that a Verifier cannot download is
+ * infrastructure (503, no Verdict, so rescue returns the stake), where a missed deadline is a No-show that loses it.
+ */
+export const SUBMIT_TX_SECONDS = 60;
 
 export interface WorkerDeps {
   board: BoardPort;
@@ -90,6 +100,7 @@ interface Submission {
 
 export class Worker {
   private readonly payouts: PayoutClaimer;
+  private readonly uploads: PendingUploads;
 
   constructor(
     private readonly config: WorkerConfig,
@@ -97,6 +108,7 @@ export class Worker {
   ) {
     assertUsablePolicy(config.policy);
     this.payouts = new PayoutClaimer(deps.escrow, config.address, `worker ${config.policy.name}`);
+    this.uploads = new PendingUploads(deps.storage);
   }
 
   /** On startup: an Episode cut short by a crash is not retried (one attempt per Mission). */
@@ -288,17 +300,28 @@ export class Worker {
     }
   }
 
-  private async submit(missionId: string, episode: Omit<EpisodeLog, "header">): Promise<Submission> {
-    const { storage, registry, escrow } = this.deps;
+  private async submit(missionId: string, episode: Omit<EpisodeLog, "header"> & { deadline: number }): Promise<Submission> {
+    const { storage, registry, escrow, clock } = this.deps;
     const { terms } = await escrow.getMission(missionId);
     const encode = (text: string) => new TextEncoder().encode(text);
 
-    const policyRoot = await storage.upload(encode(canonicalJson(this.config.policy)));
+    const policy = encode(canonicalJson(this.config.policy));
+    const policyRoot = await storage.rootOf(policy);
     const log: EpisodeLog = {
       header: { missionId, worker: this.config.address, policyRoot, courseSeed: terms.courseSeed },
       decisions: episode.decisions,
     };
-    const episodeLogRoot = await storage.upload(encode(JSON.stringify(log)));
+    const logBytes = encode(JSON.stringify(log));
+    const episodeLogRoot = await storage.rootOf(logBytes);
+
+    const secondsLeft = episode.deadline - SUBMIT_TX_SECONDS - clock.now();
+    if (secondsLeft > 0) {
+      const wait = Math.min(this.config.uploadWaitSeconds ?? DEFAULT_UPLOAD_WAIT_SECONDS, secondsLeft);
+      const documents = [{ root: policyRoot, bytes: policy }, { root: episodeLogRoot, bytes: logBytes }];
+      if (!(await this.uploads.storedWithin(documents, wait * 1000))) throw new Error(`0G Storage has not stored the Episode yet (${secondsLeft} s left to wait)`);
+    } else {
+      console.warn(`worker: ${missionId}: submitting before the deadline although 0G Storage has not confirmed the uploads`);
+    }
     const { txHash } = await registry.submitEpisode(missionId, episodeLogRoot, policyRoot, log.decisions.length);
     return { payload: { episodeLogRoot, policyRoot, decisionCount: log.decisions.length }, txHash };
   }

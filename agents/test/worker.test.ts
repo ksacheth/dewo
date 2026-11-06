@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { policyHash, type EpisodeLog } from "../src/formats";
+import { keccak256 } from "viem";
+import { canonicalJson, policyHash, type EpisodeLog } from "../src/formats";
+import { SUBMIT_TX_SECONDS } from "../src/worker/worker";
 import { ME, RIVAL, SEED, VERIFIER_ADDRESSES, policy, setup, terms, workerIn, world } from "./fakes";
 
 describe("Worker: bidding", () => {
@@ -380,6 +382,41 @@ describe("Worker: retrying a flown Episode", () => {
     await w.worker.tick();
     expect(w.stage()).toBe("SUBMITTED");
     expect(w.registry.submissions).toEqual([only]);
+  });
+
+  it("waits for a stalled 0G upload, then submits with the locally computed roots before the deadline (rescue, not a No-show)", async () => {
+    const w = await flown();
+    w.storage.hang = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await w.worker.tick();
+    expect(w.stage()).toBe("EPISODE_DONE");
+    expect(w.registry.submissions).toHaveLength(0);
+
+    const { deadline, decisions } = w.records.get("m1")!.episode!;
+    w.clock.t = deadline - SUBMIT_TX_SECONDS;
+    await w.worker.tick();
+    expect(w.stage()).toBe("SUBMITTED");
+    const policyRoot = keccak256(new TextEncoder().encode(canonicalJson(policy)));
+    const log: EpisodeLog = { header: { missionId: "m1", worker: ME, policyRoot, courseSeed: SEED }, decisions };
+    expect(w.registry.submissions).toEqual([
+      { missionId: "m1", policyRoot, episodeLogRoot: keccak256(new TextEncoder().encode(JSON.stringify(log))), decisionCount: decisions.length },
+    ]);
+    errors.mockRestore();
+    warnings.mockRestore();
+  });
+
+  it("rejoins an upload still in flight on the next tick instead of starting another", async () => {
+    const w = await flown();
+    w.storage.hang = true;
+    const uploads = vi.spyOn(w.storage, "upload");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await w.worker.tick();
+    await w.worker.tick();
+    await w.worker.tick();
+    expect(uploads).toHaveBeenCalledTimes(2); // the Policy and the Episode Log, once each
+    errors.mockRestore();
   });
 
   it("stays busy while an Episode awaits submission", async () => {
