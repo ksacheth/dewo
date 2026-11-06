@@ -20,7 +20,7 @@ timestamps; the other fields are durations in seconds. Demo defaults are a
 300 seconds for Episode Submission, and rescue 3600 seconds after creation.
 
 Record `awardedAt` and `stakedAt` locally. Staking is allowed strictly before
-`awardedAt + stakeWindow`; replacement, once supported, starts at that boundary.
+`awardedAt + stakeWindow`; a replacement `award()` is allowed from that boundary (no dead second).
 Each replacement gets a new stake window but cannot extend `rescueAt`. Awarding
 must leave sufficient time for the full sequence before rescue. Settlement is
 allowed strictly before rescue; anyone can rescue at or after `rescueAt`.
@@ -31,7 +31,18 @@ configuration so consumers do not use inconsistent timeout settings. It can
 reject an early NoSeedRelease using `stakedAt + seedReleaseWindow`; precise
 NoShow timing requires the Verifiers' evidence.
 
-## Award rounds: proposed I5 amendment, not yet coordinated
+## Award replacement: implemented with frozen I5 types
+
+Award replacement is implemented with the frozen I5 types (no round field).
+`award()` may be called again only while the Mission is `Awarded` (nobody staked) and
+`block.timestamp >= awardedAt + stakeWindow`; any other second Award reverts. The
+lapsed winner is recorded in `lapsedWorker`, so their old Award signatures cannot
+be replayed to block the next-best Bid. `getMission` exposes `awardedAt` and
+`stakedAt` for the Requester's lapse check. Shortcut: without a round field, a
+never-submitted Award signature for a different worker stays valid until that
+worker lapses; add a round to I5 if verifiers can sign conflicting Awards.
+
+### Optional round types (proposal, not implemented)
 
 Recommended signed types:
 
@@ -49,14 +60,6 @@ submitted remain valid without a round. The frozen PRD lacks a round field and
 requires consumer agreement before changing I5. No GitHub messages have been
 posted by this implementation.
 
-**Award replacement keeps frozen I5 signatures.** `award()` may be called again
-only while the Mission is `Awarded` (nobody staked) and
-`block.timestamp > awardedAt + stakeWindow`; any other second Award reverts. The
-lapsed winner is recorded in `lapsedWorker`, so their old Award signatures cannot
-be replayed to block the next-best Bid. `getMission` exposes `awardedAt` and
-`stakedAt` for the Requester's lapse check. Shortcut: without a round field, a
-never-submitted Award signature for a different worker stays valid until that
-worker lapses; add a round to I5 if verifiers can sign conflicting Awards.
 The deadline tuple and precise registry event fields are also proposed ABI details
 to communicate to consumers before integration.
 
@@ -72,7 +75,7 @@ Verdict EIP-712 types do not use them. Values out of range revert with
 `InvalidConfiguration`.
 
 Every signed Outcome requires a deposited stake (including an explicitly
-recorded zero stake); before stake only rescue or future coordinated re-awarding
+recorded zero stake); before stake only a replacement Award (once the stake window lapsed) or rescue
 is possible. Rescue is not part of the signed Outcome enum.
 
 | Outcome | Worker receives | Requester receives |
