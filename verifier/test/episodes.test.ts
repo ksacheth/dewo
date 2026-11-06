@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { Hex } from "viem";
 import { policyHash } from "@dewo/agents/formats";
 import { createEpisodeSource } from "../src/episodes.js";
-import { PendingError } from "../src/errors.js";
+import { PendingError, StorageUnavailableError } from "../src/errors.js";
+import { NotJson } from "../src/ports.js";
 import { SEED, SALT, MISSION, OTHER_WORKER, POLICY, REQUESTER, WORKER, fakeBoard, fakeChain, honestEpisode } from "./fixtures/builders.js";
 
 const LOG_ROOT = ("0x" + "33".repeat(32)) as Hex;
 const POLICY_ROOT = ("0x" + "22".repeat(32)) as Hex;
 
-function world(over: { submission?: null; seeds?: boolean; award?: null; unstaked?: boolean } = {}) {
+function world(over: { submission?: null; seeds?: boolean; award?: null; unstaked?: boolean; stored?: (root: Hex) => Promise<unknown> } = {}) {
   const ep = honestEpisode();
   const downloads: Hex[] = [];
   const asked: { releaseFor?: string; revealFor?: string } = {};
@@ -21,7 +22,7 @@ function world(over: { submission?: null; seeds?: boolean; award?: null; unstake
       revealedSeed: async (_m, requester) => { asked.revealFor = requester; return over.seeds === false ? null : { seed: SEED, salt: SALT }; },
     },
     registry: { findSubmission: async (_m: Hex, worker: string) => (over.submission === null || worker !== WORKER ? null : { episodeLogRoot: LOG_ROOT, policyRoot: POLICY_ROOT, decisionCount: 3, timestamp: 1_100 }) },
-    storage: { downloadJson: async <T>(root: Hex) => { downloads.push(root); return (root === LOG_ROOT ? ep.log : POLICY) as T; } },
+    storage: { downloadJson: async (root: Hex) => { downloads.push(root); return over.stored ? over.stored(root) : root === LOG_ROOT ? ep.log : POLICY; } },
   });
   return { source, downloads, ep, asked };
 }
@@ -67,5 +68,16 @@ describe("createEpisodeSource", () => {
     const load = world({ award: null }).source.load(MISSION);
     await expect(load).rejects.toBeInstanceOf(PendingError);
     await expect(load).rejects.toThrow(/no award/i);
+  });
+
+  it("hands content that is not JSON to the checks instead of throwing, so it ends in a Fail Verdict (issue #47)", async () => {
+    const notJson = new NotJson();
+    const loaded = await world({ stored: async () => notJson }).source.load(MISSION);
+    expect(loaded.episode).toMatchObject({ log: notJson, policy: notJson, episodeLogRoot: LOG_ROOT });
+  });
+
+  it("lets a 0G outage through as a retryable StorageUnavailableError: no Episode, so no Verdict", async () => {
+    const down = world({ stored: async () => { throw new StorageUnavailableError("indexer unreachable"); } });
+    await expect(down.source.load(MISSION)).rejects.toBeInstanceOf(StorageUnavailableError);
   });
 });

@@ -173,6 +173,11 @@ Not scored in this version: clearance from obstacles and smoothness (roadmap add
 4. For each Decision: the Replay frame hash equals `frameHash`; `providerAddress` is the Policy's; `processResponse(providerAddress, chatID)` on 0G mainnet is valid; the request rebuilt from the Policy + Replay frame + history matches what was signed (see Risk 1); and `parse(rawResponse) == action`.
 5. Replay in the pinned MuJoCo Docker image ends at the goal with zero collisions, Path Cost ≤ Path Allowance and at most 60 Decisions (section 4.6). The Verdict records Path Cost, Optimal Path Cost and q.
 
+**Invalid content is a Fail; an unreachable 0G is not.** The Worker commits to the Episode Log and Policy roots on 0G Chain, so whatever downloads under those roots is the Worker's responsibility.
+- If the bytes are not valid JSON, or the JSON does not match its format (the Episode Log schema above; the Policy's I2 fields plus the usability rules a Worker asserts at startup), the Outcome is **Fail**. An invalid Episode Log fails before check 1, together with the header binding (this Mission, the winning Worker, the Seed Commitment, and as many Decisions as the submitted `decisionCount`). An invalid Policy fails at check 3, so an unsolvable Course is still Invalid Course.
+- The evidence hash then includes a fixed reason (`episode log is not valid JSON`, `episode log does not match the Episode Log format`, `policy is not valid JSON` or `policy does not match the Policy format`), never a parser message, so all three Verifiers sign the same Verdict for the same bytes.
+- If 0G Storage cannot be reached (indexer or network error, a timeout, or a root the indexer cannot find), that is infrastructure: the Verifier answers `503`, charges nothing and signs no Verdict. The Requester retries later; if 0G stays down, the Mission ends in `rescue()`. A Worker that registered a root it never uploaded lands here too, because it cannot be told apart from an outage.
+
 **Track checklist:** a 0G call in the decision loop, an Episode Log on 0G Storage with a request ID per Decision, a replayable simulation, safe-stop, and a contract address. The required sentence is in section 1.
 
 ### 5.2 Hedera (x402 track)

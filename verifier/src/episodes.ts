@@ -1,7 +1,7 @@
 import type { EpisodeLog, Policy } from "@dewo/agents/formats";
 import type { Hex } from "viem";
 import { PendingError } from "./errors.js";
-import type { BoardPort, EpisodeRegistryPort, EpisodeSource, EscrowPort, LoadedEpisode, SeedPort, StoragePort } from "./ports.js";
+import type { BoardPort, EpisodeRegistryPort, EpisodeSource, EscrowPort, LoadedEpisode, NotJson, SeedPort, StoragePort } from "./ports.js";
 
 export interface EpisodeSourceDeps {
   board: BoardPort; chain: EscrowPort; seeds: SeedPort; registry: EpisodeRegistryPort; storage: StoragePort;
@@ -29,10 +29,11 @@ export function createEpisodeSource(deps: EpisodeSourceDeps): EpisodeSource {
       const bid = bids.find((b) => b.worker.toLowerCase() === award.worker.toLowerCase());
       if (!submission || !reveal || !bid) return { mission, worker: award.worker, timeline };
 
-      const [log, policy] = await Promise.all([
-        deps.storage.downloadJson<EpisodeLog>(submission.episodeLogRoot),
-        deps.storage.downloadJson<Policy>(submission.policyRoot),
-      ]);
+      // Content that is not JSON or not well formed is passed on for the checks to Fail; a 0G outage rejects (no Verdict).
+      const [log, policy] = (await Promise.all([
+        deps.storage.downloadJson(submission.episodeLogRoot),
+        deps.storage.downloadJson(submission.policyRoot),
+      ])) as [EpisodeLog | NotJson, Policy | NotJson];
       return {
         mission, worker: award.worker, timeline,
         episode: { bid, reveal, policy, log, episodeLogRoot: submission.episodeLogRoot, decisionCount: submission.decisionCount },

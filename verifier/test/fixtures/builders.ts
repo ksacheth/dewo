@@ -62,7 +62,10 @@ export const ROUTER_POLICY: Policy = {
   requestOptions: { chat_template_kwargs: { enable_thinking: false } },
 };
 
-export function honestEpisode(actions: Action[] = ["FORWARD", "FORWARD", "FORWARD"], policy: Policy = POLICY): EpisodeInput {
+/** An EpisodeInput whose Worker-supplied documents are known to be well formed, so tests can edit them directly. */
+export type HonestEpisode = Omit<EpisodeInput, "log" | "policy"> & { log: EpisodeLog; policy: Policy };
+
+export function honestEpisode(actions: Action[] = ["FORWARD", "FORWARD", "FORWARD"], policy: Policy = POLICY): HonestEpisode {
   const decisions: Decision[] = actions.map((action, step) => {
     const frameHash = frameHashFor(actions.slice(0, step));
     return {

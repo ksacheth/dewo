@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { SimInputError } from "../src/adapters/sim-cli.js";
-import { verifyEpisode } from "../src/checks/index.js";
+import { verifyEpisode, type EpisodeInput } from "../src/checks/index.js";
+import { NotJson } from "../src/ports.js";
 import { Outcome } from "../src/sign.js";
-import { FakeSim, honestEpisode, zeroG, frameHashFor, pngFor, ROUTER_POLICY } from "./fixtures/builders.js";
-import { buildRequest } from "@dewo/agents/formats";
+import { FakeSim, honestEpisode, zeroG, frameHashFor, pngFor, POLICY, ROUTER_POLICY } from "./fixtures/builders.js";
+import { buildRequest, policyHash, type Policy } from "@dewo/agents/formats";
 
 const deps = (sim = new FakeSim(), g = zeroG()) => ({ sim, zeroG: g });
 
@@ -208,5 +209,73 @@ describe("verifyEpisode", () => {
       ep.decisionCount = 7;
       expect((await verifyEpisode(deps(), ep)).failedCheck).toBe("header");
     });
+  });
+});
+
+describe("Worker documents that are not valid content (issue #47: a Fail, never a missing Verdict)", () => {
+  const LOG_NOT_JSON = "episode log is not valid JSON";
+  const LOG_BAD_FORMAT = "episode log does not match the Episode Log format";
+  const POLICY_NOT_JSON = "policy is not valid JSON";
+  const POLICY_BAD_FORMAT = "policy does not match the Policy format";
+
+  /** The same Episode with a Worker document swapped for downloaded content the Worker committed to. */
+  const withLog = (log: unknown, decisionCount = 0): EpisodeInput => ({ ...honestEpisode(), log: log as EpisodeInput["log"], decisionCount });
+  const withPolicy = (policy: unknown): EpisodeInput => {
+    const ep = honestEpisode();
+    // The Bid commits to exactly these bytes, so only the format check can catch them.
+    const committed = policy instanceof NotJson ? ep.bid.policyHash : policyHash(policy as Policy);
+    return { ...ep, bid: { ...ep.bid, policyHash: committed }, policy: policy as EpisodeInput["policy"] };
+  };
+
+  it("fails an Episode Log whose bytes are not JSON at the header check, with the reason in the evidence", async () => {
+    const v = await verifyEpisode(deps(), withLog(new NotJson(), 3));
+    expect(v).toMatchObject({ outcome: Outcome.Fail, failedCheck: "header", reason: LOG_NOT_JSON, pathCost: 0, collisions: 0 });
+    const mismatch = honestEpisode();
+    mismatch.decisionCount = 7;
+    expect(v.evidenceHash).not.toBe((await verifyEpisode(deps(), mismatch)).evidenceHash);
+  });
+
+  it.each([
+    ["null", null],
+    ["a string", "hello"],
+    ["an array", []],
+    ["an empty header", { header: {}, decisions: [] }],
+    ["a header with non-string fields", { header: { missionId: 1, worker: 2, policyRoot: 3, seedCommitment: 4 }, decisions: [] }],
+    ["decisions that are not a list", { header: honestEpisode().log.header, decisions: "none" }],
+  ])("fails an Episode Log that is JSON in the wrong shape (%s)", async (_name, log) => {
+    const v = await verifyEpisode(deps(), withLog(log));
+    expect(v).toMatchObject({ outcome: Outcome.Fail, failedCheck: "header", reason: LOG_BAD_FORMAT });
+  });
+
+  it("fails a Policy whose bytes are not JSON at the policy check", async () => {
+    const v = await verifyEpisode(deps(), withPolicy(new NotJson()));
+    expect(v).toMatchObject({ outcome: Outcome.Fail, failedCheck: "policy", reason: POLICY_NOT_JSON });
+  });
+
+  it.each([
+    ["null", null],
+    ["an empty object", {}],
+    ["a numeric providerAddress", { ...POLICY, providerAddress: 42 }],
+    ["no promptTemplate", { ...POLICY, promptTemplate: null }],
+    ["a promptTemplate without placeholders", { ...POLICY, promptTemplate: "Reply FORWARD." }],
+    ["a negative memoryWindow", { ...POLICY, memoryWindow: -1 }],
+    ["requestOptions that override the model", { ...POLICY, requestOptions: { model: "other" } }],
+  ])("fails a Policy that is JSON in the wrong shape, even when the Bid committed to it (%s)", async (_name, policy) => {
+    const v = await verifyEpisode(deps(), withPolicy(policy));
+    expect(v).toMatchObject({ outcome: Outcome.Fail, failedCheck: "policy", reason: POLICY_BAD_FORMAT });
+  });
+
+  it("keeps the spec order: an unsolvable Course is Invalid Course before the Policy is judged", async () => {
+    const v = await verifyEpisode(deps(new FakeSim({ solvable: false })), withPolicy(new NotJson()));
+    expect(v.outcome).toBe(Outcome.InvalidCourse);
+  });
+
+  it("gives every Verifier the same Outcome and evidence for the same bad content, so 2 matching Verdicts settle", async () => {
+    for (const make of [() => withLog(new NotJson(), 3), () => withLog({ header: {}, decisions: [] }), () => withPolicy(new NotJson()), () => withPolicy({})]) {
+      const verdicts = await Promise.all([1, 2, 3].map(() => verifyEpisode(deps(), make())));
+      expect(new Set(verdicts.map((v) => `${v.outcome}:${v.evidenceHash}`)).size).toBe(1);
+    }
+    const reasons = await Promise.all([withLog(new NotJson(), 3), withLog(null), withPolicy(new NotJson()), withPolicy({})].map((ep) => verifyEpisode(deps(), ep)));
+    expect(new Set(reasons.map((v) => v.evidenceHash)).size).toBe(4);
   });
 });

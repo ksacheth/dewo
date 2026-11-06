@@ -86,8 +86,20 @@ export interface SeedPort {
 export interface EpisodeRegistryPort {
   findSubmission(missionId: Hex, worker: Address): Promise<{ episodeLogRoot: Hex; policyRoot: Hex; decisionCount: number; timestamp: number } | null>;
 }
-/** 0G Storage: download a JSON document by root hash. */
-export interface StoragePort { downloadJson<T>(root: Hex): Promise<T> }
+/**
+ * A document the Worker uploaded whose bytes are not JSON. It is the Worker's fault (it committed to this root), so the checks
+ * Fail it. JSON.parse never yields a class instance, so no uploaded content can pass itself off as one.
+ */
+export class NotJson {}
+
+/** 0G Storage, by root hash. */
+export interface StoragePort {
+  /**
+   * The parsed JSON stored under `root` (not validated: the Worker wrote it), or a `NotJson` when the bytes do not parse.
+   * Rejects with `StorageUnavailableError` when 0G cannot be reached or times out, which is retryable and never a Verdict.
+   */
+  downloadJson(root: Hex): Promise<unknown>;
+}
 
 /** What the Verifier learns about a Mission's Episode from Hedera, Arkiv and 0G (episodes.ts implements this). */
 export interface EpisodeSource {
@@ -102,8 +114,9 @@ export interface LoadedEpisode {
   episode?: {
     bid: SealedBid;
     reveal: { seed: Hex; salt: Hex };
-    policy: Policy;
-    log: EpisodeLog;
+    /** As downloaded from 0G Storage: the checks validate both before trusting them. */
+    policy: Policy | NotJson;
+    log: EpisodeLog | NotJson;
     episodeLogRoot: Hex;
     decisionCount: number;
   };
