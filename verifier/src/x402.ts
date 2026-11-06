@@ -11,12 +11,14 @@ export interface X402Options {
   network?: `${string}:${string}`;
   /** Price per Replay, e.g. "$0.05". */
   price?: string;
+  /** HTS token to charge in. Defaults to the package's testnet USDC (0.0.429274). */
+  asset?: { id: string; decimals: number };
 }
 
 /** Build the x402 payment gate for POST /replay: 402 until a valid payment is verified and settled through the facilitator. */
 export async function createX402Gate(opts: X402Options): Promise<PaymentGate> {
   const network = opts.network ?? "hedera:testnet";
-  const server = new x402ResourceServer(opts.facilitator).register(network, new ExactHederaScheme());
+  const server = new x402ResourceServer(opts.facilitator).register(network, new ExactHederaScheme(opts.asset ? { defaultAssets: { [network]: { asset: opts.asset.id, decimals: opts.asset.decimals } } } : undefined));
   await server.initialize();
   const requirements = await server.buildPaymentRequirements({ scheme: "exact", payTo: opts.payTo, price: opts.price ?? "$0.05", network });
 

@@ -7,6 +7,7 @@
  *   HEDERA_CLIENT_ACCOUNT_ID      payer account (associated, holding testnet USDC and some HBAR)
  *   HEDERA_CLIENT_PRIVATE_KEY     payer ECDSA key, 0x-prefixed
  *   X402_FACILITATOR_URL          optional, defaults to Blocky402 testnet
+ *   X402_ASSET                    optional HTS token id to charge in (Circle's faucet mints 0.0.5449); defaults to 0.0.429274
  */
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,7 +28,10 @@ const env = (name: string): string => {
 };
 
 const facilitator = new HTTPFacilitatorClient({ url: process.env.X402_FACILITATOR_URL ?? "https://api.testnet.blocky402.com" });
-const gate = await createX402Gate({ facilitator, payTo: env("HEDERA_PAY_TO") });
+const gate = await createX402Gate({
+  facilitator, payTo: env("HEDERA_PAY_TO"),
+  asset: process.env.X402_ASSET ? { id: process.env.X402_ASSET, decimals: 6 } : undefined,
+});
 
 const { mission, ...episode } = honestEpisode();
 const runs = mkdtempSync(join(tmpdir(), "x402-live-"));

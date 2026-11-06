@@ -19,6 +19,13 @@ describe("x402 gate", () => {
     expect(res.headers?.["PAYMENT-REQUIRED"]).toBeTruthy();
   });
 
+  it("charges in a different HTS USDC when configured (Circle's faucet mints 0.0.5449)", async () => {
+    const gate = await createX402Gate({ facilitator: facilitator as never, payTo: "0.0.5555", asset: { id: "0.0.5449", decimals: 6 } });
+    const res = await gate(new Request("http://v/replay", { method: "POST" })) as Challenge;
+    const accepts = (res.body as { accepts: Array<{ asset: string; amount: string }> }).accepts;
+    expect(accepts[0]).toMatchObject({ asset: "0.0.5449", amount: "50000" });
+  });
+
   it("verifies a matching payment without charging it until settle() is called", async () => {
     const gate = await createX402Gate({ facilitator: facilitator as never, payTo: "0.0.5555" });
     const challenge = await gate(new Request("http://v/replay", { method: "POST" })) as Challenge;
