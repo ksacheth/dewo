@@ -1,5 +1,5 @@
-// One Worker agent's Mission lifecycle (issue #14):
-// discover -> bid -> watch Award -> stake -> Seed Release -> Episode -> submit -> settled.
+// One Worker agent's Mission lifecycle (issue #14, ADR 0006):
+// discover (public Course Seed and limits) -> bid -> watch Award -> stake -> Episode -> submit -> settled.
 // Every tick re-reads the chain before acting (check-then-act) and writes the local
 // record only after the action is confirmed. One attempt per Mission.
 import {
@@ -8,7 +8,6 @@ import {
   fromBaseUnits,
   policyHash,
   sameVerifierSet,
-  seedCommitment,
   toBaseUnits,
   type EpisodeLog,
   type Hex,
@@ -152,7 +151,8 @@ export class Worker {
     const reliability = await board.reliabilityOf(this.config.address);
     const maxBounty = fromBaseUnits(terms.maxBounty);
     const stake = expectedStake(maxBounty, reliability);
-    const bidPrice = price({ ...this.config.strategy, reliability, stake });
+    // maxSteps caps the Decisions this Worker can pay for, so it caps its inference estimate too (ADR 0006).
+    const bidPrice = price({ ...this.config.strategy, maxSteps: terms.maxSteps, reliability, stake });
 
     const skip = shouldSkip({
       missionVerifiers: mission.verifiers,
@@ -166,6 +166,7 @@ export class Worker {
       txFees: this.config.strategy.txFees,
       zgBalance: await balances.zeroG(),
       zeroGPerDecision: this.config.strategy.zeroGPerDecision,
+      maxSteps: terms.maxSteps,
     });
     if (skip) return this.put({ missionId, stage: "SKIPPED", note: skip });
 
@@ -208,31 +209,21 @@ export class Worker {
     this.deps.events.emit(record.missionId, "stake.deposited", { worker: this.config.address, stake: award.stake.toString() }, hederaTxUrl(txHash));
   }
 
+  /** The Course Seed is public in the escrow (ADR 0006), so the Episode can start right after the stake. */
   private async fly(record: MissionRecord, mission: EscrowMission): Promise<void> {
-    const { board, clock } = this.deps;
     const { terms } = mission;
-    const release = await board.readSeedRelease(record.missionId);
-    if (!release) {
-      const windowOver = clock.now() > (mission.stakedAt ?? 0) + terms.deadlines.seedReleaseWindow;
-      if (windowOver) this.move(record, "GAVE_UP", "no Seed Release");
-      return;
-    }
-    if (seedCommitment(release.seed, release.salt) !== terms.seedCommitment) {
-      return this.move(record, "GAVE_UP", "released seed does not match the Seed Commitment");
-    }
-    if (clock.now() > release.releasedAt + terms.deadlines.episodeWindow) {
-      return this.move(record, "GAVE_UP", "Episode window already over");
-    }
+    // The Verifiers judge the Episode Submission against stakedAt + episodeWindow.
+    const deadline = (mission.stakedAt ?? 0) + terms.deadlines.episodeWindow;
+    if (this.deps.clock.now() > deadline) return this.move(record, "GAVE_UP", "Episode window already over");
 
     this.move(record, "EPISODE_RUNNING");
     let decisions: EpisodeLog["decisions"];
     try {
-      ({ decisions } = await this.flyEpisode(record.missionId, release.seed, mission));
+      ({ decisions } = await this.flyEpisode(record.missionId, mission));
     } catch (error) {
       return this.move(record, "GAVE_UP", `Episode crashed: ${String(error)}`);
     }
     // Keep the flown Episode: upload and submit are retried on later ticks, the Episode is never re-flown.
-    const deadline = release.releasedAt + terms.deadlines.episodeWindow;
     this.put({ missionId: record.missionId, stage: "EPISODE_DONE", price: record.price, episode: { decisions, deadline } });
   }
 
@@ -257,13 +248,15 @@ export class Worker {
     this.put({ ...rest, stage: "SUBMITTED", note: undefined });
   }
 
-  private async flyEpisode(missionId: string, seed: Hex, mission: EscrowMission): Promise<Omit<EpisodeLog, "header">> {
-    const session = await this.deps.sim.openSession(seed, mission.terms.difficultyClass, missionId);
+  private async flyEpisode(missionId: string, mission: EscrowMission): Promise<Omit<EpisodeLog, "header">> {
+    const { terms } = mission;
+    const session = await this.deps.sim.openSession(terms.courseSeed, terms.difficultyClass, missionId);
     try {
       const { decisions } = await runEpisode({
         policy: this.config.policy,
         session,
         inference: this.deps.inference,
+        limits: { maxSteps: terms.maxSteps, maxCollisions: terms.maxCollisions },
         onDecision: (d, frame) =>
           this.deps.events.emit(missionId, "decision.made", { step: d.step, frame, chatID: d.chatID, action: d.action }),
       });
@@ -280,7 +273,7 @@ export class Worker {
 
     const policyRoot = await storage.upload(encode(canonicalJson(this.config.policy)));
     const log: EpisodeLog = {
-      header: { missionId, worker: this.config.address, policyRoot, seedCommitment: terms.seedCommitment },
+      header: { missionId, worker: this.config.address, policyRoot, courseSeed: terms.courseSeed },
       decisions: episode.decisions,
     };
     const episodeLogRoot = await storage.upload(encode(JSON.stringify(log)));

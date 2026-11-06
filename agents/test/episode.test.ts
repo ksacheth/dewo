@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DECISION_CAP, type ChatRequest } from "../src/formats";
+import type { ChatRequest, MissionLimits } from "../src/formats";
 import { runEpisode } from "../src/worker/episode";
 import { CorridorSession, ScriptedInference, policy } from "./fakes";
 
-async function fly(answers: string[], goalAt = 3) {
+async function fly(answers: string[], goalAt = 3, limits: MissionLimits = { maxSteps: 60, maxCollisions: 0 }) {
   const session = new CorridorSession(goalAt);
   const inference = new ScriptedInference(answers);
-  const result = await runEpisode({ policy, session, inference });
+  const result = await runEpisode({ policy, session, inference, limits });
   return { ...result, session, inference };
 }
 
@@ -17,8 +17,16 @@ describe("runEpisode", () => {
     expect(decisions.map((d) => d.chatID)).toEqual(["chat-1", "chat-2", "chat-3"]);
   });
 
-  it("ends on a collision", async () => {
-    expect((await fly(["FORWARD", "TURN_LEFT"])).endReason).toBe("COLLISION");
+  it("ends once collisions exceed maxCollisions: the Episode can no longer pass", async () => {
+    const { endReason, decisions } = await fly(["FORWARD", "TURN_LEFT", "FORWARD"]);
+    expect(endReason).toBe("MAX_COLLISIONS");
+    expect(decisions).toHaveLength(2);
+  });
+
+  it("goes on after a collision the Mission allows", async () => {
+    const { endReason, decisions } = await fly(["FORWARD", "TURN_LEFT", "FORWARD", "FORWARD"], 3, { maxSteps: 60, maxCollisions: 1 });
+    expect(endReason).toBe("GOAL");
+    expect(decisions).toHaveLength(4);
   });
 
   it("ends on STOP, and sends STOP to the sim so Replay sees it", async () => {
@@ -39,10 +47,10 @@ describe("runEpisode", () => {
     expect(session.actions).toEqual(["FORWARD"]);
   });
 
-  it("stops at the Decision Cap", async () => {
-    const { endReason, decisions } = await fly(Array(DECISION_CAP + 5).fill("FORWARD"), 1_000);
-    expect(endReason).toBe("DECISION_CAP");
-    expect(decisions).toHaveLength(DECISION_CAP);
+  it("stops at the Mission's maxSteps", async () => {
+    const { endReason, decisions } = await fly(Array(30).fill("FORWARD"), 1_000, { maxSteps: 12, maxCollisions: 0 });
+    expect(endReason).toBe("MAX_STEPS");
+    expect(decisions).toHaveLength(12);
   });
 
   it("logs the exact request, with history limited to the memory window", async () => {

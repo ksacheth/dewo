@@ -12,20 +12,22 @@ export interface MissionDeadlines {
   biddingClosesAt: number;
   /** After the Award. */
   stakeWindow: number;
-  /** After the stake. */
-  seedReleaseWindow: number;
-  /** After the Seed Release. */
+  /** After the stake: the Episode Submission deadline is stakedAt + episodeWindow. */
   episodeWindow: number;
   /** Absolute; after it only rescue() can close the Mission. */
   rescueAt: number;
 }
 
-/** The Mission terms fixed on-chain by createMission (ADR 0003). */
+/** The Mission terms fixed on-chain by createMission (ADR 0003, ADR 0006). */
 export interface MissionTerms {
   maxBounty: bigint;
   difficultyClass: DifficultyClass;
   riskWeightBps: number;
-  seedCommitment: Hex;
+  /** The public Course Seed: any Worker can generate the Course from it before bidding. */
+  courseSeed: Hex;
+  /** The Requester's Mission Limits: at most maxSteps Decisions and maxCollisions collisions for a Pass. */
+  maxSteps: number;
+  maxCollisions: number;
   deadlines: MissionDeadlines;
 }
 
@@ -56,12 +58,6 @@ export interface EscrowPort extends WithdrawalPort {
   stake(missionId: string, amount: bigint): Promise<TxResult>;
 }
 
-export interface SeedRelease {
-  seed: Hex;
-  salt: Hex;
-  releasedAt: number;
-}
-
 export interface BidEntity {
   missionId: string;
   worker: Hex;
@@ -79,8 +75,6 @@ export interface BoardPort {
   placeBid(bid: BidEntity): Promise<{ key: string }>;
   /** This Worker's existing Bid on the Mission, or null. The protocol allows one Bid per Worker per Mission. */
   myBid(missionId: string, worker: Hex): Promise<{ key: string } | null>;
-  /** The Seed Release for this Worker, decrypted, or null if not released yet. */
-  readSeedRelease(missionId: string): Promise<SeedRelease | null>;
 }
 
 export interface RegistryPort {

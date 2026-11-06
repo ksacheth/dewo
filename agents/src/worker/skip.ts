@@ -1,6 +1,5 @@
 // When a Worker should not bid on a Mission. All amounts in USDC.
 import type { Hex } from "../formats/episode-log";
-import { DECISION_CAP } from "../formats/path";
 import { toBaseUnits } from "../formats/usdc";
 import { sameVerifierSet } from "../formats/verifier-set";
 
@@ -30,6 +29,8 @@ export interface SkipContext {
   zgBalance: number;
   /** 0G cost of one Decision, in the unit of zgBalance. */
   zeroGPerDecision: number;
+  /** The Mission's maxSteps: the most Decisions its Episode can take, so the worst-case 0G bill (ADR 0006). */
+  maxSteps: number;
 }
 
 /** Returns the first reason to skip this Mission, or null if the Worker should bid. */
@@ -42,6 +43,6 @@ export function shouldSkip(context: SkipContext): SkipReason | null {
   if (context.secondsLeftToBid < MIN_SECONDS_LEFT_TO_BID) return "BIDDING_CLOSING";
   if (context.hasUnfinishedWin) return "BUSY_WITH_UNFINISHED_WIN";
   if (context.walletBalance < context.stake + context.txFees) return "WALLET_CANNOT_COVER_STAKE";
-  if (context.zgBalance < context.zeroGPerDecision * DECISION_CAP) return "ZG_BALANCE_CANNOT_COVER_EPISODE";
+  if (context.zgBalance < context.zeroGPerDecision * context.maxSteps) return "ZG_BALANCE_CANNOT_COVER_EPISODE";
   return null;
 }

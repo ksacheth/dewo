@@ -18,7 +18,7 @@ afterAll(() => rmSync(runs, { recursive: true, force: true }));
 describe("SimCli (I1 over JSON lines)", () => {
   it("drives a whole Episode through a real child process", async () => {
     const session = await sim.openSession(SEED, "easy", MISSION);
-    const result = await runEpisode({ policy, session, inference: new ScriptedInference(["FORWARD", "FORWARD", "FORWARD"]) });
+    const result = await runEpisode({ policy, session, inference: new ScriptedInference(["FORWARD", "FORWARD", "FORWARD"]), limits: { maxSteps: 60, maxCollisions: 0 } });
     await session.close();
 
     expect(result.endReason).toBe("GOAL");

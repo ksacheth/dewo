@@ -11,15 +11,17 @@ import { send, type EvmClients } from "./evm";
 export interface RawMission {
   worker: Hex;
   verifiers: readonly Hex[];
-  seedCommitment: Hex;
+  courseSeed: Hex;
   maxBounty: bigint;
   difficultyClass: number;
   riskWeightBps: number;
+  maxSteps: number;
+  maxCollisions: number;
   price: bigint;
   bidStake: bigint;
   awardedAt: bigint;
   stakedAt: bigint;
-  deadlines: { biddingEndsAt: bigint; stakeWindow: number; seedReleaseWindow: number; episodeWindow: number; rescueAt: bigint };
+  deadlines: { biddingEndsAt: bigint; stakeWindow: number; episodeWindow: number; rescueAt: bigint };
   state: number;
 }
 
@@ -33,11 +35,12 @@ export function toEscrowMission(raw: RawMission): EscrowMission {
       maxBounty: raw.maxBounty,
       difficultyClass,
       riskWeightBps: raw.riskWeightBps,
-      seedCommitment: raw.seedCommitment,
+      courseSeed: raw.courseSeed,
+      maxSteps: raw.maxSteps,
+      maxCollisions: raw.maxCollisions,
       deadlines: {
         biddingClosesAt: Number(deadlines.biddingEndsAt),
         stakeWindow: deadlines.stakeWindow,
-        seedReleaseWindow: deadlines.seedReleaseWindow,
         episodeWindow: deadlines.episodeWindow,
         rescueAt: Number(deadlines.rescueAt),
       },
@@ -94,20 +97,20 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
   }
 
   /**
-   * The Mission this Requester funded with `seedCommitment`, if any. Scans MissionCreated newest-first in
+   * The Mission this Requester funded with `courseSeed`, if any. Scans MissionCreated newest-first in
    * bounded chunks, so crash recovery (a Mission created moments ago) usually costs one eth_getLogs call.
    */
-  async findMission(seedCommitment: Hex): Promise<string | null> {
+  async findMission(courseSeed: Hex): Promise<string | null> {
     const latest = await this.clients.public.getBlockNumber();
     for (let toBlock = latest; toBlock >= this.fromBlock; toBlock -= this.logChunk) {
       const fromBlock = maxBigint(this.fromBlock, toBlock - this.logChunk + 1n);
-      const found = await this.findMissionIn(seedCommitment, fromBlock, toBlock);
+      const found = await this.findMissionIn(courseSeed, fromBlock, toBlock);
       if (found) return found;
     }
     return null;
   }
 
-  private async findMissionIn(seedCommitment: Hex, fromBlock: bigint, toBlock: bigint): Promise<string | null> {
+  private async findMissionIn(courseSeed: Hex, fromBlock: bigint, toBlock: bigint): Promise<string | null> {
     const logs = await this.clients.public.getContractEvents({
       address: this.address,
       abi: missionEscrowAbi,
@@ -123,7 +126,7 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
         functionName: "getMission",
         args: [args.missionId!],
       })) as RawMission;
-      if (raw.seedCommitment.toLowerCase() === seedCommitment.toLowerCase()) return args.missionId!;
+      if (raw.courseSeed.toLowerCase() === courseSeed.toLowerCase()) return args.missionId!;
     }
     return null;
   }
@@ -141,18 +144,19 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
       abi: missionEscrowAbi,
       functionName: "createMission",
       args: [
-        terms.seedCommitment,
+        terms.courseSeed,
         [verifiers[0]!, verifiers[1]!, verifiers[2]!],
         {
           biddingEndsAt: BigInt(deadlines.biddingClosesAt),
           stakeWindow: deadlines.stakeWindow,
-          seedReleaseWindow: deadlines.seedReleaseWindow,
           episodeWindow: deadlines.episodeWindow,
           rescueAt: BigInt(deadlines.rescueAt),
         },
         terms.maxBounty,
         DIFFICULTY_CLASSES.indexOf(terms.difficultyClass),
         terms.riskWeightBps,
+        terms.maxSteps,
+        terms.maxCollisions,
       ],
     });
     const [created] = parseEventLogs({ abi: missionEscrowAbi, logs: receipt.logs, eventName: "MissionCreated" });

@@ -7,7 +7,7 @@ import type { PricingStrategy, WorkerConfig } from "./worker";
 
 export interface WorkerSettings {
   config: WorkerConfig;
-  /** Signs on Hedera, Galileo and Arkiv, and decrypts the Seed Release. */
+  /** Signs on Hedera, Galileo and Arkiv. */
   privateKey: Hex;
 }
 

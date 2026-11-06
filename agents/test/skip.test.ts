@@ -21,6 +21,7 @@ const ok: SkipContext = {
   txFees: 0.05,
   zgBalance: 5,
   zeroGPerDecision: 0.05,
+  maxSteps: 60,
 };
 
 describe("shouldSkip", () => {
@@ -41,7 +42,8 @@ describe("shouldSkip", () => {
     ["under 10 s of bidding left", { secondsLeftToBid: 9 }, "BIDDING_CLOSING"],
     ["already holding an unfinished win", { hasUnfinishedWin: true }, "BUSY_WITH_UNFINISHED_WIN"],
     ["wallet can't cover stake + fees", { walletBalance: 0.54 }, "WALLET_CANNOT_COVER_STAKE"],
-    ["0G balance can't cover the 60-Decision cap", { zgBalance: 2.99 }, "ZG_BALANCE_CANNOT_COVER_EPISODE"],
+    ["0G balance can't cover the Mission's 60 maxSteps Decisions", { zgBalance: 2.99 }, "ZG_BALANCE_CANNOT_COVER_EPISODE"],
+    ["0G balance can't cover a Mission with more maxSteps", { zgBalance: 4, maxSteps: 100 }, "ZG_BALANCE_CANNOT_COVER_EPISODE"],
   ])("skips when %s", (_label, change, reason) => {
     expect(shouldSkip({ ...ok, ...change })).toBe(reason);
   });
