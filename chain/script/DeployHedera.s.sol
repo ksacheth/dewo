@@ -9,7 +9,11 @@ import {MissionEscrow} from "../src/MissionEscrow.sol";
 contract DeployHedera is Script {
     function run() external returns (MissionEscrow escrow) {
         require(block.chainid == 296, "Hedera testnet only");
-        address asset = vm.envOr("HEDERA_USE_HBAR", false) ? address(0) : vm.envAddress("HEDERA_USDC_ADDRESS");
+        address asset;
+        if (!vm.envOr("HEDERA_USE_HBAR", false)) {
+            asset = vm.envOr("HEDERA_USDC_ADDRESS", address(0));
+            require(asset != address(0), "Set HEDERA_USDC_ADDRESS, or HEDERA_USE_HBAR=true for a native HBAR escrow");
+        }
         vm.startBroadcast(vm.envUint("HEDERA_PRIVATE_KEY"));
         escrow = new MissionEscrow(asset);
         vm.stopBroadcast();
