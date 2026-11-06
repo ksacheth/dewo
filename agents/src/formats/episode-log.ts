@@ -25,6 +25,17 @@ export interface Decision {
   request: unknown;
   rawResponse: string;
   action: Action;
+  /**
+   * The provider's TEE signature for this chat, fetched by the Worker right after the call
+   * (0G `GET /v1/proxy/signature/{chatID}`). A Verifier checks it locally:
+   * recoverAddress(hashMessage(text), signature) == the provider's TEE signer. No per-step call to 0G.
+   */
+  receipt?: ChatReceipt;
+}
+
+export interface ChatReceipt {
+  text: string;
+  signature: Hex;
 }
 
 export interface EpisodeLog {

@@ -1,7 +1,7 @@
 // What the Worker needs from the outside world. Real adapters (Arkiv via @dewo/board,
 // Hedera MissionEscrow, 0G Compute / Storage / EpisodeRegistry, the sim CLI) implement
 // these once M1, M2 and M3 land; tests use in-memory fakes. Amounts are in USDC.
-import type { Action, Hex } from "../formats";
+import type { Action, ChatReceipt, Hex } from "../formats";
 
 export type DifficultyClass = "easy" | "medium" | "hard";
 
@@ -82,6 +82,7 @@ export interface StoragePort {
 export interface InferenceReply {
   chatID: string;
   rawResponse: string;
+  receipt?: ChatReceipt;
 }
 
 export interface InferencePort {

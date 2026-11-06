@@ -56,5 +56,6 @@ async function decide(input: EpisodeInput, step: number, history: Action[]): Pro
     request,
     rawResponse: reply.rawResponse,
     action: parseAction(reply.rawResponse),
+    ...(reply.receipt ? { receipt: reply.receipt } : {}),
   };
 }
