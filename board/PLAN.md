@@ -318,7 +318,7 @@ Defined by `src/events.ts` (the source of truth; this table mirrors it). Files: 
 | `seed.released` | `{ worker, arkivKey }` | agents (Requester) |
 | `decision.made` | `{ step, frame, chatID, action }` (frame = path relative to `runs/`) | agents (Worker) |
 | `episode.submitted` | `{ episodeLogRoot, policyRoot, decisionCount }` | agents (Worker) |
-| `replay.paid` | `{ verifier, status: 402 \| "paid", amount }` | agents (Requester) |
+| `replay.paid` | `{ verifier, status: 402 \| "paid", amount }` | agents (Requester) for `402`; verifier for `"paid"` with `txUrl` (D15) |
 | `verdict.signed` | `{ verifier, outcome, evidenceHash, arkivKey }` | verifier (`verifier-<n>`, R10) |
 | `settled` | `{ outcome, workerPayout, requesterPayout }` | agents (Requester) |
 
