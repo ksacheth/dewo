@@ -117,3 +117,15 @@ def test_camera_yaw_quaternions_rotate_x_axis_to_each_heading():
         # rotate (1, 0) by the z-axis quaternion: (w^2 - z^2, 2wz)
         assert abs((w * w - z * z) - math.cos(yaw)) < 1e-12
         assert abs(2 * w * z - math.sin(yaw)) < 1e-12
+
+
+def test_frame_hash_is_defined_over_raw_pixels():
+    import hashlib
+
+    import numpy as np
+
+    from sim.camera import frame_hash
+
+    rgb = (np.arange(2 * 3 * 3) % 256).astype(np.uint8).reshape(2, 3, 3)
+    want = hashlib.sha256(b"dewo-frame-v1" + (3).to_bytes(4, "big") + (2).to_bytes(4, "big") + rgb.tobytes())
+    assert frame_hash(rgb) == "0x" + want.hexdigest()

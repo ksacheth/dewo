@@ -31,7 +31,7 @@ uv run --project sim sim replay  --course course.json --actions actions.json    
 - **Episode end:** an Episode ends at `STOP`, on the first collision, or on reaching the goal. Later Actions are rejected by `session` (`{"error": ...}`) and ignored by `replay`. `STOP` uses no step.
 - **`frameHashes`:** one per Decision, taken from the view *before* each Action. `session observe` and `replay` use the same code path, so they cannot disagree.
 - **`steps`** is the Path Cost: the number of non-STOP Actions. The Verifier compares it with the Path Allowance (2 x Optimal Path Cost + 2) and the Decision Cap of 60; `session` and `replay` do not enforce either.
-- **Frames:** 224x224 PNG from the onboard camera. `frameHash = "0x" + sha256(png bytes)`. The PNG encoder is our own (filter 0, zlib level 6).
+- **Frames:** 224x224 PNG from the onboard camera. `frameHash = "0x" + sha256(b"dewo-frame-v1" + width (4 bytes BE) + height (4 bytes BE) + raw RGB bytes, row-major)`, so it does not depend on the zlib build. The PNG files are for the model and UI only; the encoder is our own (filter 0, zlib level 6).
 
 ## How determinism is kept
 

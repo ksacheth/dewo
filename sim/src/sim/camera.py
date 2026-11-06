@@ -65,6 +65,13 @@ def build_xml(course):
     return xml.replace("<!--COURSE-->", "\n    ".join(geoms))
 
 
+def frame_hash(rgb):
+    """Canonical hash of raw pixels, independent of any zlib build."""
+    h, w, _ = rgb.shape
+    head = b"dewo-frame-v1" + struct.pack(">II", w, h)
+    return "0x" + hashlib.sha256(head + rgb.tobytes()).hexdigest()
+
+
 def encode_png(rgb):
     """Deterministic PNG (filter 0, zlib level 6) of an HxWx3 uint8 array."""
     h, w, _ = rgb.shape
@@ -95,11 +102,11 @@ class Camera:
         mujoco.mj_forward(self.model, self.data)
 
     def render(self, state):
-        """Return (png bytes, '0x<sha256 of the png>') for the view from `state`."""
+        """Return (png bytes, '0x<frame_hash of the raw pixels>') for the view from `state`."""
         self.place(state)
         self.renderer.update_scene(self.data, camera="onboard")
-        png = encode_png(self.renderer.render())
-        return png, "0x" + hashlib.sha256(png).hexdigest()
+        rgb = self.renderer.render()
+        return encode_png(rgb), frame_hash(rgb)
 
     def close(self):
         self.renderer.close()
