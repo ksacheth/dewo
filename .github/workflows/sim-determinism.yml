@@ -1,0 +1,76 @@
+name: sim determinism
+
+# Spike #4: replay the recorded run inside the pinned dewo-sim image on a
+# native Linux amd64 runner and compare it with the golden recording, which was
+# produced on a different machine (Apple Silicon running the amd64 image).
+
+on:
+  pull_request:
+    paths:
+      - "sim/**"
+      - ".github/workflows/sim-determinism.yml"
+  push:
+    branches: [main]
+    paths:
+      - "sim/**"
+      - ".github/workflows/sim-determinism.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build pinned image
+        run: make -C sim image
+
+      - name: Replay check against the golden recording
+        run: make -C sim replay-check DOCKER=1
+
+      - name: Show differences from the golden recording
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          out = pathlib.Path("sim/.replay-check/run1.json")
+          gold = json.loads(pathlib.Path("sim/tests/fixtures/expected_medium.json").read_text())
+          if not out.exists():
+              raise SystemExit("no replay output")
+          run = json.loads(out.read_text())
+          for key in sorted(set(run) | set(gold)):
+              if key == "frameHashes":
+                  continue
+              if run.get(key) != gold.get(key):
+                  print(f"{key}: run={run.get(key)!r} golden={gold.get(key)!r}")
+          rh, gh = run.get("frameHashes", []), gold.get("frameHashes", [])
+          print(f"frameHashes: run has {len(rh)}, golden has {len(gh)}")
+          for i in range(max(len(rh), len(gh))):
+              a = rh[i] if i < len(rh) else None
+              b = gh[i] if i < len(gh) else None
+              if a != b:
+                  print(f"  frameHashes[{i}]: run={a} golden={b}")
+          PY
+
+      - name: Run sim tests inside the image
+        run: |
+          docker run --rm --platform linux/amd64 \
+            -v "$PWD/sim/tests:/app/tests:ro" \
+            -v "$PWD/sim/stub:/app/stub:ro" \
+            -v "$PWD/sim/pyproject.toml:/app/pyproject.toml:ro" \
+            -v "$PWD/sim/uv.lock:/app/uv.lock:ro" \
+            -w /app --entrypoint uv dewo-sim:0.1.0 \
+            run --frozen pytest -q -p no:cacheprovider
+
+      - name: Upload replay output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay-check-output
+          path: sim/.replay-check/
+          include-hidden-files: true
+          if-no-files-found: error
