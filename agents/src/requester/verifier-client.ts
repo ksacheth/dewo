@@ -7,9 +7,9 @@
 //     -> 200 null when no valid Bid exists. Free.
 //   POST /replay { missionId }
 //     -> 402 with x402 requirements (USDC on hedera:testnet); once paid:
-//     -> 200 { verdict: "Pass" | "Fail" | "NoShow" | "InvalidCourse" | "NoSeedRelease",
+//     -> 200 { verdict: "Pass" | "Fail" | "NoShow",
 //              signature: 0x hex (EIP-712 Verdict), evidenceHash: 0x bytes32,
-//              pathCost: int, optimalPathCost: int, collisions: int }
+//              steps: int, collisions: int }
 //        The x402 settlement may be reported in a PAYMENT-RESPONSE header (base64 JSON with "transaction").
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { ExactHederaScheme, createClientHederaSigner } from "@x402/hedera";

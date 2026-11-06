@@ -1,8 +1,9 @@
 // The Requester's settings from its env (agents/.env.example, "Requester agent").
+import { LIFETIME_MS } from "@dewo/board";
 import { privateKeyToAccount } from "viem/accounts";
-import type { Hex } from "../formats";
+import { limitsProblems, type Hex, type MissionLimits } from "../formats";
 import { numberFromEnv, privateKeyFromEnv, requiredEnv, verifiersFromEnv, wholeNumber, type Env } from "../shared/config";
-import { DEFAULT_WINDOWS, type RequesterConfig } from "./requester";
+import { DEFAULT_WINDOWS, type RequesterConfig, type Windows } from "./requester";
 import { serverOptionsFromEnv, type ServerOptions } from "./server";
 import { DEFAULT_TIMEOUT_MS, paymentLimitsFromEnv, type PayerConfig } from "./verifier-client";
 
@@ -36,6 +37,44 @@ function payerFromEnv(env: Env): PayerConfig {
   };
 }
 
+/**
+ * The spec windows (docs/spec.md section 3), each overridable in seconds. Hedera testnet needs longer ones: one Hashio
+ * write takes 20 to 40 s, so a Worker's approve + stake cannot fit the default 30 s stake window.
+ */
+function windowsFromEnv(env: Env): Windows {
+  const seconds = (name: string, fallback: number) => numberFromEnv(env, name, fallback, wholeNumber(1));
+  const windows: Windows = {
+    biddingSeconds: seconds("REQUESTER_BIDDING_SECONDS", DEFAULT_WINDOWS.biddingSeconds),
+    biddingSlackSeconds: seconds("REQUESTER_BIDDING_SLACK_SECONDS", DEFAULT_WINDOWS.biddingSlackSeconds),
+    stakeWindow: seconds("REQUESTER_STAKE_SECONDS", DEFAULT_WINDOWS.stakeWindow),
+    episodeWindow: seconds("REQUESTER_EPISODE_SECONDS", DEFAULT_WINDOWS.episodeWindow),
+    rescueSeconds: seconds("REQUESTER_RESCUE_SECONDS", DEFAULT_WINDOWS.rescueSeconds),
+  };
+  const needed = windows.biddingSeconds + windows.biddingSlackSeconds + windows.stakeWindow + windows.episodeWindow;
+  if (windows.rescueSeconds <= needed) {
+    throw new Error(`REQUESTER_RESCUE_SECONDS (${windows.rescueSeconds}) must exceed bidding + slack + stake + episode (${needed})`);
+  }
+  // The Verifiers read the winning Bid at Replay; once it expires they can only answer "pending" and the Mission ends in rescue.
+  const bidLifetime = LIFETIME_MS.bid / 1000;
+  if (needed >= bidLifetime) {
+    throw new Error(`bidding + slack + stake + episode (${needed} s) must stay under the Arkiv Bid lifetime (${bidLifetime} s): the Verifiers read the Bid at Replay`);
+  }
+  return windows;
+}
+
+/** Default Mission Limits for a POST /missions body that leaves them out (ADR 0006); the web form always sends both. */
+export const DEFAULT_LIMITS: MissionLimits = { maxSteps: 60, maxCollisions: 0 };
+
+function limitsFromEnv(env: Env): MissionLimits {
+  const limits = {
+    maxSteps: numberFromEnv(env, "REQUESTER_MAX_STEPS", DEFAULT_LIMITS.maxSteps, wholeNumber(1)),
+    maxCollisions: numberFromEnv(env, "REQUESTER_MAX_COLLISIONS", DEFAULT_LIMITS.maxCollisions, wholeNumber(0)),
+  };
+  const problems = limitsProblems(limits);
+  if (problems.length > 0) throw new Error(`REQUESTER_MAX_STEPS / REQUESTER_MAX_COLLISIONS: ${problems.join("; ")}`);
+  return limits;
+}
+
 export function requesterSettings(env: Env): RequesterSettings {
   const privateKey = privateKeyFromEnv(env, "REQUESTER_PRIVATE_KEY");
   const verifiers = verifiersFromEnv(env);
@@ -44,7 +83,8 @@ export function requesterSettings(env: Env): RequesterSettings {
     config: {
       address: privateKeyToAccount(privateKey).address,
       verifiers: verifiers.map(({ url, address }) => ({ url, address })),
-      windows: DEFAULT_WINDOWS,
+      windows: windowsFromEnv(env),
+      defaultLimits: limitsFromEnv(env),
       maxPaidReplays: numberFromEnv(env, "MAX_PAID_REPLAYS", 3, wholeNumber(0)),
     },
     verifierPubKeys: verifiers.map((verifier) => verifier.publicKey),

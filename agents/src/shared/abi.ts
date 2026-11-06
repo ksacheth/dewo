@@ -3,10 +3,10 @@
 import { parseAbi } from "viem";
 
 export const missionEscrowAbi = parseAbi([
-  "struct Deadlines { uint64 biddingEndsAt; uint32 stakeWindow; uint32 seedReleaseWindow; uint32 episodeWindow; uint64 rescueAt; }",
-  "struct Mission { address requester; address worker; address[3] verifiers; bytes32 seedCommitment; uint256 maxBounty; uint8 difficultyClass; uint16 riskWeightBps; uint256 price; uint256 bidStake; uint256 awardedAt; uint256 stakedAt; Deadlines deadlines; uint8 state; }",
+  "struct Deadlines { uint64 biddingEndsAt; uint32 stakeWindow; uint32 episodeWindow; uint64 rescueAt; }",
+  "struct Mission { address requester; address worker; address[3] verifiers; bytes32 courseSeed; uint256 maxBounty; uint8 difficultyClass; uint16 riskWeightBps; uint32 maxSteps; uint32 maxCollisions; uint256 price; uint256 bidStake; uint256 awardedAt; uint256 stakedAt; Deadlines deadlines; uint8 state; }",
   "function asset() view returns (address)",
-  "function createMission(bytes32 seedCommitment, address[3] verifiers, Deadlines deadlines, uint256 maxBounty, uint8 difficultyClass, uint16 riskWeightBps) payable returns (bytes32 missionId)",
+  "function createMission(bytes32 courseSeed, address[3] verifiers, Deadlines deadlines, uint256 maxBounty, uint8 difficultyClass, uint16 riskWeightBps, uint32 maxSteps, uint32 maxCollisions) payable returns (bytes32 missionId)",
   "function award(bytes32 missionId, address worker, uint256 price, uint256 bidStake, bytes[2] sigs)",
   "function stake(bytes32 missionId) payable",
   "function settle(bytes32 missionId, uint8 outcome, bytes32 evidenceHash, bytes[2] sigs)",

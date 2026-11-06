@@ -1,7 +1,7 @@
 // Starts one Worker agent (one process per Policy): `pnpm worker` from agents/, configured by .env (see .env.example).
 import * as board from "@dewo/board";
 import { JsonRpcProvider, Wallet } from "ethers";
-import { hederaTestnet, zeroGGalileoTestnet } from "viem/chains";
+import { hederaTestnet } from "viem/chains";
 import { WorkerArkivBoard } from "../shared/arkiv-board";
 import { deployedAddress, deploymentFromEnv, verifiersFromEnv } from "../shared/config";
 import { EscrowContract } from "../shared/escrow";
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
     fromBlock: escrowAt.deployBlock,
   });
   const zgRpc = env.ZG_RPC_URL || CHAINS.zeroG.rpc;
-  const registry = new RegistryContract(evmClients(zeroGGalileoTestnet, zgRpc, privateKey), deployedAddress(env, "EPISODE_REGISTRY_ADDRESS", "0g-galileo.json"));
+  const registry = new RegistryContract(evmClients(CHAINS.zeroG.chain, zgRpc, privateKey), deployedAddress(env, "EPISODE_REGISTRY_ADDRESS", "0g-galileo.json"));
   const storage = new ZeroGStorage(new Wallet(privateKey, new JsonRpcProvider(zgRpc)), zgRpc, env.ZG_INDEXER_URL || ZG_TESTNET.indexer);
   const { inference, balance } = await connectInference(inferenceConfig(env));
   const { wallet } = board.makeClients({ privateKey });
@@ -37,7 +37,7 @@ async function main(): Promise<void> {
   const events = new FileEvents(runsDir(env), name);
   const overview = overviewOptions(env, (missionId, data) => events.emit(missionId, "rover.moved", data));
   const worker = new Worker(config, {
-    board: new WorkerArkivBoard(board, wallet!, { privateKey, verifierPubKeys: config.verifierPubKeys }),
+    board: new WorkerArkivBoard(board, wallet!, { verifierPubKeys: config.verifierPubKeys }),
     escrow,
     registry,
     storage,

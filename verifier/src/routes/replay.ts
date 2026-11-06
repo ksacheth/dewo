@@ -14,11 +14,11 @@ export interface ReplayDeps {
 }
 /**
  * The I6 wire format of a paid POST /replay (spec 5.2, R9). `verdict` is the Outcome's name ("Pass", "Fail", ...), as the Requester
- * agent parses it. The measured integers are 0 when no Replay ran (a deadline Outcome, an Invalid Course or an early Fail).
+ * agent parses it. The measured integers are 0 when no Replay ran (a No-show or an early Fail).
  */
 export interface ReplayResponse {
   verdict: (typeof OUTCOME_NAMES)[number]; signature: Hex; evidenceHash: Hex;
-  pathCost: number; optimalPathCost: number; collisions: number;
+  steps: number; collisions: number;
 }
 /** A signed Verdict that has not left this process yet: nothing is written to Arkiv or the event feed until `publishVerdict`. */
 export interface DecidedVerdict { response: ReplayResponse; entity: VerdictEntity }
@@ -32,7 +32,7 @@ export async function decideVerdict(deps: ReplayDeps, missionId: Hex): Promise<D
 
   let outcome: Outcome;
   let evidenceHash: Hex;
-  let metrics = { pathCost: 0, optimalPathCost: 0, collisions: 0 };
+  let metrics = { steps: 0, collisions: 0 };
   const episodeLogRoot = loaded.episode?.episodeLogRoot ?? NO_EPISODE;
 
   if (byDeadline !== null) {
@@ -42,7 +42,7 @@ export async function decideVerdict(deps: ReplayDeps, missionId: Hex): Promise<D
     const result = await verifyEpisode(deps, { mission: loaded.mission, ...loaded.episode });
     outcome = result.outcome;
     evidenceHash = result.evidenceHash;
-    metrics = { pathCost: result.pathCost, optimalPathCost: result.optimalPathCost, collisions: result.collisions };
+    metrics = { steps: result.steps, collisions: result.collisions };
   } else {
     throw new PendingError(`mission ${missionId} is pending: no Verdict can be signed yet`);
   }

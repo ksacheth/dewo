@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildRequest, formatHistory, seedCommitment } from "../src/formats";
-import { SALT, SEED, policy } from "./fakes";
+import { buildRequest, formatHistory } from "../src/formats";
+import { policy } from "./fakes";
 
 describe("buildRequest", () => {
   const request = buildRequest(policy, new Uint8Array([1, 2, 3]), ["FORWARD", "TURN_LEFT"]);
@@ -47,13 +47,5 @@ describe("formatHistory", () => {
   });
   it("keeps only the most recent moves, oldest first", () => {
     expect(formatHistory(["TURN_LEFT", "FORWARD", "FORWARD", "STOP"], 2)).toBe("FORWARD, STOP");
-  });
-});
-
-describe("seedCommitment", () => {
-  it("changes if the seed or the salt changes", () => {
-    const base = seedCommitment(SEED, SALT);
-    expect(seedCommitment(SALT, SEED)).not.toBe(base);
-    expect(seedCommitment(SEED, SALT)).toBe(base);
   });
 });

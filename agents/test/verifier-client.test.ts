@@ -92,7 +92,7 @@ describe("the real @x402/fetch client against the I6 mock", () => {
 
 describe("I6 wire format validation (R9)", () => {
   const award = { worker: ME, price: "1500000", stake: "500000", signature: `0x${"a1".repeat(65)}` };
-  const replay = { verdict: "Pass", evidenceHash: `0x${"e1".repeat(32)}`, signature: `0x${"51".repeat(65)}`, pathCost: 5, optimalPathCost: 5, collisions: 0 };
+  const replay = { verdict: "Pass", evidenceHash: `0x${"e1".repeat(32)}`, signature: `0x${"51".repeat(65)}`, steps: 5, collisions: 0 };
 
   it("parses an Award into base-unit bigints", () => {
     expect(parseAward(award)).toEqual({ worker: ME, price: 1_500_000n, stake: 500_000n, signature: award.signature });
@@ -119,12 +119,13 @@ describe("I6 wire format validation (R9)", () => {
     expect(parseVerdict(replay)).toEqual({ outcome: "Pass", evidenceHash: replay.evidenceHash, signature: replay.signature });
   });
 
-  it.each(["Pass", "Fail", "NoShow", "InvalidCourse", "NoSeedRelease"])("accepts the verdict %s", (outcome) => {
+  it.each(["Pass", "Fail", "NoShow"])("accepts the verdict %s", (outcome) => {
     expect(parseVerdict({ ...replay, verdict: outcome }).outcome).toBe(outcome);
   });
 
   it.each([
-    ["an unknown verdict", { ...replay, verdict: "Maybe" }, /verdict must be one of Pass, Fail, NoShow, InvalidCourse, NoSeedRelease, got "Maybe"/],
+    ["an unknown verdict", { ...replay, verdict: "Maybe" }, /verdict must be one of Pass, Fail, NoShow, got "Maybe"/],
+    ["a removed Outcome", { ...replay, verdict: "InvalidCourse" }, /verdict must be one of Pass, Fail, NoShow/],
     ["a lowercase verdict", { ...replay, verdict: "pass" }, /verdict must be one of/],
     ["the old outcome field instead of verdict", { ...replay, verdict: undefined, outcome: "Pass" }, /verdict must be one of/],
     ["a short evidenceHash", { ...replay, evidenceHash: "0xe1" }, /evidenceHash must be a 0x-prefixed 32-byte hex string/],

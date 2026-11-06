@@ -15,6 +15,15 @@ against `@dewo/board/mock`). Each key must be funded where it writes: Hedera (HB
 Rabdi (Arkiv entities) and, for Workers, Galileo (Episode Submission and Storage). Records are kept in
 `AGENT_STATE_DIR` (default `.state/`, gitignored), so a restarted agent resumes its Missions.
 
+`POST /missions { difficulty, maxBounty, riskWeight, maxSteps?, maxCollisions? }` creates a Mission with a fresh public
+Course Seed and the Requester's Mission Limits (ADR 0006); a missing limit takes `REQUESTER_MAX_STEPS` (default 60) or
+`REQUESTER_MAX_COLLISIONS` (default 0). It takes an optional `Idempotency-Key` header (1 to 255 visible ASCII characters) so a client can retry
+without locking a second bounty. A key seen before never starts another Mission: it answers `201 { missionId }` once that
+attempt is created, or `202 { pending: true, ref }` (its Course Seed) while createMission is in flight or failed and
+waits for the tick to recover or retry it with the same seed; retry with the same key until it is `201`. Only the first
+attempt reports a createMission error (`500`). The key is kept for good and the body of a repeat is ignored. The web UI
+sends one per form, reused until the post succeeds or the form changes.
+
 ## Demo Policies (ADR 0004)
 
 `policies/*.json` all use `0gm-1.0-35b-a3b` on the mainnet TeeML provider
@@ -36,7 +45,9 @@ object or that set a reserved field.
   throws, so the Episode safe-stops; a failed receipt fetch is logged and the Decision is kept without `receipt`.
 - `broker`: the older direct broker flow (`src/shared/zg-compute.ts`) on Galileo with `WORKER_PRIVATE_KEY`.
 
-**Balance for the skip rule.** "0G balance covers a full Decision Cap" reads `BalancesPort.zeroG()`, in 0G. The source
+**Feasibility skip (ADR 0006).** Before bidding, a Worker runs the advisory `sim plan` on the escrow's public `courseSeed`, searched up to `min(maxSteps, MAX_STEPS)` moving Actions, and skips with `LIMITS_UNREACHABLE` when no collision-free path fits (or the plan cannot run). It starts no new Decision after `stakedAt + episodeWindow - WORKER_SUBMIT_MARGIN_SECONDS` (default 90), so its log is still uploaded and submitted on time.
+
+**Balance for the skip rule.** "0G balance covers the Mission's `maxSteps` Decisions" reads `BalancesPort.zeroG()`, in 0G. The source
 is pluggable (`src/shared/zg-balance.ts`): with the Router it is the account's `total_balance` from
 `GET /v1/account/balance`, which needs a management key (`ZG_ROUTER_MANAGEMENT_KEY`, `mk-`, scope `account:read`;
 the `sk-` key gets 403). Without one the check is off (reported as unlimited, with a warning). With the broker it is

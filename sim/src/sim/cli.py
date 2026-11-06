@@ -1,10 +1,11 @@
-"""I1 Simulator CLI: course | plan | session | replay."""
+"""I1 Simulator CLI: course | plan | session | replay, and --version (Verifiers pin it)."""
 
 import argparse
 import json
 from pathlib import Path
 
-from .planner import MAX_OPTIMAL_PATH_COST
+from . import __version__
+from .planner import DEFAULT_MAX_COST
 
 
 def _load(path):
@@ -13,6 +14,8 @@ def _load(path):
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="sim")
+    # Replay semantics change between versions (0.2.0: a collision blocks the move), so Verifiers refuse any other version.
+    p.add_argument("--version", action="version", version=__version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("course", help="generate a Course from a seed")
@@ -20,9 +23,9 @@ def main(argv=None):
     c.add_argument("--difficulty", required=True, choices=["easy", "medium", "hard"])
     c.add_argument("--out", required=True)
 
-    pl = sub.add_parser("plan", help="Optimal Path Cost of the Course (-1 if above --max-cost)")
+    pl = sub.add_parser("plan", help="shortest collision-free path cost (-1 if above --max-cost); advisory")
     pl.add_argument("--course", required=True)
-    pl.add_argument("--max-cost", type=int, default=MAX_OPTIMAL_PATH_COST)
+    pl.add_argument("--max-cost", type=int, default=DEFAULT_MAX_COST)
 
     s = sub.add_parser("session", help="live JSON-lines Episode on stdin/stdout")
     s.add_argument("--course", required=True)

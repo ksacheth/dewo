@@ -16,7 +16,7 @@ flowchart TB
     Q["Verifier Quorum, 2 of 3<br/>x402 /replay + pinned MuJoCo"]
   end
   subgraph ARK["Arkiv: Mission Board"]
-    AK["mission | bid (sealed price)<br/>seedRelease | seedReveal | verdict"]
+    AK["mission (Course Seed, limits) | bid (sealed price)<br/>verdict"]
   end
   subgraph ZG["0G Galileo"]
     direction LR
@@ -31,8 +31,8 @@ flowchart TB
   end
   UI --> REQ
   UI -. reads .-> AK
-  REQ -- "post Mission, Seed Release, Seed Reveal" --> AK
-  W -- "sealed Bids, read seed" --> AK
+  REQ -- "post Mission" --> AK
+  W -- "read Missions, sealed Bids" --> AK
   Q -- "read Bids, write Verdicts" --> AK
   W -- "1 call per Decision" --> ZC
   W -- "Episode Log" --> ZS
@@ -59,11 +59,12 @@ sequenceDiagram
   participant Q as Verifier Quorum
   participant G as 0G (Compute, Storage, Chain)
 
-  H->>R: Set difficulty, bounty, Risk Weight, click Post
-  R->>E: createMission(seedCommitment, verifiers[3], deadlines, maxBounty, difficultyClass, riskWeightBps) + lock USDC
-  R->>A: create mission entity (expires at rescueAt, hidden at bidding close)
+  H->>R: Set difficulty, bounty, Risk Weight, maxSteps, maxCollisions, click Post
+  R->>E: createMission(courseSeed, verifiers[3], deadlines, maxBounty, difficultyClass, riskWeightBps, maxSteps, maxCollisions) + lock USDC
+  R->>A: create mission entity with courseSeed and limits (expires at rescueAt, hidden at bidding close)
 
   Note over W,A: Sealed bidding, 60 s
+  W->>E: read courseSeed and limits, generate and study the Course
   W->>A: create bid entities (policyHash, price encrypted to Quorum)
 
   Q->>A: read Bids + Verdict history
@@ -71,10 +72,8 @@ sequenceDiagram
   Q-->>R: signed Award (POST /award)
   R->>E: award(missionId, winner, price, stake, sigs[2])
   W->>E: stake() (winner only)
-  R->>A: seedRelease entity (seed encrypted to winner)
-  W->>A: read and decrypt Course Seed
 
-  loop each Decision (Decision Cap 60)
+  loop each Decision (at most maxSteps)
     W->>W: render camera frame in MuJoCo
     W->>G: inference (Policy prompt + frame)
     G-->>W: signed answer + chat ID
@@ -83,13 +82,12 @@ sequenceDiagram
 
   W->>G: upload Episode Log + Policy to 0G Storage
   W->>G: EpisodeRegistry.submitEpisode(missionId, logRoot, policyRoot, n)
-  R->>A: seedReveal entity (seed + salt, public)
 
   R->>Q: POST /replay
   Q-->>R: 402 Payment Required
   R->>Q: pay USDC via x402 (no human)
   Q->>G: fetch Episode Log, processResponse per chat ID
-  Q->>Q: check seedReveal vs seedCommitment, solvability, Policy hash, Replay vs Path Allowance
+  Q->>Q: check Policy hash, each Decision, Replay vs maxSteps and maxCollisions
   Q->>A: write verdict entities
   Q-->>R: signed Verdicts
   R->>E: settle(missionId, outcome, evidenceHash, sigs[2])
@@ -107,25 +105,21 @@ stateDiagram-v2
   Bidding --> Awarded: Quorum signs Award
   Awarded --> Staked: winner stakes
   Awarded --> Awarded: replacement Award at or after awardedAt + stakeWindow, fresh Quorum signature
-  Staked --> SeedReleased: Requester releases seed
-  Staked --> NoSeedRelease: deadline missed
-  SeedReleased --> EpisodeSubmitted: submitEpisode on 0G
-  SeedReleased --> NoShow: deadline missed
+  Staked --> EpisodeSubmitted: submitEpisode on 0G
+  Staked --> NoShow: deadline missed (stakedAt + episodeWindow)
   EpisodeSubmitted --> Verified: 2 of 3 matching Verdicts
   Verified --> Settled: settle()
-  NoSeedRelease --> Settled
   NoShow --> Settled
   Settled --> [*]
   Posted --> Rescued: unsettled at rescueAt
   Bidding --> Rescued
   Awarded --> Rescued
   Staked --> Rescued
-  SeedReleased --> Rescued
   EpisodeSubmitted --> Rescued
   Rescued --> [*]
 ```
 
-Outcomes reaching `Settled`: Pass, Fail, No-show, Invalid Course, No Seed Release. The payout for each is in `docs/spec.md` section 4.4. A Mission still unsettled at `rescueAt` (including one with no Bids) can be rescued: the Requester gets `maxBounty` back and a staked Worker its stake. Settlement is blocked from `rescueAt`. A payout the recipient cannot receive is deferred (`owed`, `PayoutDeferred`) and claimed with `withdraw()`.
+Outcomes reaching `Settled`: Pass, Fail, No-show. The payout for each is in `docs/spec.md` section 4.4. A Mission still unsettled at `rescueAt` (including one with no Bids) can be rescued: the Requester gets `maxBounty` back and a staked Worker its stake. Settlement is blocked from `rescueAt`. A payout the recipient cannot receive is deferred (`owed`, `PayoutDeferred`) and claimed with `withdraw()`.
 
 ## 4. Who trusts whom
 

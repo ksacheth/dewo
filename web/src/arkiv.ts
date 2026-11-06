@@ -28,6 +28,6 @@ let now = Date.now()
 setInterval(() => { now = Date.now(); subs.forEach((f) => f()) }, 1000)
 export const useNow = () => useSyncExternalStore((f) => (subs.add(f), () => subs.delete(f)), () => now)
 
-export type Mission = { missionId: string; difficultyClass: string; bounty: string; riskWeight: number; biddingClosesAt: number; seedCommitment: string; $key: string }
+export type Mission = { missionId: string; difficultyClass: string; bounty: string; riskWeight: number; biddingClosesAt: number; courseSeed?: string; maxSteps?: number; maxCollisions?: number; $key: string } // optional: entities posted before ADR 0006 lack them
 export type Bid = { worker: string; policyHash: string; priceCt0: string; $key: string }
-export type Leader = { worker: string; reliability: number; xp: number; level: number; missions: { missionId: string; outcome: string; pathCost: number; optimalPathCost: number; pathQuality: number; collisions: number; difficultyClass: string; entityKey: string }[] }
+export type Leader = { worker: string; reliability: number; xp: number; level: number; missions: { missionId: string; outcome: string; steps: number; collisions: number; difficultyClass: string; entityKey: string }[] }

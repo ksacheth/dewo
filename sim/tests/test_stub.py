@@ -136,3 +136,7 @@ def test_session_bad_input_gets_error_reply(tmp_path):
         ["not json", "[1]", '{"cmd": "dance"}', '{"cmd": "act", "action": "JUMP"}', '{"cmd": "act"}'],
     )
     assert len(replies) == 5 and all(set(r) == {"error"} for r in replies)
+
+
+def test_version_never_passes_for_a_real_sim():
+    assert run("--version").strip() == "0.2.0-stub"

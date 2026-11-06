@@ -2,12 +2,12 @@
 import { readFileSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex, Policy } from "../formats";
-import { AT_LEAST_ZERO, numberFromEnv, POSITIVE, privateKeyFromEnv, requiredEnv, verifiersFromEnv, type Env } from "../shared/config";
-import type { PricingStrategy, WorkerConfig } from "./worker";
+import { AT_LEAST_ZERO, numberFromEnv, POSITIVE, privateKeyFromEnv, requiredEnv, verifiersFromEnv, wholeNumber, type Env } from "../shared/config";
+import { DEFAULT_SUBMIT_MARGIN_SECONDS, type PricingStrategy, type WorkerConfig } from "./worker";
 
 export interface WorkerSettings {
   config: WorkerConfig;
-  /** Signs on Hedera, Galileo and Arkiv, and decrypts the Seed Release. */
+  /** Signs on Hedera, Galileo and Arkiv. */
   privateKey: Hex;
 }
 
@@ -30,14 +30,17 @@ export function workerSettings(env: Env, readFile = (path: string) => readFileSy
     throw new Error("WORKER_PUBKEY is not the public key of WORKER_PRIVATE_KEY; leave it empty to derive it");
   }
   const policy = JSON.parse(readFile(requiredEnv(env, "WORKER_POLICY"))) as Policy;
+  const verifiers = verifiersFromEnv(env);
   return {
     privateKey,
     config: {
       address: account.address,
       publicKey: account.publicKey,
       policy,
-      verifierPubKeys: verifiersFromEnv(env).map((verifier) => verifier.publicKey),
+      verifierPubKeys: verifiers.map((verifier) => verifier.publicKey),
+      verifierAddresses: verifiers.map((verifier) => verifier.address),
       strategy: strategyFromEnv(env),
+      submitMarginSeconds: numberFromEnv(env, "WORKER_SUBMIT_MARGIN_SECONDS", DEFAULT_SUBMIT_MARGIN_SECONDS, wholeNumber(0)),
     },
   };
 }

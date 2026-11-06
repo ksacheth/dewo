@@ -1,6 +1,6 @@
-import { pathAllowance } from "@dewo/agents/formats";
+import { meetsLimits, type MissionLimits } from "@dewo/agents/formats";
 import type { ReplayResult } from "../ports.js";
 
-/** Check 5: Replay ends at the goal, with zero collisions, within the Path Allowance. The Decision Cap is checked on the log itself. */
-export const replayPasses = (r: ReplayResult, pathCost: number, optimalPathCost: number): boolean =>
-  r.atGoal && r.collisions === 0 && pathCost <= pathAllowance(optimalPathCost);
+/** Check 3: the Replay ends at the goal within the Mission's limits (at most maxSteps Decisions and maxCollisions collisions). */
+export const replayPasses = (r: ReplayResult, decisions: number, limits: MissionLimits): boolean =>
+  meetsLimits({ atGoal: r.atGoal, collisions: r.collisions, decisions }, limits);

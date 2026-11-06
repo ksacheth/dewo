@@ -12,7 +12,7 @@ function attachedPng(request: unknown): Uint8Array | null {
 }
 
 /**
- * Check 4, per Decision:
+ * Check 2, per Decision:
  * - the PNG in the logged request has the Replay frame hash (the sim hashes raw pixels), so it is the frame the rover really saw;
  * - 0G vouches for the chat ID;
  * - the request rebuilt from Policy + that frame + history equals the logged request (anti-steering, spike #2);

@@ -10,7 +10,7 @@ Architecture: [docs/architecture.md](docs/architecture.md). Full spec: [docs/spe
 |---|---|---|---|
 | 0G | Physical AI: Agents with a Body | the robot's brain (every Decision), the Episode Log, the Episode Submission | the robot has no brain, the Verifiers have no signed record of what the model decided, and there is no Episode Log to replay |
 | Hedera | AI Agents That Pay: x402 on Hedera | Escrow and settlement in USDC; x402 per Replay | nothing enforces payment: the Requester can refuse to pay, and a failing Worker loses nothing |
-| Arkiv | Build on Arkiv (from scratch) | the Mission Board: Missions, sealed Bids, Seed Releases, Verdicts, leaderboard | Workers can't discover Missions, Bids can't be sealed and handed to the Quorum, and the leaderboard has no data |
+| Arkiv | Build on Arkiv (from scratch) | the Mission Board: Missions, sealed Bids, Verdicts, leaderboard | Workers can't discover Missions, Bids can't be sealed and handed to the Quorum, and the leaderboard has no data |
 
 ## Quickstart
 
@@ -45,23 +45,26 @@ The web UI reads Arkiv through its dev server (`web/.env`, falling back to `boar
 | Pass | price + stake | max bounty - price |
 | Fail (incl. safe-stop) | nothing (stake slashed) | stake + max bounty |
 | No-show | nothing (stake slashed) | stake + max bounty |
-| Invalid Course | stake + price | max bounty - price |
-| No Seed Release | stake + price | max bounty - price |
 | Rescue (unsettled at the final deadline, incl. no Bids) | deposited stake (0 if none) | max bounty |
 
 Verifiers are paid per Replay through x402, never from Escrow. A payout that cannot be delivered (for example an unassociated HTS account) is deferred to the recipient's `owed` balance and claimed with `withdraw()`.
 
 ## Evidence
 
+Every row below was recorded on the escrow deployed before [ADR 0006](docs/adr/0006-requester-sets-numeric-limits-on-a-public-course.md), so those Missions used the previous rules: a sealed Course with a Seed Release, and a Pass judged against the Path Allowance (2 x Optimal Path Cost + 2) and a fixed Decision Cap of 60. The current contract (Requester-set `maxSteps` and `maxCollisions`, public Course Seed) is not deployed yet.
+
 | Item | Value |
 |---|---|
 | Hedera transaction ID of a settled x402 payment | `0.0.7162784@1793959944.460369848` ([HashScan](https://hashscan.io/testnet/transaction/1793959951.765951588)): one Replay paid automatically through Blocky402, 0.05 Circle USDC `0.0.429274` (live spike; the end-to-end run will add more) |
-| `MissionEscrow` on Hedera testnet | [`0x9aae6A883B4d16BF53Fa6339c606D18b47342631`](https://hashscan.io/testnet/contract/0.0.11337437) (`0.0.11337437`), settles in Circle USDC `0.0.429274` |
+| `MissionEscrow` on Hedera testnet (previous rules) | [`0x9aae6A883B4d16BF53Fa6339c606D18b47342631`](https://hashscan.io/testnet/contract/0.0.11337437) (`0.0.11337437`), settles in Circle USDC `0.0.429274` |
 | Escrow holds and pays out HTS USDC (spike #5) | 1 USDC in via `createMission`: [HashScan](https://hashscan.io/testnet/transaction/1793959306.817990545); back out via `rescue()`: [HashScan](https://hashscan.io/testnet/transaction/1793959493.464701456) |
-| HashScan link of a `settle()` | TODO(evidence): from the end-to-end run |
+| HashScan link of a `settle()` | [HashScan](https://hashscan.io/testnet/transaction/0x599b7b6ec624b35e99751c2299cb68a38543cb56e61990c2f9b8e8ebcc8ec78d): the live end-to-end Mission below, Outcome Fail, 1.166666 USDC to the Requester |
+| Live end-to-end Mission (posted from the web UI, no human input after; previous rules) | `0xd2a3079b…af64d1`, easy, 1 USDC: one sealed Bid, Award by 3 Verifiers ([HashScan](https://hashscan.io/testnet/transaction/0xb3b88df001ca9443f3564d8c4031e1e7af35ef8d89ed0482771630f269571643)), stake ([HashScan](https://hashscan.io/testnet/transaction/0x2985b1b218673a733853bdeddb68d9ffcb518bf3e9c2713d968958ef19f1acc6)), Seed Release on Arkiv, 14 Decisions on mainnet 0G Compute through the Router, Episode Log on 0G Storage (root `0x827c31a0…8fedc0`) and `EpisodeSubmitted` on Galileo ([Chainscan](https://chainscan-galileo.0g.ai/tx/0x40aac3b9dc6a531ea74f6950c7b41e75c08ce6fa68d9a89f8e63a345dae8635f)), two Replays paid through x402 (0.05 USDC each, [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784@1793980929.598978120)), and 2 matching Fail Verdicts under the previous Pass rule: Path Cost 13 over the Path Allowance 12 (Optimal 5). Every per-Decision check passed (frame hashes, `processResponse`, request rebuild) |
+| Deferred payout on real HTS USDC | A Pass `settle()` to a Worker that dissociated USDC emitted `PayoutDeferred` (0.15 USDC to `owed`) and still paid the Requester 0.10 USDC ([HashScan](https://hashscan.io/testnet/transaction/0x03fe4c1c197b6d3209fa194c4b52a6dab7e6f813d8f7ca96168916957e2db0d9)); after re-associating, `withdraw()` emitted `Withdrawn` ([HashScan](https://hashscan.io/testnet/transaction/0x6209f2eece6b7b6ee56dc48faa481fb108f097ca647bf83d557357e0c13298d7)) |
 | `EpisodeRegistry` address and an `EpisodeSubmitted` tx on 0G Chainscan | [`0xa4D143e33a4db897C1861C4B7CB50946Aa5278BA`](https://chainscan-galileo.0g.ai/address/0xa4D143e33a4db897C1861C4B7CB50946Aa5278BA) (deploy: [Chainscan](https://chainscan-galileo.0g.ai/tx/0x0b432d09046a893854e33ac9180356ff8757147a820ac20caaeff663e22aef2c)); one Episode submitted with a real 0G Storage root: [Chainscan](https://chainscan-galileo.0g.ai/tx/0x9860eb3cffb26f293a15824df3fe3de91afd5a67aacd3243b21901b9d815a5b1) |
 | 0G Storage upload and download by root hash (spike #7) | `pnpm --filter @dewo/agents spike:0g storage`: root `0x6240a68f6d028505520d777ce8aab67d0eb5dc5812b72256cbc891a3b4ad40d2`, 78 bytes, downloaded identical |
-| Arkiv writer wallet | [`0xbb465214d0D2028016102ec38358D6643366cE96`](https://rabdi.explorer.arkiv.network/address/0xbb465214d0D2028016102ec38358D6643366cE96) (test wallet; agent wallets TODO(evidence)) |
+| Proof of upload on the 0G Flow contract (#64) | Flow [`0x22e03a6a…105296`](https://chainscan-galileo.0g.ai/address/0x22e03a6a89b950f1c82ec5e74f8eca321a105296). For the live Mission above, the Verifier's lookup finds the Policy's `Submit` ([Chainscan](https://chainscan-galileo.0g.ai/tx/0x95065f08dfb110bf3ab32593f6eea0abbccd10043a8cdc766333b708a171c85a)) and the Episode Log's ([Chainscan](https://chainscan-galileo.0g.ai/tx/0xe6ecd506b8aae72e46ce9b38f0a1dd7112333721cdc008ede0b3d8eb993658fc)) between the stake and `EpisodeSubmitted`, and finds no submission of a root that was never uploaded, so that root is a Fail, not a `503` |
+| Arkiv writer wallet | [`0xbb465214d0D2028016102ec38358D6643366cE96`](https://rabdi.explorer.arkiv.network/address/0xbb465214d0D2028016102ec38358D6643366cE96) (board test wallet); live run agents: Requester [`0xc0951010…dCA1d`](https://rabdi.explorer.arkiv.network/address/0xc0951010013c2aE3620931Fc2A407E94861dCA1d), Worker [`0x1801048f…25C3`](https://rabdi.explorer.arkiv.network/address/0x1801048f510Ca61A6B363189800fE8Bc62AD25C3) |
 | One runnable Arkiv query | `pnpm --filter @dewo/board query`; output in [arkiv/how-you-use-arkiv.md](arkiv/how-you-use-arkiv.md) |
 
 ## Arkiv
@@ -78,7 +81,8 @@ Parts of this project were written with AI assistance (Claude Code): the `@dewo/
 - A Requester whose own Worker legitimately bids best can farm XP; it costs real bounty, 0G inference and Replay fees each time.
 - In the demo, all three Verifiers run on our infrastructure. In production they would be independently operated and staked.
 - The optimistic Reliability prior (a new Worker starts at about 0.67) is partly offset by the stake formula, not eliminated.
-- Path Quality counts Actions only: a path that hugs obstacles scores the same as a safe one of equal length.
+- The Mission Limits are steps and collisions only: a path that hugs obstacles passes the same as a safe one.
+- The Course is public before bidding (ADR 0006), so a Worker can tune its Policy for one known Course. The Requester is not punished for limits no Worker can meet; Workers protect themselves by not bidding.
 - A Bid carries no performance claim; bonded efficiency targets are future work.
 - Award replacement has no `round` field: a replacement Award after a lapsed stake window relies on the Quorum signing a different winner (proposal open).
 - Decisions run on mainnet 0G Compute through the Router (ADR 0004). Verifiers check each one independently with `processResponse`, but the signed receipt covers the sealed request and response, so binding the exact rebuilt request is still open (#48). The Router is also a liveness dependency, and there is a single verifiable vision provider.
@@ -90,6 +94,7 @@ Parts of this project were written with AI assistance (Claude Code): the `@dewo/
 - Verdict signatures are stored but the board library does not verify them; trust comes from reading only entities owned by the Verifier addresses.
 - The "mock requester" in the web UI writes Missions with a test key. It is labelled in the UI and is not the Requester agent.
 - The Rabdi explorer's entity URL format is unconfirmed.
+- A Worker can submit a root to the 0G Flow contract and never upload its bytes. The Verifiers cannot tell that from storage nodes that have not caught up, so they still answer `503` and the Mission ends in `rescue()`; it costs the Worker a Flow fee per Episode (#64). A root never submitted at all is a Fail.
 
 ## License
 

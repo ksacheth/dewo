@@ -1,7 +1,7 @@
 import inspect
 
 from sim.course import generate
-from sim.planner import MAX_OPTIMAL_PATH_COST, plan, solve
+from sim.planner import DEFAULT_MAX_COST, plan, solve
 from sim.replay import replay
 
 
@@ -39,11 +39,11 @@ def test_bound_too_small_gives_minus_one():
     assert plan(open_course(3.0), 4)["optimalPathCost"] == 4
 
 
-def test_default_bound_is_29():
-    assert MAX_OPTIMAL_PATH_COST == 29
-    assert inspect.signature(plan).parameters["max_cost"].default == 29
-    assert inspect.signature(solve).parameters["max_cost"].default == 29
-    assert plan(open_course(3.0)) == plan(open_course(3.0), 29)
+def test_default_bound_is_60():
+    assert DEFAULT_MAX_COST == 60
+    assert inspect.signature(plan).parameters["max_cost"].default == 60
+    assert inspect.signature(solve).parameters["max_cost"].default == 60
+    assert plan(open_course(3.0)) == plan(open_course(3.0), 60)
 
 
 def test_turns_cost_one_each():

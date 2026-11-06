@@ -41,6 +41,8 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
   `optimalPathCost` and `pathQuality` (spec 5.3) next to `difficultyClass`. `reliability()` counts a Pass as
   `0.5 + 0.5 q` and `xp()` is `100 * m * (1 + q)`; both compute `q = min(1, optimal / cost)` from the integers
   and never read the stored `pathQuality`, so a Verifier cannot skew scoring with an inconsistent float.
+- **Superseded 2026-11-06 (ADR 0006, D16):** Path Quality is gone. The `verdict` carries `steps` (indexed) and
+  `collisions` next to `difficultyClass`; a Pass counts 1 in `reliability()` and `xp()` is `100 * m`.
 
 ## D4: Three Verdicts per Mission count once (the Quorum Outcome)
 
@@ -130,6 +132,7 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
 - **Why:** the spec says the Course Seed becomes public after the Episode Submission but not where. Verifiers need it to re-run the Replay.
 - **Trust (D5):** only a reveal owned by the Mission's Requester counts; the earliest wins. The Mission entity expires after 60 min but the reveal lives 180 days, so after that pass `requester` explicitly. **Verifiers must still check `seed, salt` against the on-chain `seedCommitment`**; the board does not know the hash scheme.
 - **Symptom if violated:** Verifiers replay a Course the Requester never committed to (no commitment check), or read a stranger's fake seed (no owner filter).
+- **Superseded 2026-11-06 (ADR 0006, D16):** the Course Seed is public in the Mission before bidding, so `dewo.seedReveal` and `dewo.seedRelease` are deleted.
 
 ## D14: `listBids` already carries what the Requester needs (requested by M4 on #13)
 
@@ -142,8 +145,25 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
   `requester`, `worker-<name>`, `verifier-<n>` or `web` (`/^[a-z0-9-]+$/`). `board/src/events.ts` is the source of
   truth for the event types and their `data` shapes.
 - **Emitters (R10):** `bids.revealed` and `verdict.signed` are emitted by the Verifiers (`verifier-<n>`), not by
-  the Requester; the Requester emits `mission.posted`, `seed.released`, `replay.paid` and `settled`.
+  the Requester; the Requester emits `mission.posted` and `settled` (`seed.released` was removed with ADR 0006).
+- **`replay.paid` (#49):** one fact, one owner. The Verifier emits the `status: "paid"` event, once per settled
+  payment, with the settlement's HashScan link as `txUrl`: it alone runs settlement and knows the transaction. The
+  Requester emits only `status: 402` (no link) when a Verifier challenged it. The web never moves a Verifier card
+  back, so the Requester's 402, which can land after the Verifier's `"paid"`, does not undo it.
 - **Why:** one file per process means no write races; the web feed tails every `events.*.ndjson` of a Mission.
+
+## D16 **I4**: Public Course and Requester limits on the Mission (ADR 0006, issues #66, #69, #70)
+
+- **Decision:** the `mission` entity carries `courseSeed` (the same bytes32 the escrow stores) and the Requester's
+  limits `maxSteps` and `maxCollisions` (u64) instead of `seedCommitment`. `dewo.seedRelease` and `dewo.seedReveal`,
+  `seeds.ts` and their `LIFETIME_MS` entries are deleted. The `verdict` drops `optimalPathCost` and `pathQuality`
+  and renames `pathCost` to `steps`. The Outcomes are `Pass`, `Fail`, `NoShow` (`outcomeIndex` 0, 1, 2).
+- **Why:** Workers price from the Course and the limits before bidding; nothing is sealed any more, so there is
+  nothing to release or reveal. The escrow is the source of truth; the entity copy is for discovery.
+- **Integration impact:** M4 writes `courseSeed`, `maxSteps`, `maxCollisions` when posting. Workers and Verifiers
+  read them from the escrow (the Requester cannot change them after Bids).
+- **Symptom if violated:** a Worker prices a Mission whose limits differ from the escrow's; Verifiers judge
+  against the escrow anyway.
 
 ## Also added to I4 (needed by the spec, missing from the function list)
 

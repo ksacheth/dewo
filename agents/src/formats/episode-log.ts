@@ -10,8 +10,8 @@ export interface EpisodeHeader {
   worker: Hex;
   /** 0G Storage root of the revealed Policy. */
   policyRoot: Hex;
-  /** The Mission's public Seed Commitment, hash(seed + salt). */
-  seedCommitment: Hex;
+  /** The Mission's public Course Seed, as stored in the escrow. */
+  courseSeed: Hex;
 }
 
 export interface Decision {

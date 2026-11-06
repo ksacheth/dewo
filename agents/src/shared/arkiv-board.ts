@@ -4,10 +4,10 @@
 // Risk Weight, and the comma-joined Verifier list whose order is the order of the sealed prices (D7).
 import type * as Board from "@dewo/board";
 import { bytesToHex, hexToBytes } from "viem";
-import { privateKeyToAddress, publicKeyToAddress } from "viem/accounts";
+import { publicKeyToAddress } from "viem/accounts";
 import type { Hex } from "../formats";
 import type { MissionListing, RequesterBoardPort } from "../requester/ports";
-import type { BidEntity, BoardPort, SeedRelease } from "../worker/ports";
+import type { BidEntity, BoardPort } from "../worker/ports";
 
 /** The @dewo/board functions the agents call; the real library and @dewo/board/mock both provide them. */
 export type BoardLibrary = Pick<
@@ -19,11 +19,6 @@ export type BoardLibrary = Pick<
   | "sealBid"
   | "openBid"
   | "placeBid"
-  | "releaseSeed"
-  | "readSeedRelease"
-  | "seedReleasedAt"
-  | "revealSeed"
-  | "readSeedReveal"
   | "listVerdicts"
   | "writeVerdict"
   | "reliability"
@@ -52,7 +47,7 @@ const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase(
 /** A comma-joined address list in a comparable form: trimmed, lowercased, order kept. */
 const normalizedList = (list: string): string => list.split(",").map((address) => address.trim().toLowerCase()).join(",");
 
-/** The Worker's side of the board: discovery, Reliability, its sealed Bid and its Seed Release. */
+/** The Worker's side of the board: discovery, Reliability and its sealed Bid. */
 export class WorkerArkivBoard implements BoardPort {
   private readonly verifierPubKeys: Trio;
   private readonly verifierAddresses: Hex[];
@@ -60,13 +55,10 @@ export class WorkerArkivBoard implements BoardPort {
   constructor(
     private readonly lib: BoardLibrary,
     private readonly wallet: BoardWallet,
-    private readonly config: VerifierKeys & { privateKey: Hex },
+    config: VerifierKeys,
   ) {
     this.verifierPubKeys = verifierTrio(config.verifierPubKeys);
     this.verifierAddresses = this.verifierPubKeys.map((key) => publicKeyToAddress(key));
-    if (!sameAddress(privateKeyToAddress(config.privateKey), wallet.account.address)) {
-      throw new Error("the Arkiv wallet and the Seed Release key must be the same Worker key");
-    }
   }
 
   /**
@@ -113,18 +105,9 @@ export class WorkerArkivBoard implements BoardPort {
     const mine = bids.find((bid) => sameAddress(bid.worker, worker));
     return mine ? { key: mine.$key } : null;
   }
-
-  /** releasedAt is the Release's block time, the clock the Verifiers judge the episodeWindow by. */
-  async readSeedRelease(missionId: string): Promise<SeedRelease | null> {
-    const release = await this.lib.readSeedRelease(missionId as Hex, this.config.privateKey);
-    if (!release) return null;
-    const releasedAt = await this.lib.seedReleasedAt(missionId as Hex, this.wallet.account.address);
-    if (releasedAt === null) return null;
-    return { seed: release.seed as Hex, salt: release.salt as Hex, releasedAt };
-  }
 }
 
-/** The Requester's side of the board: its Mission listing and the seed hand-over. */
+/** The Requester's side of the board: its Mission listing (with the public Course Seed and limits). */
 export class RequesterArkivBoard implements RequesterBoardPort {
   private readonly verifiers: string;
 
@@ -142,29 +125,18 @@ export class RequesterArkivBoard implements RequesterBoardPort {
       difficultyClass: listing.difficultyClass,
       bounty: listing.maxBounty,
       biddingClosesAt: listing.biddingClosesAt,
-      seedCommitment: listing.seedCommitment,
+      courseSeed: listing.courseSeed,
+      maxSteps: listing.maxSteps,
+      maxCollisions: listing.maxCollisions,
       riskWeight: listing.riskWeightBps / 10_000,
       verifiers: this.verifiers,
     });
     return { key: entityKey };
   }
 
-  /** From the Bids that count (first per Worker, owned by it, before the close), like the Verifiers see them. */
-  async workerPubKey(missionId: string, worker: Hex): Promise<Hex | null> {
-    const bids = await this.lib.listBids(missionId as Hex);
-    return bids.find((bid) => sameAddress(bid.worker, worker))?.workerPubKey ?? null;
-  }
-
-  async hasSeedRelease(missionId: string, worker: Hex): Promise<boolean> {
-    return (await this.lib.seedReleasedAt(missionId as Hex, worker, this.wallet.account.address)) !== null;
-  }
-
-  async releaseSeed(missionId: string, seed: Hex, salt: Hex, workerPubKey: Hex): Promise<{ key: string }> {
-    const { entityKey } = await this.lib.releaseSeed(this.wallet, missionId as Hex, seed, salt, workerPubKey);
-    return { key: entityKey };
-  }
-
-  async revealSeed(missionId: string, seed: Hex, salt: Hex): Promise<void> {
-    await this.lib.revealSeed(this.wallet, missionId as Hex, seed, salt);
+  /** Only an entity owned by this wallet counts: anyone can post a Mission entity under our Mission id. */
+  async listingOf(missionId: string): Promise<{ key: string } | null> {
+    const mine = await this.lib.getMission(missionId as Hex, this.wallet.account.address);
+    return mine ? { key: mine.$key } : null;
   }
 }

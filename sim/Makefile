@@ -1,6 +1,6 @@
 # make replay-check            replay the recorded run twice with the local uv env
 # make replay-check DOCKER=1   same, inside the pinned dewo-sim image
-VERSION ?= 0.1.0
+VERSION ?= 0.2.0
 FIX := tests/fixtures
 OUT := .replay-check
 

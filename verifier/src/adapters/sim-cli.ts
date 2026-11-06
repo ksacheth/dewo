@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { MAX_OPTIMAL_PATH_COST, type Action } from "@dewo/agents/formats";
+import type { Action } from "@dewo/agents/formats";
 import type { Course, Difficulty, ReplayResult, SimPort } from "../ports.js";
 
 const execFileAsync = promisify(execFile);
@@ -22,6 +22,20 @@ export const localRunner = (prefix: string[]): SimRunner => async (args) => {
   const { stdout } = await execFileAsync(cmd!, [...rest, ...args], { maxBuffer: 16 * 1024 * 1024 });
   return stdout;
 };
+
+/**
+ * The only sim build this Verifier replays with. Replay semantics change between versions (0.2.0: a collision blocks the move
+ * and the Episode goes on), so a Verifier on another build would sign another evidenceHash and no Quorum could form.
+ */
+export const SIM_VERSION = "0.2.0";
+
+/** Refuses to start on any sim but SIM_VERSION, as reported by `sim --version` (inside the pinned image when run through sim-docker). */
+export async function assertSimVersion(run: SimRunner): Promise<void> {
+  const reported = (await run(["--version"], tmpdir())).trim();
+  if (reported !== SIM_VERSION) {
+    throw new Error(`the sim reports version ${JSON.stringify(reported)}, but this Verifier replays only with dewo-sim ${SIM_VERSION}: build it with \`make image\` in sim/`);
+  }
+}
 
 /** The sim refused its input (`sim replay` prints `{"error": ...}` and exits 1, e.g. for an unknown Action). Not an infrastructure failure. */
 export class SimInputError extends Error {}
@@ -50,7 +64,7 @@ const safeParse = (text: string): { error?: unknown } | undefined => {
   }
 };
 
-/** SimPort over the frozen I1 CLI (`course | plan | replay`). Replay returns frame hashes, not frame payloads. */
+/** SimPort over the I1 CLI (`course | replay`; `plan` is advisory and no Verifier calls it). Replay returns frame hashes, not frame payloads. */
 export function cliSim(run: SimRunner): SimPort {
   const withDir = async <T>(fn: (dir: string) => Promise<T>): Promise<T> => {
     const dir = await mkdtemp(join(tmpdir(), "dewo-verifier-"));
@@ -73,9 +87,6 @@ export function cliSim(run: SimRunner): SimPort {
         await run(["course", "--seed", seed, "--difficulty", difficulty, "--out", out], dir);
         return JSON.parse(await readFile(out, "utf8")) as Course;
       }),
-    plan: (course) =>
-      // Above --max-cost the sim answers {"solvable": false, "optimalPathCost": -1}: the Invalid Course bound (spec 5.1 check 2).
-      withDir(async (dir) => simJson(run(["plan", "--course", await writeCourse(dir, course), "--max-cost", String(MAX_OPTIMAL_PATH_COST)], dir))),
     replay: (course, actions: Action[]) =>
       withDir(async (dir) => {
         const actionsPath = join(dir, "actions.json");

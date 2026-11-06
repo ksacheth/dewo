@@ -12,20 +12,22 @@ export interface MissionDeadlines {
   biddingClosesAt: number;
   /** After the Award. */
   stakeWindow: number;
-  /** After the stake. */
-  seedReleaseWindow: number;
-  /** After the Seed Release. */
+  /** After the stake: the Episode Submission deadline is stakedAt + episodeWindow. */
   episodeWindow: number;
   /** Absolute; after it only rescue() can close the Mission. */
   rescueAt: number;
 }
 
-/** The Mission terms fixed on-chain by createMission (ADR 0003). */
+/** The Mission terms fixed on-chain by createMission (ADR 0003, ADR 0006). */
 export interface MissionTerms {
   maxBounty: bigint;
   difficultyClass: DifficultyClass;
   riskWeightBps: number;
-  seedCommitment: Hex;
+  /** The public Course Seed: any Worker can generate the Course from it before bidding. */
+  courseSeed: Hex;
+  /** The Requester's Mission Limits: at most maxSteps Decisions and maxCollisions collisions for a Pass. */
+  maxSteps: number;
+  maxCollisions: number;
   deadlines: MissionDeadlines;
 }
 
@@ -38,6 +40,8 @@ export interface Award {
 
 export interface EscrowMission {
   terms: MissionTerms;
+  /** The 3 Verifiers passed to createMission: 2 of their signatures Award and settle the Mission (ADR 0002, ADR 0005). */
+  verifiers: readonly Hex[];
   /** The current Award; it can move to the next-best Bid if the winner misses the stake window. */
   award: Award | null;
   stakedAt: number | null;
@@ -52,12 +56,6 @@ export interface TxResult {
 export interface EscrowPort extends WithdrawalPort {
   getMission(missionId: string): Promise<EscrowMission>;
   stake(missionId: string, amount: bigint): Promise<TxResult>;
-}
-
-export interface SeedRelease {
-  seed: Hex;
-  salt: Hex;
-  releasedAt: number;
 }
 
 export interface BidEntity {
@@ -77,8 +75,6 @@ export interface BoardPort {
   placeBid(bid: BidEntity): Promise<{ key: string }>;
   /** This Worker's existing Bid on the Mission, or null. The protocol allows one Bid per Worker per Mission. */
   myBid(missionId: string, worker: Hex): Promise<{ key: string } | null>;
-  /** The Seed Release for this Worker, decrypted, or null if not released yet. */
-  readSeedRelease(missionId: string): Promise<SeedRelease | null>;
 }
 
 export interface RegistryPort {
@@ -119,9 +115,17 @@ export interface SimSession {
   close(): Promise<void>;
 }
 
+/** `sim plan` output: the fewest moving Actions on a collision-free path to the goal, or not solvable within the search bound. */
+export interface CoursePlan {
+  solvable: boolean;
+  optimalPathCost: number;
+}
+
 export interface SimPort {
   /** Frames are written under runs/<missionId>/frames/ so the web can serve them. */
   openSession(seed: Hex, difficulty: DifficultyClass, missionId: string): Promise<SimSession>;
+  /** The advisory planner on the public Course (ADR 0006), searched up to `maxCost` moving Actions. */
+  plan(seed: Hex, difficulty: DifficultyClass, maxCost: number): Promise<CoursePlan>;
 }
 
 export interface BalancesPort {

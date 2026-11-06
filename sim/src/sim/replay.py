@@ -20,7 +20,7 @@ def replay(course, actions):
     try:
         for action in actions:
             if ep.rover.done:
-                break  # goal reached, collided or STOPped: later Actions are never executed
+                break  # goal reached or STOPped: later Actions are never executed
             hashes.append(ep.observe()["frameHash"])  # the view this Decision was made from
             ep.act(action)
         return {

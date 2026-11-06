@@ -6,12 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as mock from "@dewo/board/mock";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Hex } from "../src/formats";
 import type { MissionListing, RequesterBoardPort } from "../src/requester/ports";
 import { RequesterArkivBoard, WorkerArkivBoard, type BoardLibrary, type BoardWallet } from "../src/shared/arkiv-board";
 import type { BoardPort } from "../src/worker/ports";
-import { FakeBoard, FakeClock, SALT, SEED } from "./fakes";
+import { FakeBoard, SEED } from "./fakes";
 
 const lib: BoardLibrary = mock;
 const actor = () => {
@@ -41,7 +41,9 @@ const listing = (n: number, over: Partial<MissionListing> = {}): MissionListing 
   difficultyClass: "medium",
   maxBounty: 10_000_000n,
   riskWeightBps: 5000,
-  seedCommitment: `0x${"cc".repeat(32)}`,
+  courseSeed: SEED,
+  maxSteps: 40,
+  maxCollisions: 1,
   biddingClosesAt: nowSec() + 600,
   ...over,
 });
@@ -57,7 +59,7 @@ const implementations: [string, () => Boards][] = [
   [
     "FakeBoard",
     () => {
-      const board = new FakeBoard(new FakeClock());
+      const board = new FakeBoard();
       return { requester: board, worker: board, workerAddress: worker.account.address, workerPubKey: worker.account.publicKey };
     },
   ],
@@ -65,7 +67,7 @@ const implementations: [string, () => Boards][] = [
     "Arkiv adapters on the board mock",
     () => ({
       requester: new RequesterArkivBoard(lib, requester.wallet, { verifierPubKeys }),
-      worker: new WorkerArkivBoard(lib, worker.wallet, { privateKey: worker.privateKey, verifierPubKeys }),
+      worker: new WorkerArkivBoard(lib, worker.wallet, { verifierPubKeys }),
       workerAddress: worker.account.address,
       workerPubKey: worker.account.publicKey,
     }),
@@ -84,27 +86,21 @@ describe.each(implementations)("board port contract: %s", (_, make) => {
     expect(await boards.worker.listOpenMissionIds()).toContain(missionId(1));
   });
 
-  it("myBid finds this Worker's Bid once placed, and the Requester reads its public key", async () => {
+  it("listingOf finds the Requester's own listing once posted, with the key postMission returned", async () => {
+    const boards = make();
+    expect(await boards.requester.listingOf(missionId(1))).toBeNull();
+    const { key } = await boards.requester.postMission(listing(1));
+    expect(await boards.requester.listingOf(missionId(1))).toEqual({ key });
+    expect(await boards.requester.listingOf(missionId(2))).toBeNull();
+  });
+
+  it("myBid finds this Worker's Bid once placed", async () => {
     const boards = make();
     await boards.requester.postMission(listing(1));
     expect(await boards.worker.myBid(missionId(1), boards.workerAddress)).toBeNull();
-    expect(await boards.requester.workerPubKey(missionId(1), boards.workerAddress)).toBeNull();
 
     const { key } = await bid(boards, 1);
     expect(await boards.worker.myBid(missionId(1), boards.workerAddress)).toEqual({ key });
-    expect(await boards.requester.workerPubKey(missionId(1), boards.workerAddress)).toBe(boards.workerPubKey);
-  });
-
-  it("the Worker reads the seed only after the Requester releases it", async () => {
-    const boards = make();
-    await boards.requester.postMission(listing(1));
-    await bid(boards, 1);
-    expect(await boards.requester.hasSeedRelease(missionId(1), boards.workerAddress)).toBe(false);
-    expect(await boards.worker.readSeedRelease(missionId(1))).toBeNull();
-
-    expect((await boards.requester.releaseSeed(missionId(1), SEED, SALT, boards.workerPubKey)).key).toBeTruthy();
-    expect(await boards.requester.hasSeedRelease(missionId(1), boards.workerAddress)).toBe(true);
-    expect(await boards.worker.readSeedRelease(missionId(1))).toMatchObject({ seed: SEED, salt: SALT, releasedAt: expect.any(Number) });
   });
 
 });
@@ -119,26 +115,25 @@ describe("RequesterArkivBoard", () => {
       bounty: 12_500_000n,
       riskWeight: 0.75,
       difficultyClass: "medium",
-      seedCommitment: `0x${"cc".repeat(32)}`,
+      courseSeed: SEED,
+      maxSteps: 40,
+      maxCollisions: 1,
       verifiers: verifiers.map((v) => v.account.address).join(","),
     });
   });
 
-  it("hasSeedRelease is per Worker", async () => {
-    await board().postMission(listing(1));
-    await board().releaseSeed(missionId(1), SEED, SALT, worker.account.publicKey);
-    expect(await board().hasSeedRelease(missionId(1), actor().account.address)).toBe(false);
-  });
-
-  it("revealSeed publishes seed and salt in the clear", async () => {
-    await board().postMission(listing(1));
-    await board().revealSeed(missionId(1), SEED, SALT);
-    expect(await lib.readSeedReveal(missionId(1))).toEqual({ seed: SEED, salt: SALT });
+  it("listingOf ignores a Mission entity someone else posted for the same Mission id", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await new RequesterArkivBoard(lib, actor().wallet, { verifierPubKeys }).postMission(listing(1));
+    expect(await board().listingOf(missionId(1))).toBeNull();
+    const { key } = await board().postMission(listing(1));
+    expect(await board().listingOf(missionId(1))).toEqual({ key });
+    warn.mockRestore();
   });
 });
 
 describe("WorkerArkivBoard", () => {
-  const board = () => new WorkerArkivBoard(lib, worker.wallet, { privateKey: worker.privateKey, verifierPubKeys });
+  const board = () => new WorkerArkivBoard(lib, worker.wallet, { verifierPubKeys });
 
   it("seals the price so each Verifier opens it, in the order of VERIFIER_PUBKEYS (D7)", async () => {
     await new RequesterArkivBoard(lib, requester.wallet, { verifierPubKeys }).postMission(listing(1));
@@ -153,7 +148,7 @@ describe("WorkerArkivBoard", () => {
   it("only lists Missions judged by its own Verifiers, in its order (D7), whatever the address case", async () => {
     const post = (n: number, verifiers: string) =>
       lib.postMission(requester.wallet, {
-        missionId: missionId(n), difficultyClass: "easy", bounty: 1n, biddingClosesAt: nowSec() + 600, seedCommitment: "0xcc", riskWeight: 0.5, verifiers,
+        missionId: missionId(n), difficultyClass: "easy", bounty: 1n, biddingClosesAt: nowSec() + 600, courseSeed: "0xcc", maxSteps: 60, maxCollisions: 0, riskWeight: 0.5, verifiers,
       });
     const addresses = verifiers.map((v) => v.account.address);
     await post(1, addresses.join(",").toLowerCase());
@@ -184,7 +179,7 @@ describe("WorkerArkivBoard", () => {
 
   it("counts Verdicts only from its own Verifiers toward Reliability", async () => {
     const pass = (n: number) => ({
-      missionId: missionId(n), worker: worker.account.address, outcome: "Pass" as const, pathCost: 8, optimalPathCost: 8, collisions: 0,
+      missionId: missionId(n), worker: worker.account.address, outcome: "Pass" as const, steps: 8, collisions: 0,
       difficultyClass: "medium" as const, signature: "0x01", evidenceHash: "0xev", episodeLogRoot: "0xroot",
     });
     await lib.writeVerdict(verifiers[0]!.wallet, pass(1));

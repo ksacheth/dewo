@@ -47,6 +47,9 @@ abstract contract EscrowFixture is Test {
     uint256 internal constant BOUNTY = 10_000_000;
     uint8 internal constant DIFFICULTY = 1;
     uint16 internal constant RISK_BPS = 2500;
+    bytes32 internal constant SEED = keccak256("seed");
+    uint32 internal constant MAX_STEPS = 60;
+    uint32 internal constant MAX_COLLISIONS = 1;
     uint256 internal constant PRICE = 6_000_000;
     uint256 internal constant STAKE = 1_700_000;
     bytes32 internal constant EVIDENCE = keccak256("episode-evidence");
@@ -63,7 +66,7 @@ abstract contract EscrowFixture is Test {
         );
         escrow = new MissionEscrow(address(token));
         verifiers = [vm.addr(11), vm.addr(22), vm.addr(33)];
-        deadlines = MissionEscrow.Deadlines(1060, 30, 30, 300, 4600);
+        deadlines = MissionEscrow.Deadlines(1060, 30, 300, 4600);
         token.mint(requester, BOUNTY * 10);
         token.mint(worker, BOUNTY * 10);
         vm.prank(requester);
@@ -71,7 +74,8 @@ abstract contract EscrowFixture is Test {
         vm.prank(worker);
         token.approve(address(escrow), type(uint256).max);
         vm.prank(requester);
-        missionId = escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
+        missionId =
+            escrow.createMission(SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, MAX_STEPS, MAX_COLLISIONS);
     }
 
     function _sign(bytes32 digest, uint256 key) internal pure returns (bytes memory) {
