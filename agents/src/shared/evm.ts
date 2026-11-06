@@ -16,11 +16,12 @@ import {
   type WalletClient,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { hederaTestnet, zeroGGalileoTestnet } from "viem/chains";
+import { hederaTestnet, zeroGTestnet } from "viem/chains";
 
 export const CHAINS = {
   hedera: { chain: hederaTestnet, rpc: "https://testnet.hashio.io/api" },
-  zeroG: { chain: zeroGGalileoTestnet, rpc: "https://evmrpc-testnet.0g.ai" },
+  // Galileo is chain 16602: viem's `zeroGGalileoTestnet` is the retired 16601, whose signatures the RPC rejects ("invalid chain ID").
+  zeroG: { chain: zeroGTestnet, rpc: "https://evmrpc-testnet.0g.ai" },
 };
 
 export interface EvmClients {
@@ -28,8 +29,11 @@ export interface EvmClients {
   wallet: WalletClient<Transport, Chain, Account>;
 }
 
+/** Hashio answers eth_sendRawTransaction only after consensus (20 to 40 s, more when busy); viem's default is 10 s. */
+export const RPC_TIMEOUT_MS = 120_000;
+
 export function evmClients(chain: Chain, rpc: string, privateKey: Hex): EvmClients {
-  const transport = http(rpc);
+  const transport = http(rpc, { timeout: RPC_TIMEOUT_MS });
   return {
     public: createPublicClient({ chain, transport }) as PublicClient,
     wallet: createWalletClient({ chain, transport, account: privateKeyToAccount(privateKey) }),

@@ -1,6 +1,6 @@
 // Starts the Requester agent and its HTTP API (POST /missions, I7): `pnpm requester` from agents/, configured by .env.
 import * as board from "@dewo/board";
-import { hederaTestnet, zeroGGalileoTestnet } from "viem/chains";
+import { hederaTestnet } from "viem/chains";
 import { RequesterArkivBoard } from "../shared/arkiv-board";
 import { deployedAddress, deploymentFromEnv } from "../shared/config";
 import { EscrowContract } from "../shared/escrow";
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   });
   // Read-only here (isSubmitted); the key only fills the client's account.
   const registry = new RegistryContract(
-    evmClients(zeroGGalileoTestnet, env.ZG_RPC_URL || CHAINS.zeroG.rpc, privateKey),
+    evmClients(CHAINS.zeroG.chain, env.ZG_RPC_URL || CHAINS.zeroG.rpc, privateKey),
     deployedAddress(env, "EPISODE_REGISTRY_ADDRESS", "0g-galileo.json"),
   );
   const { wallet } = board.makeClients({ privateKey });
