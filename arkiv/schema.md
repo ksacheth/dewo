@@ -19,7 +19,6 @@ Why these choices: [`board/DECISIONS.md`](../board/DECISIONS.md) (D1 to D9).
 | `missionId` | str | yes | Escrow's bytes32 Mission ID, `0x` + 64 hex. The one ID across Hedera, Arkiv and the event feed |
 | `difficultyClass` | str | yes | `easy`, `medium` or `hard` (what Workers price against) |
 | `bounty` | u256 | yes | max bounty in USDC base units (6 decimals) |
-| `stepBudget` | i32 | yes | maximum Decisions |
 | `status` | str | yes | `open`, `awarded`, `settled` |
 | `requester` | addr | yes | writer wallet of the Requester |
 | `biddingClosesAt` | u64 | yes | unix seconds; the board hides the Mission after this |
@@ -61,9 +60,11 @@ Why these choices: [`board/DECISIONS.md`](../board/DECISIONS.md) (D1 to D9).
 | `missionId` | str | yes | |
 | `worker` | addr | yes | |
 | `outcome` | str | yes | `Pass`, `Fail`, `NoShow`, `InvalidCourse`, `NoSeedRelease` |
-| `steps`, `collisions` | i32 | yes | from the Replay |
+| `pathCost` | i32 | yes | non-STOP Actions in the Replay (spec 4.6) |
+| `collisions` | i32 | yes | from the Replay |
 | `difficultyClass` | str | yes | copied from the Mission, which expires long before the Verdict |
-| `stepBudget` | i32 | no | same reason; XP needs it |
+| `optimalPathCost` | i32 | no | the planner's lowest Path Cost on the revealed Course |
+| `pathQuality` | dec | no | `min(1, optimalPathCost / pathCost)`, 4 decimals. Scoring recomputes it from the two integers instead of trusting this value |
 | `signature` | bytes | no | the Verifier's 65-byte EIP-712 signature |
 | `evidenceHash`, `episodeLogRoot` | str | no | what was replayed |
 

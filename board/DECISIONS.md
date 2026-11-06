@@ -30,12 +30,17 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
   `runs/<missionId>/` folders use the same value.
 - **Symptom if violated:** `getMission` returns `null`, events land in a different `runs/` folder than the UI watches.
 
-## D3 **I4**: Verdicts carry `difficultyClass` and `stepBudget`
+## D3 **I4**: Verdicts carry `difficultyClass` and the path numbers
 
-- **Decision:** add `difficultyClass` (indexed) and `stepBudget` to the `verdict` entity.
-- **Why:** `xp()` needs both, and the Mission entity expires long before the leaderboard reads the Verdict.
-- **Integration impact:** M5 fills both from the Mission when writing the Verdict.
+- **Decision:** add `difficultyClass` (indexed) to the `verdict` entity.
+- **Why:** `xp()` needs it, and the Mission entity expires long before the leaderboard reads the Verdict.
+- **Integration impact:** M5 fills it from the Mission when writing the Verdict.
 - **Symptom if violated:** XP and Level show 0 or NaN for older Missions.
+- **Update 2026-11-06 (ADR 0003):** `stepBudget` is dropped from both `mission` and `verdict`; there is no
+  per-Mission step budget, only the Decision Cap of 60. The `verdict` now carries `pathCost` (indexed),
+  `optimalPathCost` and `pathQuality` (spec 5.3) next to `difficultyClass`. `reliability()` counts a Pass as
+  `0.5 + 0.5 q` and `xp()` is `100 * m * (1 + q)`; both compute `q = min(1, optimal / cost)` from the integers
+  and never read the stored `pathQuality`, so a Verifier cannot skew scoring with an inconsistent float.
 
 ## D4: Three Verdicts per Mission count once (the Quorum Outcome)
 
@@ -134,7 +139,7 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
 >
 > 1. **Mission and Bid expiry → rescue deadline (60 min)**, plus a new indexed `biddingClosesAt` on `mission`. As written, they expire at bidding close, so `/award` (M5) couldn't read them. The board still hides cards at close.
 > 2. **`missionId` = the Escrow bytes32** everywhere, an indexed attribute on all four entities. M4: call `createMission` before `postMission`.
-> 3. **`verdict` gains `difficultyClass` and `stepBudget`**, so XP works after the Mission expires. M5 fills them.
+> 3. **`verdict` gains `difficultyClass`**, so XP works after the Mission expires. M5 fills it. (Updated 2026-11-06: `stepBudget` dropped per ADR 0003; see D3.)
 > 4. **Trusted writers:** reads filter Verdicts by `VERIFIER_ADDRESSES` (env, same value in M4, M5, web), Seed Releases by the Mission's requester, and drop Bids whose owner isn't the worker.
 > 5. **Bid layout:** `priceCt0..2` + `verifiers` (addresses in the same order). M4: pass Verifier pubkeys to `sealBid` in `VERIFIER_ADDRESSES` order.
 > 6. **New exports:** `setMissionStatus`, `pickWinner` (tie-break: lower price, then lower entity key), `leaderboard`, `outcomeIndex`.

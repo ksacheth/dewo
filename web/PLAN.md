@@ -16,7 +16,7 @@ The rest of this plan is my default. Each answer below can override it. Record t
 | U3 | **Layout:** one screen with every panel visible (the spec's split screen), or step-by-step views that follow the Mission phase? | One screen: board and bids left, rover center, Verifiers right, leaderboard bottom |
 | U4 | **Which panel is the hero?** It gets the most space and the best animation. | Rover view |
 | U5 | **Worker identity:** named personas with avatars/colors ("Careful", "Cheap and Blind", "Gambler"), or plain addresses? | Personas with a color each, address on hover |
-| U6 | **Post Mission form:** always visible in the header, or a modal/button? Show Step Budget as fixed 15, or editable? | Header form, Step Budget fixed at 15 |
+| U6 | **Post Mission form:** always visible in the header, or a modal/button? Show the Decision Cap as fixed 60, or editable? | Header form, Decision Cap fixed at 60 (ADR 0003: no per-Mission step budget) |
 | U7 | **Recorded replay:** do you want visible playback controls (play/pause/speed) for the booth fallback, or just `?replay=<id>`? | Just the URL flag; controls are a stretch |
 | U8 | **Mock labelling:** when the Requester API or Arkiv is mocked, show a visible "MOCK" badge? | Yes, always visible |
 | U9 | **Leaderboard sort:** by Level/XP (trophy), or by Reliability (what wins Missions)? | Level then XP, Reliability shown as a bar |
@@ -126,7 +126,7 @@ type MissionState = {
 Layout follows the demo split screen: left column Mission Board + Bid cards, center Rover view, right Verifier cards, Leaderboard along the bottom. Post Mission is a compact form in the header.
 
 ### 5.1 `PostMission.tsx`
-- Fields: Difficulty Class (easy / medium / hard select), max bounty (USDC, number input, converted to base units on submit), Risk Weight slider 0–1 step 0.05 with a live hint ("0 = cheapest, 1 = most reliable"). Step Budget is fixed at 15 by the spec's hero case; show it read-only.
+- Fields: Difficulty Class (easy / medium / hard select), max bounty (USDC, number input, converted to base units on submit), Risk Weight slider 0–1 step 0.05 with a live hint ("0 = cheapest, 1 = most reliable"). The Decision Cap is 60 for every Mission (ADR 0003); show it read-only.
 - Submit → `POST /requester/missions { difficulty, maxBounty, riskWeight }` through the Vite proxy (avoids CORS on M4's server). Response `{ missionId }` → pin the feed to it.
 - If `VITE_REQUESTER_URL` is unset or unreachable, fall back to `POST /api/mock/missions`, which writes a `mission.posted` event into `runs/<random id>/events.web.ndjson` (and, in mock-board mode, a mock `mission` entity). The Issue explicitly allows "the button can write a mock event" until I7 lands. Label the fallback clearly in the UI ("mock requester") so a judge never sees a fake presented as real.
 - Disable the button while a request is in flight; show the error text on failure. Accessible labels on every field.
@@ -134,7 +134,7 @@ Layout follows the demo split screen: left column Mission Board + Bid cards, cen
 ### 5.2 `MissionBoard.tsx`
 - Polls `listOpenMissions({ difficultyClass })` every 2 s (or `watchEntityEvents` from the SDK for live push: nicer Arkiv story, try it once the real client works; polling is the fallback).
 - Filter chips for Difficulty Class (all / easy / medium / hard) → passed straight into the Arkiv query (`eq("difficultyClass", …)`), so the filter is a real indexed-attribute query, which is what `how-you-use-arkiv.md` will point at.
-- Each card: difficulty, bounty (formatted USDC), Step Budget, Risk Weight, Seed Commitment (truncated), live countdown to `biddingClosesAt` (one shared 1 s ticker, not one interval per card), link to the entity on the Arkiv explorer.
+- Each card: difficulty, bounty (formatted USDC), Risk Weight, Seed Commitment (truncated), live countdown to `biddingClosesAt` (one shared 1 s ticker, not one interval per card), link to the entity on the Arkiv explorer.
 - The card disappears at `biddingClosesAt` (client-side filter on the countdown hitting zero) and is gone from the query once its status changes or it expires on Arkiv. See board plan D1 for why expiry isn't at bidding close.
 
 ### 5.3 `BidCards.tsx`
@@ -143,7 +143,7 @@ Layout follows the demo split screen: left column Mission Board + Bid cards, cen
 
 ### 5.4 `RoverView.tsx`
 - Big frame: the latest `decision.made` frame (`/runs/<missionId>/<frame>`), 224×224 scaled up with `image-rendering: pixelated`.
-- Side list (newest on top): step `n / stepBudget`, Action (icon + text), 0G chat ID (truncated, copy button), timestamp. Scrubbing: click a row to show that frame.
+- Side list (newest on top): step `n / 60` (the Decision Cap), Action (icon + text), 0G chat ID (truncated, copy button), timestamp. Scrubbing: click a row to show that frame.
 - Footer: `episode.submitted` with the 0G Chainscan link and the Episode Log root.
 - Safe-stop shows up as a final Decision of `STOP` or an Outcome of Fail; render it as a red banner, never hide it (spec: no faked live mode).
 
@@ -155,7 +155,7 @@ Layout follows the demo split screen: left column Mission Board + Bid cards, cen
 - `leaderboard()` from `@dewo/board` (real Arkiv `verdict` query, filtered by Verifier owners), refreshed every 5 s and right after a `settled` event.
 - Columns: Worker, Reliability (as %, with a small bar), XP, Level, Passes / Missions. Sort by Level then XP (Reliability is shown, but XP and Level are the trophy; spec §4.5).
 - Animate a Level-up (compare with the previous fetch).
-- Click a Worker → drawer with every past Mission, including Fails: outcome, steps, collisions, difficulty, Verdict entity link on Arkiv, settlement link from `/api/settlements` when known. This is the "click into Gambler" beat.
+- Click a Worker → drawer with every past Mission, including Fails: outcome, path cost vs optimal, path quality, collisions, difficulty, Verdict entity link on Arkiv, settlement link from `/api/settlements` when known. This is the "click into Gambler" beat.
 - Show the exact query under the table, small text ("Arkiv query: verdict where worker = … owned by Verifiers"), which doubles as judge evidence.
 
 ### 5.7 Links (`links.ts`)

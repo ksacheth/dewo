@@ -70,7 +70,7 @@ Process:
 ## 1. Decisions
 
 Settled; see [`DECISIONS.md`](DECISIONS.md). Short form: D1 Mission/Bid live 60 min with `biddingClosesAt` ·
-D2 `missionId` = Escrow bytes32 · D3 Verdicts carry `difficultyClass` + `stepBudget` · D4 Quorum Outcome counts once ·
+D2 `missionId` = Escrow bytes32 · D3 Verdicts carry `difficultyClass` (+ `pathCost`/`optimalPathCost`/`pathQuality`) · D4 Quorum Outcome counts once ·
 D5 reads filter by trusted owner (`VERIFIER_ADDRESSES`) · D6 file-backed mock · D7 ciphertexts in Verifier order ·
 D8 tie-break lower price, then lower key · D9 first Bid per Worker counts · D10 export `.ts` source, run with `tsx` ·
 D11 USDC base units as `bigint` · D12 ask for a root MIT `LICENSE`.
@@ -137,7 +137,6 @@ export const Mission = defineSchema("dewo.mission", {
   missionId:       str().indexed(),          // D2: escrow bytes32 hex
   difficultyClass: str().indexed(),          // "easy" | "medium" | "hard"
   bounty:          u256().indexed(),         // max bounty, USDC base units
-  stepBudget:      i32().indexed(),
   status:          str().indexed(),          // "open" | "awarded" | "settled" ... patched by Requester
   requester:       addr().indexed(),
   biddingClosesAt: u64().indexed(),          // D1
@@ -166,10 +165,11 @@ export const Verdict = defineSchema("dewo.verdict", {
   missionId:       str().indexed(),
   worker:          addr().indexed(),
   outcome:         str().indexed(),          // "Pass" | "Fail" | "NoShow" | "InvalidCourse" | "NoSeedRelease"
-  steps:           i32().indexed(),
+  pathCost:        i32().indexed(),          // non-STOP Actions (spec 4.6)
   collisions:      i32().indexed(),
   difficultyClass: str().indexed(),          // D3
-  stepBudget:      i32(),                    // D3
+  optimalPathCost: i32(),
+  pathQuality:     dec(),                    // display only; scoring recomputes it from the two integers
   signature:       str(),
   evidenceHash:    str(),
   episodeLogRoot:  str(),
@@ -255,11 +255,12 @@ Known gap (already in spec §8): any single Verifier can decrypt early. No thres
 reliability(verdicts: VerdictRow[]): number
   // D4: group by missionId, quorum outcome (>=2 matching); drop InvalidCourse, NoSeedRelease;
   // NoShow counts as Fail; order by $createdAt desc; i = 0 most recent
-  // R = (2 + Σ 0.9^i pass_i) / (3 + Σ 0.9^i)
+  // R = (2 + Σ 0.9^i pass_i) / (3 + Σ 0.9^i); a Pass counts 0.5 + 0.5 q, Fail and NoShow 0 (ADR 0003)
 awardScore(R: number, price: number, riskWeight: number): number   // R^w / price^(1-w)
 pickWinner(bids: { key, price: bigint, R }[], w): winner            // D8 tie-break, used by M5
 bidStake(maxBounty: bigint, R: number): bigint                       // floor(maxBounty * (1-R) * 0.5), integer-safe
-xp(v: VerdictRow): number                                            // Pass only: 100 * m * (1 + (stepBudget-steps)/stepBudget); m = 1/1.5/2
+pathQuality(optimal, cost): number                                   // min(1, optimal / cost); 0 if cost is 0
+xp(v: VerdictRow): number                                            // Pass only: 100 * m * (1 + q); m = 1/1.5/2; q from the integers
 level(xp: number): number                                            // floor(sqrt(xp/100))
 ```
 
@@ -273,7 +274,8 @@ Tests (`scoring.test.ts`), straight from the spec:
 - three Verifier rows for one Mission count once; InvalidCourse and NoSeedRelease are excluded; NoShow lowers R
 - recency: Pass then Fail vs Fail then Pass give different R
 - `bidStake(10 USDC, 0.67) ≈ 1.65 USDC` (about 17%), `bidStake(10, 0.95) = 0.25` (2.5%)
-- XP: medium Pass with 10 of 15 steps used = 100 × 1.5 × (1 + 5/15) = 200; Fail = 0; `level(400) = 2`
+- Reliability: a clean Pass (q = 1) counts 1, a Pass at q = 0.5 counts 0.75, so R is lower for the sloppy one
+- XP: clean medium Pass (q = 1) = 100 × 1.5 × 2 = 300; q = 0.5 gives 225; Fail = 0; `level(400) = 2`
 
 ---
 
@@ -295,7 +297,7 @@ export function emit(missionId: string, process: string, event: { type, data, tx
 
 | type | data | written by |
 |---|---|---|
-| `mission.posted` | `{ difficultyClass, maxBounty, stepBudget, riskWeight, biddingClosesAt, arkivKey }` | agents (Requester) |
+| `mission.posted` | `{ difficultyClass, maxBounty, riskWeight, biddingClosesAt, arkivKey }` | agents (Requester) |
 | `bid.sealed` | `{ worker, workerName, policyHash, arkivKey }` | agents (Worker) |
 | `bids.revealed` | `{ bids: [{ worker, workerName, price, R, score }], winner }` | verifier |
 | `award.signed` | `{ worker, price, stake, verifier }` | verifier |
