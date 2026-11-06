@@ -2,7 +2,7 @@
 // State lives in BOARD_MOCK_FILE so separate processes (agents, Verifiers, web) share it.
 // Pure modules are re-exported unchanged; only the entity functions are re-implemented here.
 import { randomBytes } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { privateKeyToAccount, publicKeyToAddress } from "viem/accounts"
 import { decrypt, encrypt } from "../src/crypto"
@@ -44,26 +44,64 @@ function save(s: Store) {
   writeFileSync(tmp, JSON.stringify(s, replacer))
   renameSync(tmp, file()) // atomic, so a reader never sees half a write
 }
+const LOCK_STALE_MS = 10_000
+const LOCK_TIMEOUT_MS = 30_000
+const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
+/** Cross-process lock: an exclusive lock file ("wx"), retried with backoff; a lock older than 10 s is treated as abandoned. */
+function withLock<T>(fn: () => T): T {
+  const lock = `${file()}.lock`
+  mkdirSync(dirname(file()), { recursive: true })
+  const started = Date.now()
+  for (let wait = 1; ; wait = Math.min(wait * 2, 50)) {
+    try {
+      closeSync(openSync(lock, "wx"))
+      break
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) unlinkSync(lock)
+      } catch { /* released or taken over meanwhile */ }
+      if (Date.now() - started > LOCK_TIMEOUT_MS) throw new Error(`board mock: could not lock ${lock}`)
+      sleep(wait)
+    }
+  }
+  try {
+    return fn()
+  } finally {
+    try { unlinkSync(lock) } catch { /* already gone */ }
+  }
+}
+/** Read-modify-write under the lock, so concurrent writers never lose each other's rows. */
+function update<T>(fn: (s: Store) => T): T {
+  return withLock(() => {
+    const s = load()
+    const out = fn(s)
+    save(s)
+    return out
+  })
+}
 const live = <T extends { $expiresAt: number }>(rows: T[]) => rows.filter((r) => r.$expiresAt > Date.now())
 const newKey = () => `0x${randomBytes(32).toString("hex")}` as Hex
 const meta = (owner: Hex, lifetime: number) => ({ $key: newKey(), $owner: owner, $createdAt: Date.now(), $expiresAt: Date.now() + lifetime })
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
 function write<K extends keyof Store>(table: K, build: (s: Store) => Store[K][number]): Written {
-  const s = load()
-  const row = build(s)
-  ;(s[table] as unknown[]).push(row)
-  save(s)
+  const row = update((s) => {
+    const r = build(s)
+    ;(s[table] as unknown[]).push(r)
+    return r
+  })
   return { entityKey: (row as { $key: Hex }).$key, txHash: newKey() }
 }
 
 /** Tests and demos only: wipe the store. */
-export const resetMock = () => save(empty())
+export const resetMock = () => withLock(() => save(empty()))
 /** Tests and demos only: append raw rows (for example to seed a leaderboard). */
 export function seedMock(rows: Partial<Store>) {
-  const s = load()
-  for (const k of Object.keys(rows) as (keyof Store)[]) (s[k] as unknown[]).push(...(rows[k] as unknown[]))
-  save(s)
+  update((s) => {
+    for (const k of Object.keys(rows) as (keyof Store)[]) (s[k] as unknown[]).push(...(rows[k] as unknown[]))
+  })
 }
 
 export async function postMission(wallet: WalletLike, m: MissionInput): Promise<Written> {
@@ -72,12 +110,12 @@ export async function postMission(wallet: WalletLike, m: MissionInput): Promise<
 }
 
 export async function setMissionStatus(wallet: WalletLike, entityKey: Hex, status: MissionStatus): Promise<Written> {
-  const s = load()
-  const row = s.missions.find((m) => m.$key === entityKey)
-  if (!row) throw new Error(`no Mission entity ${entityKey}`)
-  if (!same(row.$owner, wallet.account.address)) throw new Error("only the Requester can change a Mission's status")
-  row.status = status
-  save(s)
+  update((s) => {
+    const row = s.missions.find((m) => m.$key === entityKey)
+    if (!row) throw new Error(`no Mission entity ${entityKey}`)
+    if (!same(row.$owner, wallet.account.address)) throw new Error("only the Requester can change a Mission's status")
+    row.status = status
+  })
   return { entityKey, txHash: newKey() }
 }
 

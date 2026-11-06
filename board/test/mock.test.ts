@@ -1,6 +1,6 @@
 // Contract suite for the board's entity functions. Runs on the file-backed mock; B5/B6 add the real client.
-import { execFileSync } from "node:child_process"
-import { mkdtempSync } from "node:fs"
+import { execFileSync, spawn } from "node:child_process"
+import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -203,4 +203,22 @@ describe("separate processes share the mock file", () => {
     execFileSync(tsx, ["--input-type=module", "-e", script], { env: process.env })
     expect((await board.getMission(mid(7)))?.missionId).toBe(mid(7))
   })
+
+  it("concurrent writers from several processes lose no entity", async () => {
+    vi.useRealTimers()
+    const tsx = join(__dirname, "..", "node_modules", ".bin", "tsx")
+    const entry = JSON.stringify(join(__dirname, "..", "mock", "index.ts"))
+    const procs = 6
+    const each = 8
+    const script = (p: number) => `import * as b from ${entry};
+      import { privateKeyToAccount } from "viem/accounts";
+      const wallet = { account: privateKeyToAccount(${JSON.stringify(workerA.privateKey)}) };
+      for (let i = 0; i < ${each}; i++) await b.revealSeed(wallet, "0x${"%064x" % 0}".replace(/0$/, String(${p})), "seed" + ${p} + "-" + i, "salt")`
+    await Promise.all(Array.from({ length: procs }, (_, p) => new Promise<void>((ok, fail) => {
+      const c = spawn(tsx, ["--input-type=module", "-e", script(p)], { env: process.env, stdio: "inherit" })
+      c.on("exit", (code) => (code === 0 ? ok() : fail(new Error(`child ${p} exited ${code}`))))
+    })))
+    const stored = JSON.parse(readFileSync(process.env.BOARD_MOCK_FILE!, "utf8")).seedReveals as unknown[]
+    expect(stored).toHaveLength(procs * each)
+  }, 60_000)
 })
