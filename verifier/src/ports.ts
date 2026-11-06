@@ -92,6 +92,15 @@ export interface EpisodeRegistryPort {
  */
 export class NotJson {}
 
+/**
+ * A document the Worker registered on-chain but never uploaded: 0G Storage could not serve it and no 0G Flow submission for its
+ * root exists between the Worker's stake and its Episode Submission. It is the Worker's fault, so the checks Fail it, like NotJson.
+ */
+export class NotUploaded {}
+
+/** A Worker document as the Verifier fetched it: its content (not yet validated), or why there is none to read. */
+export type Fetched<T> = T | NotJson | NotUploaded;
+
 /** 0G Storage, by root hash. */
 export interface StoragePort {
   /**
@@ -99,6 +108,15 @@ export interface StoragePort {
    * Rejects with `StorageUnavailableError` when 0G cannot be reached or times out, which is retryable and never a Verdict.
    */
   downloadJson(root: Hex): Promise<unknown>;
+}
+
+/** The 0G Flow contract on Galileo: every 0G Storage upload submits its root there before any byte reaches a storage node. */
+export interface UploadRecordPort {
+  /**
+   * Whether a Flow submission for `root` was mined in a block stamped within [from, to] (unix seconds). Read from the chain alone, so
+   * every Verifier gets the same answer. Rejects when the chain cannot be read or has no block after `to` yet.
+   */
+  submittedBetween(root: Hex, from: number, to: number): Promise<boolean>;
 }
 
 /** What the Verifier learns about a Mission's Episode from Hedera, Arkiv and 0G (episodes.ts implements this). */
@@ -115,8 +133,8 @@ export interface LoadedEpisode {
     bid: SealedBid;
     reveal: { seed: Hex; salt: Hex };
     /** As downloaded from 0G Storage: the checks validate both before trusting them. */
-    policy: Policy | NotJson;
-    log: EpisodeLog | NotJson;
+    policy: Fetched<Policy>;
+    log: Fetched<EpisodeLog>;
     episodeLogRoot: Hex;
     decisionCount: number;
   };
