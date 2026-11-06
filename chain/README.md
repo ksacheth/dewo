@@ -31,7 +31,11 @@ Paris to avoid relying on newer opcodes across the two target networks.
 
 ## Contract usage
 
-For USDC, Requester approves `maxBounty`, then calls `createMission`. Read the
+For USDC, Requester approves `maxBounty`, then calls
+`createMission(seedCommitment, verifiers, deadlines, maxBounty, difficultyClass, riskWeightBps)`.
+`difficultyClass` is 0 easy, 1 medium, 2 hard and `riskWeightBps` is 0 to 10000;
+both are stored on-chain so Verifiers score against terms the Requester cannot change
+after Bids arrive. Payouts and signatures do not use them. Read the
 returned `bytes32` Mission ID or `MissionCreated` event. After bidding closes,
 anyone can submit two Verifier signatures via `award`. Worker approves the signed
 Bid Stake and calls `stake`. The contract transfers exactly that amount.

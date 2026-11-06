@@ -74,7 +74,7 @@ contract OutcomesTest is EscrowFixture {
         token.mint(requester, bounty);
         token.mint(worker, bidStake);
         vm.prank(requester);
-        bytes32 second = escrow.createMission(keccak256("second"), verifiers, deadlines, bounty);
+        bytes32 second = escrow.createMission(keccak256("second"), verifiers, deadlines, bounty, DIFFICULTY, RISK_BPS);
         assertNotEq(second, missionId);
         vm.warp(1060);
         escrow.award(second, worker, price, bidStake, _sigs(escrow.awardDigest(second, worker, price, bidStake)));

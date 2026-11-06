@@ -65,6 +65,12 @@ to communicate to consumers before integration.
 `Created -> Awarded -> Staked -> Settled`; any unfinished state can become
 `Rescued` at the fixed final deadline. The application still tracks Seed Release,
 Episode Submission and verification, but those do not require new Escrow writes.
+`createMission` also stores `difficultyClass` (0 easy, 1 medium, 2 hard) and
+`riskWeightBps` (at most 10000) in the Mission and `MissionCreated`. They are
+immutable Mission terms for Verifiers to score against; payouts and the Award and
+Verdict EIP-712 types do not use them. Values out of range revert with
+`InvalidConfiguration`.
+
 Every signed Outcome requires a deposited stake (including an explicitly
 recorded zero stake); before stake only rescue or future coordinated re-awarding
 is possible. Rescue is not part of the signed Outcome enum.

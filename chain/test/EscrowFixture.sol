@@ -24,6 +24,8 @@ abstract contract EscrowFixture is Test {
     address internal requester = address(0x100);
     address internal worker = address(0x200);
     uint256 internal constant BOUNTY = 10_000_000;
+    uint8 internal constant DIFFICULTY = 1;
+    uint16 internal constant RISK_BPS = 2500;
     uint256 internal constant PRICE = 6_000_000;
     uint256 internal constant STAKE = 1_700_000;
     bytes32 internal constant EVIDENCE = keccak256("episode-evidence");
@@ -48,7 +50,7 @@ abstract contract EscrowFixture is Test {
         vm.prank(worker);
         token.approve(address(escrow), type(uint256).max);
         vm.prank(requester);
-        missionId = escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY);
+        missionId = escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
     }
 
     function _sign(bytes32 digest, uint256 key) internal pure returns (bytes memory) {

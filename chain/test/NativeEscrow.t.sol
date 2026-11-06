@@ -14,7 +14,7 @@ contract ReenteringRequester {
     }
 
     function create(address[3] calldata verifiers, MissionEscrow.Deadlines calldata deadlines) external payable {
-        missionId = escrow.createMission{value: msg.value}(keccak256("seed"), verifiers, deadlines, msg.value);
+        missionId = escrow.createMission{value: msg.value}(keccak256("seed"), verifiers, deadlines, msg.value, 1, 2500);
     }
 
     receive() external payable {
@@ -29,7 +29,8 @@ contract NativeEscrowTest is EscrowFixture {
         vm.deal(requester, BOUNTY * 10);
         vm.deal(worker, BOUNTY * 10);
         vm.prank(requester);
-        missionId = escrow.createMission{value: BOUNTY}(keccak256("seed"), verifiers, deadlines, BOUNTY);
+        missionId =
+            escrow.createMission{value: BOUNTY}(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
     }
 
     function _nativeStake() internal {
@@ -41,7 +42,7 @@ contract NativeEscrowTest is EscrowFixture {
     function testNativeRejectsIncorrectBountyValue() public {
         vm.prank(requester);
         vm.expectRevert(MissionEscrow.InvalidAmount.selector);
-        escrow.createMission{value: BOUNTY - 1}(keccak256("seed"), verifiers, deadlines, BOUNTY);
+        escrow.createMission{value: BOUNTY - 1}(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
     }
 
     function testNativeStakeMustEqualSignedAmount() public {

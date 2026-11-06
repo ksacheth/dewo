@@ -43,6 +43,8 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         address[3] verifiers;
         bytes32 seedCommitment;
         uint256 maxBounty;
+        uint8 difficultyClass;
+        uint16 riskWeightBps;
         uint256 price;
         uint256 bidStake;
         uint256 awardedAt;
@@ -66,7 +68,13 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
     error AssociationFailed(int64 responseCode);
     error NativeTransferFailed();
 
-    event MissionCreated(bytes32 indexed missionId, address indexed requester, uint256 maxBounty);
+    event MissionCreated(
+        bytes32 indexed missionId,
+        address indexed requester,
+        uint256 maxBounty,
+        uint8 difficultyClass,
+        uint16 riskWeightBps
+    );
     event Awarded(bytes32 indexed missionId, address indexed worker, uint256 price, uint256 stake);
     event Staked(bytes32 indexed missionId, address indexed worker, uint256 amount);
     event Settled(bytes32 indexed missionId, Outcome outcome, bytes32 evidenceHash);
@@ -85,9 +93,13 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         bytes32 seedCommitment,
         address[3] calldata verifiers,
         Deadlines calldata deadlines,
-        uint256 maxBounty
+        uint256 maxBounty,
+        uint8 difficultyClass,
+        uint16 riskWeightBps
     ) external payable nonReentrant returns (bytes32 missionId) {
         if (seedCommitment == bytes32(0) || maxBounty == 0) revert InvalidConfiguration();
+        // 0 easy, 1 medium, 2 hard; risk weight in basis points. Stored for Verifiers, unused by payouts.
+        if (difficultyClass > 2 || riskWeightBps > 10_000) revert InvalidConfiguration();
         for (uint256 i; i < 3; ++i) {
             if (verifiers[i] == address(0)) revert InvalidConfiguration();
             for (uint256 j; j < i; ++j) {
@@ -106,10 +118,12 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         mission.verifiers = verifiers;
         mission.seedCommitment = seedCommitment;
         mission.maxBounty = maxBounty;
+        mission.difficultyClass = difficultyClass;
+        mission.riskWeightBps = riskWeightBps;
         mission.deadlines = deadlines;
         mission.state = State.Created;
         _collect(maxBounty);
-        emit MissionCreated(missionId, msg.sender, maxBounty);
+        emit MissionCreated(missionId, msg.sender, maxBounty, difficultyClass, riskWeightBps);
     }
 
     function award(bytes32 missionId, address worker, uint256 price, uint256 bidStake, bytes[2] calldata sigs)

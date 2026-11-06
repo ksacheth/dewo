@@ -10,28 +10,52 @@ contract MissionEscrowTest is EscrowFixture {
         MissionEscrow.Mission memory m = escrow.getMission(missionId);
         assertEq(m.requester, requester);
         assertEq(m.maxBounty, BOUNTY);
+        assertEq(m.difficultyClass, DIFFICULTY);
+        assertEq(m.riskWeightBps, RISK_BPS);
         assertEq(m.verifiers[2], verifiers[2]);
         assertEq(m.deadlines.rescueAt, 4600);
         assertEq(uint256(m.state), uint256(MissionEscrow.State.Created));
         assertEq(token.balanceOf(address(escrow)), BOUNTY);
     }
 
+    function testCreateEmitsMissionTerms() public {
+        bytes32 expected = keccak256(abi.encode(block.chainid, address(escrow), requester, uint256(1)));
+        vm.expectEmit(true, true, false, true, address(escrow));
+        emit MissionEscrow.MissionCreated(expected, requester, BOUNTY, 2, 10_000);
+        vm.prank(requester);
+        bytes32 id = escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, 2, 10_000);
+        assertEq(id, expected);
+        MissionEscrow.Mission memory m = escrow.getMission(id);
+        assertEq(m.difficultyClass, 2);
+        assertEq(m.riskWeightBps, 10_000);
+    }
+
+    function testRejectDifficultyClassAboveHard() public {
+        vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
+        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, 3, RISK_BPS);
+    }
+
+    function testRejectRiskWeightAboveFullScale() public {
+        vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
+        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, 10_001);
+    }
+
     function testRejectDuplicateVerifiers() public {
         verifiers[1] = verifiers[0];
         vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
-        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY);
+        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
     }
 
     function testRejectZeroVerifier() public {
         verifiers[0] = address(0);
         vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
-        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY);
+        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
     }
 
     function testRejectDeadlinesWithoutTimeForEpisode() public {
         deadlines.rescueAt = 1420;
         vm.expectRevert(MissionEscrow.InvalidTime.selector);
-        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY);
+        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
     }
 
     function testAssociationFailureRevertsDeployment() public {
