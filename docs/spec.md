@@ -40,7 +40,7 @@ Three Worker agents are running, each with a different Policy:
 
 | Worker | Model on 0G | Memory window | Pricing strategy (its own, not protocol) | Personality |
 |---|---|---|---|---|
-| Careful | vision model (e.g. Qwen2.5-VL-72B) | last 3 frames + Actions | own cost estimate x 1.6 | expensive, reliable |
+| Careful | vision model (e.g. Qwen2.5-VL-72B) | last 3 Actions (frames are not fed back; the model sees only the current frame) | own cost estimate x 1.6 | expensive, reliable |
 | Cheap and Blind | smaller/cheaper model | none | own cost estimate x 1.2 | cheap, reckless |
 | Gambler | cheapest viable model, terse prompt | none | own cost estimate x 1.05 | lowest price, worst Reliability |
 
@@ -57,23 +57,29 @@ POSTED -> BIDDING -> AWARDED -> STAKED -> SEED_RELEASED -> EPISODE_SUBMITTED -> 
                           deadline)  Release)       Submission)
                            -> next    -> NO_SEED     -> NO_SHOW
                            best Bid     _RELEASE
-Any state + final deadline with no Verdict -> RESCUED (full refunds)
+Any unsettled state (incl. no Bids) at rescueAt -> RESCUED (refunds)
 ```
 
 | # | Step | Actor | Where | Detail |
 |---|---|---|---|---|
-| 1 | Post Mission | Requester | Hedera + Arkiv | `MissionEscrow.createMission(seedCommitment, verifiers[3], deadlines, maxBounty, difficultyClass, riskWeightBps)` locks max bounty in USDC. These Mission terms live on-chain so the Requester can't change them after Bids arrive; Verifiers score against the on-chain values. A Mission entity is written to Arkiv with `difficultyClass`, `bounty`, `riskWeight`, `seedCommitment = H(seed ‖ salt)` and `escrowMissionId` for discovery, expiring when bidding closes. |
-| 2 | Sealed bidding (60 s) | Workers | Arkiv | Each Worker writes a Bid entity: `missionId`, wallet, `policyHash`, `workerPubKey`, plus the price encrypted to each of the 3 Verifier keys. The price never appears in plain text. A Bid carries no step count or other performance claim. |
-| 3 | Award | Quorum | Arkiv to Hedera | Each Verifier decrypts the Bids, computes every bidder's Reliability from the Verdict entities on Arkiv, scores the Bids (section 4) and signs the Award. Anyone submits `award(worker, price, sig1, sig2)`. Bid prices are then revealed in the UI. |
-| 4 | Stake | Winner | Hedera | `stake()` deposits the Bid Stake before the stake deadline, or the Award lapses and the Quorum awards the next-best Bid. |
-| 5 | Seed Release | Requester | Arkiv | A Seed Release entity holds the Course Seed (plus salt) encrypted to the winner's `workerPubKey`; it expires shortly after the Episode deadline. |
+| 1 | Post Mission | Requester | Hedera + Arkiv | `MissionEscrow.createMission(seedCommitment, verifiers[3], deadlines, maxBounty, difficultyClass, riskWeightBps)` locks max bounty in USDC. These Mission terms live on-chain so the Requester can't change them after Bids arrive; Verifiers score against the on-chain values. A Mission entity is written to Arkiv with `difficultyClass`, `bounty`, `riskWeight`, `seedCommitment = keccak256(seed ‖ salt)` and `escrowMissionId` for discovery. It expires at the rescue deadline (60 min) and is hidden from the board at `biddingClosesAt`, so the Quorum can still read it after bidding. |
+| 2 | Sealed bidding (60 s) | Workers | Arkiv | Each Worker writes a Bid entity: `missionId`, wallet, `policyHash`, `workerPubKey`, plus the price encrypted to each of the 3 Verifier keys, and `verifiers`. The price never appears in plain text. A Bid carries no step count or other performance claim. A Bid counts only if the block timestamp of the block that created it is at or before the Mission's `biddingClosesAt`; every Verifier applies this cutoff, so all see the same frozen Bid set. |
+| 3 | Award | Quorum | Arkiv to Hedera | Each Verifier decrypts the Bids, computes every bidder's Reliability from the Verdict entities on Arkiv, scores the Bids (section 4) and signs the Award. The Requester agent relays `award(missionId, worker, price, stake, sigs[2])`; Verifiers only sign. Bid prices are then revealed in the UI. |
+| 4 | Stake | Winner | Hedera | `stake()` deposits the Bid Stake strictly before `awardedAt + stakeWindow`. A replacement Award is allowed only while the winner is unstaked and `now >= awardedAt + stakeWindow`; it still needs a fresh Quorum signature (next-best Bid). A lapsed winner cannot be re-awarded, the new stake window restarts but `rescueAt` is unchanged, and the Award has no `round` field (proposal open). |
+| 5 | Seed Release | Requester | Arkiv | A Seed Release entity holds the Course Seed (plus salt) encrypted to the winner's `workerPubKey`; it expires 70 min after it is written. |
 | 6 | Episode | Winner | 0G Compute + MuJoCo | The sim renders the onboard camera frame. The Policy builds the request (prompt template + frame + memory window), calls 0G, parses one Action, and the deterministic controller executes it. Repeat until the goal, a collision, STOP, the Decision Cap, or safe-stop (0G unreachable means the rover halts and the Outcome is Fail, never a faked decision). |
-| 7 | Episode Log + Submission | Winner | 0G Storage + 0G Chain | The Episode Log (section 5.1) and the full Policy are uploaded to 0G Storage. `EpisodeRegistry.submitEpisode(missionId, episodeLogRoot, policyRoot, decisionCount)` is called on Galileo; the block timestamp is the No-show evidence. The Course Seed and salt become public after submission. |
+| 7 | Episode Log + Submission | Winner | 0G Storage + 0G Chain | The Episode Log (section 5.1) and the full Policy are uploaded to 0G Storage. `EpisodeRegistry.submitEpisode(missionId, episodeLogRoot, policyRoot, decisionCount)` is called on Galileo; the block timestamp is the No-show evidence. After the Episode Submission the Requester writes a public `seedReveal` entity (seed + salt); Verifiers check it against `seedCommitment = keccak256(seed ‖ salt)`. |
 | 8 | Verification | 3 Verifiers | x402 + 0G + Docker | The Requester's agent calls `POST /replay` on each Verifier, gets a 402, and pays per Replay in USDC with no human approving. Each Verifier runs the checks in section 5.2 and returns a signed Verdict, also written as a Verdict entity on Arkiv. |
-| 9 | Settlement | Anyone | Hedera | `settle(outcome, evidenceHash, sig1, sig2)` with 2 matching Verdicts pays out according to the Outcome table (section 4.4). |
+| 9 | Settlement | Requester agent | Hedera | `settle(missionId, outcome, evidenceHash, sigs[2])` with 2 matching Verdicts (same Outcome and same `evidenceHash`) pays out according to the Outcome table (section 4.4). A payout the recipient cannot receive is deferred: it is credited to `owed`, `PayoutDeferred` is emitted, and the recipient claims it with `withdraw()`. |
 | 10 | Reputation | UI | Arkiv | The leaderboard queries Verdict entities; Reliability, XP and Level are recomputed from them. |
 
-Deadlines (tunable): stake 30 s after Award; Seed Release 30 s after stake; Episode Submission 5 min after Seed Release; `rescue()` 60 min after `createMission`.
+**Deadlines.** On-chain `Deadlines{uint64 biddingEndsAt, uint32 stakeWindow, uint32 seedReleaseWindow, uint32 episodeWindow, uint64 rescueAt}` (absolute, duration, duration, duration, absolute). Demo values: t+60 s, 30 s, 30 s, 300 s, t+3600 s. The Requester measures the 60 s bidding window from the `createMission` call, with a configurable confirmation slack (default 15 s) added to `biddingEndsAt`.
+
+On-chain rules:
+- `award()` needs `now >= biddingEndsAt` and `now + stakeWindow + seedReleaseWindow + episodeWindow < rescueAt`.
+- `stake()` is allowed while `now < awardedAt + stakeWindow`; a replacement `award()` when `now >= awardedAt + stakeWindow`.
+- `settle()` reverts at or after `rescueAt`; `rescue()` is allowed from `rescueAt` for any unsettled Mission, including one with no Bids.
+- The Seed Release deadline (`stakedAt + seedReleaseWindow`) and the Episode Submission deadline (actual Seed Release + `episodeWindow`) are checked off-chain by Verifiers. The contract only rejects an early `NoSeedRelease` Outcome (before `stakedAt + seedReleaseWindow`).
 
 ---
 
@@ -95,10 +101,12 @@ The highest S wins. At w = 0.5 this ranks Bids by R / price, the expected cost p
 
 The protocol publishes no price floor. A Bid's price is the Worker's own strategy, and the protocol enforces only four rules:
 
-1. price ≤ maxBounty;
+1. price is a positive integer in USDC base units (at least 1) and at most maxBounty (the contract also caps the Bid Stake at maxBounty / 2);
 2. the Bid commits to a Policy by `policyHash`;
 3. the price is sealed to the Quorum;
-4. one Bid per Worker per Mission, frozen when bidding closes.
+4. one Bid per Worker per Mission, frozen when bidding closes (a Bid created after `biddingClosesAt` does not count).
+
+Money is a bigint in base units at every module boundary; decimal USDC appears only in human-facing config and APIs (the I7 `maxBounty`, which must convert to at least 1 base unit and have at most 6 decimals). A Worker whose price would round to 0 skips the Mission (`PRICE_NOT_POSITIVE`).
 
 A cheap model may bid low; that is legitimate. Underbidding is self-correcting: a Fail or No-show pays nothing, slashes the stake and lowers Reliability. Replay fees are not the Worker's cost: the Requester pays the Verifiers directly through x402, so a Mission costs the Requester price + Replay fees.
 
@@ -106,7 +114,7 @@ $$\text{stake} = \text{maxBounty} \times (1 - R) \times 0.5$$
 
 Only the winner stakes. Rookies (R = 0.67) stake about 17% of the max bounty and veterans (R = 0.95) 2.5%, which prices out Sybil wallets.
 
-**Demo Worker strategy (not protocol).** Our three demo Workers price as `estimate = c_0G × expectedDecisions + c_tx + (1 − R) × stake` and bid `estimate × margin`, where c_0G is the Worker's own 0G cost per Decision, expectedDecisions its own guess for the Difficulty Class, and c_tx its transaction fees (stake on Hedera, Bid on Arkiv, two 0G Storage uploads, `submitEpisode`). A Worker skips a Mission if its price exceeds the max bounty, fewer than 10 s of bidding remain, it already holds an unfinished win, its wallet can't cover the expected stake plus fees, or its 0G balance can't cover a full Decision Cap of Decisions.
+**Demo Worker strategy (not protocol).** Our three demo Workers price as `estimate = c_0G × expectedDecisions + c_tx + (1 − R) × stake` and bid `estimate × margin`, where c_0G is the Worker's own 0G cost per Decision, expectedDecisions its own guess for the Difficulty Class, and c_tx its transaction fees (stake on Hedera, Bid on Arkiv, two 0G Storage uploads, `submitEpisode`). A Worker skips a Mission if its price is not positive or exceeds the max bounty, fewer than 10 s of bidding remain, it already holds an unfinished win, its wallet can't cover the expected stake plus fees, or its 0G balance can't cover a full Decision Cap of Decisions.
 
 ### 4.4 Outcomes (each one row of `settle()`)
 
@@ -117,11 +125,11 @@ Only the winner stakes. Rookies (R = 0.67) stake about 17% of the max bounty and
 | No-show | nothing (stake slashed) | stake + maxBounty | down | unchanged |
 | Invalid Course | stake + price | maxBounty − price | unchanged | unchanged |
 | No Seed Release | stake + price | maxBounty − price | unchanged | unchanged |
-| Rescue (no Verdict by the final deadline) | stake | maxBounty | unchanged | unchanged |
+| Rescue (Mission unsettled at `rescueAt`, including no Bids) | deposited stake (0 if none) | maxBounty | unchanged | unchanged |
 
-Verifiers are paid per Replay through x402, never from Escrow.
+Verifiers are paid per Replay through x402, never from Escrow. If a payout cannot be delivered, it is deferred to `owed[recipient]` and claimed with `withdraw()`; this changes when funds arrive, not who gets them. `settle()` is blocked from `rescueAt`.
 
-### 4.5 XP and Level (trophy only, never used for Awards)
+### 4.5 XP and Level (trophy only, never used for Awards; q is defined in 4.6)
 
 $$\text{XP}_{\text{Pass}} = 100 \times m_{\text{difficulty}} \times (1 + q), \qquad \text{Level} = \left\lfloor \sqrt{\text{XP}/100} \right\rfloor$$
 
@@ -138,7 +146,7 @@ Every Action except STOP costs 1, so a 30° turn costs the same as a 0.5 m move 
 
 A Pass needs the goal, zero collisions, Path Cost ≤ Path Allowance and at most 60 Decisions. The allowance is relative to each Course, so nobody has to pick a step number, and nothing about the Course leaks before the Seed Release. The 2x slack leaves room for a path that keeps a safe distance from obstacles instead of hugging them.
 
-**Path Quality** q = Optimal Path Cost / Path Cost, between 0 and 1. It feeds Reliability (4.1) and XP (4.5), never the payout: prices are fixed once awarded.
+**Path Quality** q = min(1, Optimal Path Cost / Path Cost), and 0 if Path Cost is 0. It is between 0 and 1. It feeds Reliability (4.1) and XP (4.5), never the payout: prices are fixed once awarded.
 
 Not scored in this version: clearance from obstacles and smoothness (roadmap additions to q), and anything that isn't deterministic, such as wall-clock time or 0G spend.
 
@@ -154,10 +162,12 @@ Not scored in this version: clearance from obstacles and smoothness (roadmap add
 | 0G Storage | Episode Log and revealed Policy | `@0gfoundation/0g-storage-ts-sdk`: `new Indexer('https://indexer-storage-testnet-turbo.0g.ai')`, `new MemData(bytes)`, `merkleTree()`, `indexer.upload(data, RPC, signer)`, `indexer.download(root, path, true)` |
 | 0G Chain (Galileo, chain 16602, `https://evmrpc-testnet.0g.ai`) | `EpisodeRegistry` contract: `submitEpisode(missionId, episodeLogRoot, policyRoot, decisionCount)` emits `EpisodeSubmitted` | Deployed by us; its address goes into the submission |
 
-**Episode Log schema.** Header: `{ missionId, worker, policyRoot, seedCommitment }`. One entry per Decision: `{ step, frameHash, chatID, providerAddress, rawResponse, action }`.
+**Episode Log schema.** Header: `{ missionId, worker, policyRoot, seedCommitment }`. One entry per Decision: `{ step, frameHash, chatID, providerAddress, request, rawResponse, action, receipt? }`. `step` is the Decision index (not the Path Cost; in `sim replay` output `steps` is the Path Cost). `frameHash` is the hash of the raw RGB frame under the `dewo-frame-v1` format. `receipt` (the optional 0G signed receipt) never ends an Episode: if fetching it fails, the Decision is recorded without it, and only a failed completion call or a failed `processResponse` safe-stops.
+
+**Reproducibility.** Workers run the simulator in the same pinned Docker image the Verifiers use (`sim/scripts/sim-docker`); the PNG encoder is part of the pinned build. `frameHash` and the PNG bytes in the 0G request must be bit-identical to the Verifier's Replay (checks 4 and 5). A native `sim` is for development only.
 
 **Verifier checks (in order; any failure means Fail, except check 2):**
-1. The revealed seed and salt hash to the Mission's `seedCommitment`.
+1. The seed and salt in the public `seedReveal` entity hash (`keccak256(seed ‖ salt)`) to the Mission's `seedCommitment`.
 2. A deterministic planner on the Course finds the Optimal Path Cost; if no path exists, or its cost is above 29 (so the Path Allowance would exceed the Decision Cap), the Outcome is Invalid Course.
 3. The revealed Policy hashes to the Bid's `policyHash`.
 4. For each Decision: the Replay frame hash equals `frameHash`; `processResponse(providerAddress, chatID)` is valid; the request rebuilt from the Policy + Replay frame + history matches what was signed (see Risk 1); and `parse(rawResponse) == action`.
@@ -169,12 +179,19 @@ Not scored in this version: clearance from obstacles and smoothness (roadmap add
 
 | Piece | Use | Verified call |
 |---|---|---|
-| `MissionEscrow.sol` on Hedera EVM (chain 296, `https://testnet.hashio.io/api`) | Locks the bounty and stake; `createMission`, `award` (2-of-3 signatures), `stake`, `settle(outcome, evidenceHash, sig1, sig2)` (2-of-3), `rescue()` | Solidity + `ecrecover` over EIP-712 Award and Verdict structs |
+| `MissionEscrow.sol` on Hedera EVM (chain 296, `https://testnet.hashio.io/api`) | Locks the bounty and stake; `createMission`, `award(missionId, worker, price, stake, sigs[2])` (2-of-3), `stake`, `settle(missionId, outcome, evidenceHash, sigs[2])` (2-of-3), `rescue()` (from `rescueAt`, any unsettled Mission), `withdraw()` / `owed` (deferred payouts, `PayoutDeferred`) | Solidity + `ecrecover` over EIP-712 Award and Verdict structs |
 | HTS USDC (testnet `0.0.429274`) | Settlement asset | The contract must be associated with the token: HTS system contract `0x167` `associateToken(address(this), usdc)` in the constructor, or `maxAutomaticTokenAssociations` at deploy |
 | x402 per Replay | Each Verifier's `POST /replay` returns 402; the Requester's agent pays and gets the Verdict | Server: `x402ResourceServer` from `@x402/core/server` + `ExactHederaScheme` from `@x402/hedera/exact/server`. Client: `createClientHederaSigner` from `@x402/hedera`, `new x402Client().register("hedera:*", new ExactHederaScheme(signer))` |
 | Facilitator | Settles x402 payments on testnet | Blocky402 `https://api.testnet.blocky402.com` (no API key) or Official `https://x402.org/facilitator` |
 | HCS topic (cheap add) | Tamper-evident audit log of the Requester agent's spending | Track extra point |
 | Spending cap (cheap add) | The Requester agent refuses Replay payments above its per-Mission budget | Track extra point |
+
+**I6 Verifier HTTP API (wire format).**
+- `POST /award { missionId }` is free. It returns `200 { worker: address, price: string (base units), stake: string (base units), signature: 0x hex (EIP-712 Award) }`, or `200 null` when no valid Bid exists.
+- `POST /replay { missionId }` returns `402` with x402 requirements (USDC on `hedera:testnet`). After payment it returns `200 { verdict: "Pass" | "Fail" | "NoShow" | "InvalidCourse" | "NoSeedRelease", signature: 0x hex (EIP-712 Verdict), evidenceHash: 0x bytes32, pathCost: int, optimalPathCost: int, collisions: int }`.
+- The Requester rejects any `verdict` not in that list with a clear error.
+- The HCS spending log record is `{ missionId, verifier, verifierUrl, outcome, amount (base units string), payTo, network, asset, paymentTx (from the PAYMENT-RESPONSE header, if present), at }`.
+- Every on-chain write returns its transaction hash; events carry `txUrl` (Hedera: `https://hashscan.io/testnet/transaction/<hash>`; 0G Galileo: `https://chainscan-galileo.0g.ai/tx/<hash>`). `bids.revealed` and `verdict.signed` events are emitted by the Verifiers.
 
 **Track checklist:** an x402 endpoint settling on testnet, an agent paying with no human approval, the Hedera transaction ID of a settled payment in the README, and a video linking to HashScan. Extra points we can honestly claim: HTS USDC settlement, the HCS spending audit log, spending controls, and (stretch) ERC-8004 reputation.
 
@@ -184,10 +201,13 @@ Client: `@arkiv-network/sdk` + `viem`, chain helper `rabdi({ accessKey })` (an a
 
 | Schema | Owner | Indexed (queryable) fields | Payload | Expiration |
 |---|---|---|---|---|
-| `mission` | Requester | `difficultyClass`, `bounty`, `status`, `requester` | `seedCommitment`, `riskWeight`, `escrowMissionId` | when bidding closes |
-| `bid` | Worker | `missionId`, `worker` | `policyHash`, `workerPubKey`, price ciphertext x3 | with its Mission |
-| `seedRelease` | Requester | `missionId`, `worker` | seed + salt encrypted to `workerPubKey` | shortly after the Episode deadline |
-| `verdict` | Verifier | `missionId`, `worker`, `outcome`, `pathCost`, `collisions` | `optimalPathCost`, `pathQuality`, signature, `evidenceHash`, `episodeLogRoot` | long-lived (leaderboard history) |
+| `mission` | Requester | `missionId`, `difficultyClass`, `bounty`, `status`, `requester`, `biddingClosesAt` | `seedCommitment`, `riskWeight`, `escrowMissionId`, `verifiers` | at the rescue deadline (60 min); hidden from the board at `biddingClosesAt` |
+| `bid` | Worker | `missionId`, `worker` | `policyHash`, `workerPubKey`, `verifiers`, price ciphertext x3 | with its Mission |
+| `seedRelease` | Requester | `missionId`, `worker` | seed + salt encrypted to `workerPubKey` | 70 min after it is written |
+| `seedReveal` | Requester | `missionId` | seed + salt in clear | 180 days |
+| `verdict` | Verifier | `missionId`, `worker`, `difficultyClass`, `outcome`, `pathCost`, `collisions` | `optimalPathCost`, `pathQuality`, signature, `evidenceHash`, `episodeLogRoot` | long-lived (leaderboard history) |
+
+Rules for readers of these entities: a Bid counts only if its creating block's timestamp is at or before the Mission's `biddingClosesAt` (so every Verifier sees the same Bid set). Two Verdicts match for `settle()` only if they have the same `outcome` and the same `evidenceHash`; only Verdicts written by the Mission's Verifiers count, one per Verifier per Mission (the earliest).
 
 Verified calls: `wallet.createEntity(Schema, data, { expiration: ExpirationTime.fromDays(n) })`, `wallet.patchEntity(Schema, key, { set })` (for Mission `status`), and `pub.select(...).from(Schema).where(and(eq('missionId', id), ...)).ownedBy(addr).fetch()`.
 
@@ -230,6 +250,7 @@ Verified calls: `wallet.createEntity(Schema, data, { expiration: ExpirationTime.
 ## 8. Known, documented gaps (README)
 
 - Any single Verifier can decrypt Bid prices early and leak them (fix: 2-of-3 threshold encryption, future work).
+- A Worker can seal different prices to each Verifier, which can stall the Award (there is no plaintext commitment to the price).
 - A Requester whose own Worker legitimately bids best can farm XP (it costs real bounty, 0G inference and Replay fees each time).
 - In the demo, all three Verifiers run on our infrastructure; in production they would be independently operated and staked.
 - The optimistic Reliability prior is partly offset by the stake formula, not eliminated.
