@@ -1,6 +1,6 @@
 # make replay-check            replay the recorded run twice with the local uv env
 # make replay-check DOCKER=1   same, inside the pinned dewo-sim image
-VERSION ?= 0.2.0
+VERSION ?= 0.3.0
 FIX := tests/fixtures
 OUT := .replay-check
 
@@ -14,10 +14,14 @@ COURSE = $(FIX)/course_medium.json
 ACTIONS = $(FIX)/actions_medium.json
 endif
 
-.PHONY: image test replay-check
+.PHONY: image overview-image test replay-check
 
 image:
 	docker build --platform linux/amd64 -t dewo-sim:$(VERSION) .
+
+# Spectator renderer for the web UI, built on the pinned image without changing it.
+overview-image: image
+	docker build --platform linux/amd64 -t dewo-sim-overview:$(VERSION) overview
 
 test:
 	uv run --project . pytest -q

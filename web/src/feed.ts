@@ -12,6 +12,7 @@ export type MissionState = {
   award?: Of<"award.signed"> & { txUrl?: string }
   stake?: Of<"stake.deposited"> & { txUrl?: string }
   decisions: (Of<"decision.made"> & { ts: string })[]
+  moves: Of<"rover.moved">[]
   episode?: Of<"episode.submitted"> & { txUrl?: string }
   verifiers: Record<string, VerifierView>
   settled?: Of<"settled"> & { txUrl?: string }
@@ -25,7 +26,7 @@ const later = (a: VerifierView["status"], b: VerifierView["status"]) => (RANK[b]
 export const eventKey = (e: DewoEvent) => `${e.ts}|${e.type}|${JSON.stringify(e.data)}`
 
 export function foldEvents(missionId: string, events: DewoEvent[]): MissionState {
-  const s: MissionState = { missionId, sealedBids: [], decisions: [], verifiers: {}, phase: "waiting" }
+  const s: MissionState = { missionId, sealedBids: [], decisions: [], moves: [], verifiers: {}, phase: "waiting" }
   const v = (addr: string) => (s.verifiers[addr] ??= { status: "idle" })
   // Stable sort: events with the same ts keep arrival order, so file timing doesn't matter.
   for (const e of [...events].sort((a, b) => a.ts.localeCompare(b.ts))) {
@@ -37,6 +38,7 @@ export function foldEvents(missionId: string, events: DewoEvent[]): MissionState
       case "award.signed": s.award = { ...(d as object), txUrl: e.txUrl } as never; break
       case "stake.deposited": s.stake = { ...(d as object), txUrl: e.txUrl } as never; break
       case "decision.made": s.decisions.push({ ...(d as object), ts: e.ts } as never); break
+      case "rover.moved": s.moves.push(d); break
       case "episode.submitted": s.episode = { ...(d as object), txUrl: e.txUrl } as never; break
       case "replay.paid": {
         // The Verifier emits "paid" with the settlement link; the Requester's 402 can land after it (D15).

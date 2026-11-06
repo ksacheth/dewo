@@ -56,6 +56,13 @@ label span { text-transform:none; letter-spacing:0; }
 
 .frame { width:100%; aspect-ratio:1; image-rendering:pixelated; background:#05080a; border:1px solid var(--line); border-radius:6px; object-fit:contain;
   background-image:linear-gradient(#ffffff04 1px, transparent 1px), linear-gradient(90deg, #ffffff04 1px, transparent 1px); background-size:30px 30px; }
+.arena { position:relative; }
+.arena .frame { image-rendering:auto; display:block; }
+.arena .onboard { display:flex; gap:12px; align-items:center; margin-top:10px; }
+.arena .onboard img { width:96px; height:96px; flex:none; image-rendering:pixelated; border:1px solid var(--line); border-radius:6px; }
+.arena .onboard div { display:flex; flex-direction:column; gap:4px; min-width:0; font-size:11px; }
+.arena .onboard strong { font:500 20px var(--mono); }
+.banner.good { color:#cceddd; border-color:#cceddd60; }
 .steps { max-height:220px; overflow:auto; margin-top:12px; border-top:1px solid var(--line); }
 .step { display:grid; grid-template-columns:56px 1fr 1fr; gap:8px; padding:7px 8px; cursor:pointer; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:11px; }
 .step strong { color:var(--accent); }

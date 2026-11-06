@@ -18,8 +18,16 @@ describe("parseMissionRequest", () => {
     [{ difficulty: "easy", maxBounty: 0, riskWeight: 0.5 }, "maxBounty"],
     [{ difficulty: "easy", maxBounty: 10, riskWeight: 1.5 }, "riskWeight"],
     [null, "JSON object"],
+    [{ difficulty: "easy", maxBounty: 10, riskWeight: 0.5, task: "boat" }, "task"],
   ])("rejects %j", (body, field) => {
     expect(parseMissionRequest(body)).toContain(field);
+  });
+});
+
+describe("parseMissionRequest task", () => {
+  it("passes a drone task through and leaves a missing one for the rover default", () => {
+    expect(parseMissionRequest({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5, task: "drone" })).toMatchObject({ task: "drone" });
+    expect("task" in (parseMissionRequest({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5 }) as MissionRequest)).toBe(false);
   });
 });
 

@@ -1,4 +1,4 @@
-import { buildRequest, canonicalJson, parseAction, type Action, type Decision, type Policy } from "@dewo/agents/formats";
+import { buildRequest, canonicalJson, parseAction, type Action, type Decision, type Policy, type Task } from "@dewo/agents/formats";
 import type { ReplayResult, ZeroGPort } from "../ports.js";
 import { frameHashOfPng } from "./frame.js";
 
@@ -16,11 +16,11 @@ function attachedPng(request: unknown): Uint8Array | null {
  * - the PNG in the logged request has the Replay frame hash (the sim hashes raw pixels), so it is the frame the rover really saw;
  * - 0G vouches for the chat ID;
  * - the request rebuilt from Policy + that frame + history equals the logged request (anti-steering, spike #2);
- * - parse(rawResponse) == action.
+ * - parse(rawResponse) == action, parsed with the Actions of the Mission's task (a rover answer of ASCEND is STOP).
  * Whether 0G's signed answer belongs to this exact request is still open (README, spike #2).
  */
 export async function checkDecisions(
-  zeroG: ZeroGPort, policy: Policy, decisions: Decision[], replay: ReplayResult,
+  zeroG: ZeroGPort, policy: Policy, decisions: Decision[], replay: ReplayResult, task: Task = "rover",
 ): Promise<boolean> {
   const history: Action[] = [];
   for (const [i, d] of decisions.entries()) {
@@ -35,7 +35,7 @@ export async function checkDecisions(
     if (!png || frameHashOfPng(png) !== replayHash) return false;
     if (canonicalJson(d.request) !== canonicalJson(buildRequest(policy, png, history))) return false;
 
-    if (parseAction(d.rawResponse) !== d.action) return false;
+    if (parseAction(d.rawResponse, task) !== d.action) return false;
     history.push(d.action);
   }
   return true;

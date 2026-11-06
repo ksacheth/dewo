@@ -18,7 +18,7 @@ os.environ.setdefault("PYOPENGL_PLATFORM", os.environ["MUJOCO_GL"])
 import mujoco  # noqa: E402
 
 from . import rover as R  # noqa: E402
-from .course import ARENA  # noqa: E402
+from .course import ARENA, CEILING  # noqa: E402
 
 FRAME_SIZE = 224
 WALL_H = 0.5
@@ -34,21 +34,13 @@ _QUAT = [
 ]
 
 
+HOOP_TUBE = 0.035
+
+
 def build_xml(course):
-    geoms = [
-        '<geom name="floor" type="plane" size="%g %g 0.1" pos="%g %g 0" material="floor"/>'
-        % (ARENA / 2, ARENA / 2, ARENA / 2, ARENA / 2)
-    ]
-    t = 0.05
-    for name, x, y, sx, sy in (
-        ("wall_s", ARENA / 2, -t, ARENA / 2 + t, t),
-        ("wall_n", ARENA / 2, ARENA + t, ARENA / 2 + t, t),
-        ("wall_w", -t, ARENA / 2, t, ARENA / 2),
-        ("wall_e", ARENA + t, ARENA / 2, t, ARENA / 2),
-    ):
-        geoms.append(
-            f'<geom name="{name}" type="box" size="{sx} {sy} {WALL_H / 2}" pos="{x} {y} {WALL_H / 2}" material="wall"/>'
-        )
+    if course.get("task", "rover") == "drone":
+        return _drone_xml(course)
+    geoms = _arena_geoms(WALL_H)
     for i, ob in enumerate(course["obstacles"]):
         geoms.append(
             f'<geom name="obs_{i}" type="box" size="{ob["w"] / 2} {ob["h"] / 2} {WALL_H / 2}" '
@@ -62,6 +54,55 @@ def build_xml(course):
         f'<geom name="goal_post" type="cylinder" size="0.05 0.4" pos="{g["x"]} {g["y"]} 0.4" material="goal" contype="0" conaffinity="0"/>'
     )
     xml = (Path(__file__).parent / "assets" / "rover.xml").read_text()
+    return xml.replace("<!--COURSE-->", "\n    ".join(geoms))
+
+
+def _arena_geoms(wall_h, material="wall"):
+    geoms = [
+        '<geom name="floor" type="plane" size="%g %g 0.1" pos="%g %g 0" material="floor"/>'
+        % (ARENA / 2, ARENA / 2, ARENA / 2, ARENA / 2)
+    ]
+    t = 0.05
+    for name, x, y, sx, sy in (
+        ("wall_s", ARENA / 2, -t, ARENA / 2 + t, t),
+        ("wall_n", ARENA / 2, ARENA + t, ARENA / 2 + t, t),
+        ("wall_w", -t, ARENA / 2, t, ARENA / 2),
+        ("wall_e", ARENA + t, ARENA / 2, t, ARENA / 2),
+    ):
+        geoms.append(
+            f'<geom name="{name}" type="box" size="{sx} {sy} {wall_h / 2}" pos="{x} {y} {wall_h / 2}" material="{material}"/>'
+        )
+    return geoms
+
+
+def hoop_segments(g):
+    """The hoop as 12 capsule fromto's in the y-z plane, from the sqrt-only cos table (no libm trig)."""
+    r = g["r"]
+    pts = [(g["x"], g["y"] + r * _COS[k], g["z"] + r * _COS[(k - 3) % 12]) for k in range(12)]
+    return [pts[k] + pts[(k + 1) % 12] for k in range(12)]
+
+
+def _drone_xml(course):
+    """The drone scene: walls up to the ceiling (a see-through geofence), obstacles at their own height, a hoop."""
+    geoms = _arena_geoms(CEILING)
+    for i, ob in enumerate(course["obstacles"]):
+        look = 'material="tower"' if ob["top"] >= CEILING else f'rgba="{OBSTACLE_COLORS[i % 4]}"'
+        geoms.append(
+            f'<geom name="obs_{i}" type="box" size="{ob["w"] / 2} {ob["h"] / 2} {ob["top"] / 2}" '
+            f'pos="{ob["x"]} {ob["y"]} {ob["top"] / 2}" {look}/>'
+        )
+    g = course["goal"]
+    for k, seg in enumerate(hoop_segments(g)):
+        geoms.append(
+            f'<geom name="hoop_{k}" type="capsule" size="{HOOP_TUBE}" fromto="%r %r %r %r %r %r" material="goal" '
+            'contype="0" conaffinity="0"/>' % seg
+        )
+    pole_h = g["z"] - g["r"]
+    geoms.append(
+        f'<geom name="hoop_pole" type="cylinder" size="0.02 {pole_h / 2}" pos="{g["x"]} {g["y"]} {pole_h / 2}" '
+        'material="goal" contype="0" conaffinity="0"/>'
+    )
+    xml = (Path(__file__).parent / "assets" / "drone.xml").read_text()
     return xml.replace("<!--COURSE-->", "\n    ".join(geoms))
 
 
@@ -95,15 +136,16 @@ class Camera:
         self.data = mujoco.MjData(self.model)
         self.renderer = mujoco.Renderer(self.model, FRAME_SIZE, FRAME_SIZE)
 
-    def place(self, state):
-        x, y = R.position(state)
-        self.data.mocap_pos[0] = (x, y, 0.0)
-        self.data.mocap_quat[0] = _QUAT[state[4]]
+    def place(self, robot):
+        """Put the camera body where `robot` (a rover.Rover or drone.Drone) is."""
+        pos, yaw_idx = robot.mocap(robot.state)
+        self.data.mocap_pos[0] = pos
+        self.data.mocap_quat[0] = _QUAT[yaw_idx]
         mujoco.mj_forward(self.model, self.data)
 
-    def render(self, state):
-        """Return (png bytes, '0x<frame_hash of the raw pixels>') for the view from `state`."""
-        self.place(state)
+    def render(self, robot):
+        """Return (png bytes, '0x<frame_hash of the raw pixels>') for the view from `robot`'s pose."""
+        self.place(robot)
         self.renderer.update_scene(self.data, camera="onboard")
         rgb = self.renderer.render()
         return encode_png(rgb), frame_hash(rgb)

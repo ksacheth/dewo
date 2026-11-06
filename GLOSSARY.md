@@ -42,7 +42,11 @@ _Avoid_: deposit, vault, treasury, buffer
 
 **Mission**:
 A job a Requester pays for only on a Pass. In this version every Mission is a robot job: get from a start pose to a goal on a specific Course within its Mission Limits.
-_Avoid_: task, job, gig
+_Avoid_: job, gig (and "task", which names the robot, below)
+
+**Task**:
+Which robot a Mission's Course is for: `rover` (drive to the charger) or `drone` (fly through the hoop). Read from the Course Seed (a seed starting with the bytes `dron` is a drone Course), written into the Course as `task`, and fixed on-chain with the seed (ADR 0007). A Policy flies one Task.
+_Avoid_: robot type, mode, vehicle
 
 **Course**:
 The obstacle layout a Mission runs on, fully determined by its Course Seed.
@@ -77,7 +81,7 @@ The most collisions a Pass may have on this Mission (`maxCollisions`, 0 or more)
 _Avoid_: safety budget, crash limit
 
 **Collision**:
-A move the rover could not make because it would hit an obstacle or leave the arena; the rover stays where it was and the Episode goes on.
+A move the robot could not make because it would hit an obstacle, leave the arena, or (a drone) touch the floor or ceiling; the robot stays where it was and the Episode goes on.
 _Avoid_: crash, hit
 
 **Decision**:
@@ -85,7 +89,7 @@ One perception-and-action turn: the robot's view goes to the model, and one acti
 _Avoid_: step, move, tick, inference
 
 **Action**:
-One of a small fixed set of high-level robot moves that a Decision returns, such as move forward or turn.
+One of a small fixed set of high-level robot moves that a Decision returns, such as move forward or turn; a drone also has ascend and descend.
 _Avoid_: command, move, control
 
 **Episode**:

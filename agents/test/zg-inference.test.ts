@@ -80,7 +80,7 @@ describe("0G Compute balance sources", () => {
 
   it("feeds the skip rule: a Router balance below the Mission's maxSteps Decisions skips the Mission", () => {
     const verifiers = ["0x0000000000000000000000000000000000000001"] as const;
-    const base = { missionVerifiers: verifiers, trustedVerifiers: verifiers, price: 1, maxBounty: 10, secondsLeftToBid: 60, hasUnfinishedWin: false, walletBalance: 10, stake: 1, txFees: 0.05, zeroGPerDecision: 0.0001, maxSteps: 60, limitsReachable: true };
+    const base = { missionVerifiers: verifiers, trustedVerifiers: verifiers, missionTask: "rover" as const, policyTask: "rover" as const, price: 1, maxBounty: 10, secondsLeftToBid: 60, hasUnfinishedWin: false, walletBalance: 10, stake: 1, txFees: 0.05, zeroGPerDecision: 0.0001, maxSteps: 60, limitsReachable: true };
     expect(shouldSkip({ ...base, zgBalance: 0.0059 })).toBe("ZG_BALANCE_CANNOT_COVER_EPISODE");
     expect(shouldSkip({ ...base, zgBalance: 0.006 })).toBeNull();
     expect(shouldSkip({ ...base, zgBalance: Number.POSITIVE_INFINITY })).toBeNull();

@@ -1,7 +1,7 @@
 # Pinned simulator image: dewo-sim:<version>. Always build with --platform
 # linux/amd64 (make image does) so a Mac (arm64) and a Linux box (amd64) run the
 # exact same binaries:
-#   docker build --platform linux/amd64 -t dewo-sim:0.2.0 sim/
+#   docker build --platform linux/amd64 -t dewo-sim:0.3.0 sim/
 FROM python:3.12.7-slim-bookworm@sha256:60d9996b6a8a3689d36db740b49f4327be3be09a21122bd02fb8895abb38b50d
 
 # Software rendering (OSMesa) so frames do not depend on any GPU or driver.

@@ -14,7 +14,7 @@ def _load(path):
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="sim")
-    # Replay semantics change between versions (0.2.0: a collision blocks the move), so Verifiers refuse any other version.
+    # Replay semantics change between versions (0.2.0: a collision blocks the move; 0.3.0: drone Courses), so Verifiers refuse any other version.
     p.add_argument("--version", action="version", version=__version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 

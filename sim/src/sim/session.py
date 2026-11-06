@@ -4,41 +4,41 @@ import json
 import sys
 from pathlib import Path
 
-from . import rover as R
 from .camera import Camera
+from .robots import robot_class
 
 
 class Episode:
     def __init__(self, course, frames_dir=None):
-        self.rover = R.Rover(course)
+        self.robot = robot_class(course)(course)
         self.camera = Camera(course)
         self.frames_dir = Path(frames_dir) if frames_dir else None
         if self.frames_dir:
             self.frames_dir.mkdir(parents=True, exist_ok=True)
 
     def observe(self):
-        png, h = self.camera.render(self.rover.state)
+        png, h = self.camera.render(self.robot)
         path = ""
         if self.frames_dir:
-            p = self.frames_dir / f"frame_{self.rover.step:04d}.png"
+            p = self.frames_dir / f"frame_{self.robot.step:04d}.png"
             p.write_bytes(png)
             path = str(p)
         return {
-            "step": self.rover.step,
+            "step": self.robot.step,
             "frame": path,
             "frameHash": h,
-            "pose": self.rover.pose(),
-            "atGoal": self.rover.at_goal(),
-            "collisions": self.rover.collisions,
+            "pose": self.robot.pose(),
+            "atGoal": self.robot.at_goal(),
+            "collisions": self.robot.collisions,
         }
 
     def act(self, action):
-        collision = self.rover.act(action)
+        collision = self.robot.act(action)
         return {
-            "step": self.rover.step,
+            "step": self.robot.step,
             "collision": collision,
-            "atGoal": self.rover.at_goal(),
-            "pose": self.rover.pose(),
+            "atGoal": self.robot.at_goal(),
+            "pose": self.robot.pose(),
         }
 
     def close(self):

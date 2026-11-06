@@ -1,6 +1,7 @@
 {
   "seed": "0xabc",
   "difficulty": "medium",
+  "task": "rover",
   "start": {
     "x": 0.75,
     "y": 2.0,

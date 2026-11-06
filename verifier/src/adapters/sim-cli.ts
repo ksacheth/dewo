@@ -24,10 +24,10 @@ export const localRunner = (prefix: string[]): SimRunner => async (args) => {
 };
 
 /**
- * The only sim build this Verifier replays with. Replay semantics change between versions (0.2.0: a collision blocks the move
+ * The only sim build this Verifier replays with. Replay semantics change between versions (0.2.0: a collision blocks the move; 0.3.0 adds drone Courses
  * and the Episode goes on), so a Verifier on another build would sign another evidenceHash and no Quorum could form.
  */
-export const SIM_VERSION = "0.2.0";
+export const SIM_VERSION = "0.3.0";
 
 /** Refuses to start on any sim but SIM_VERSION, as reported by `sim --version` (inside the pinned image when run through sim-docker). */
 export async function assertSimVersion(run: SimRunner): Promise<void> {

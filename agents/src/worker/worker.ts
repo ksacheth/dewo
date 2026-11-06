@@ -7,8 +7,10 @@ import {
   canonicalJson,
   fromBaseUnits,
   policyHash,
+  policyTask,
   replayableSteps,
   sameVerifierSet,
+  taskOf,
   toBaseUnits,
   type EpisodeLog,
   type Hex,
@@ -158,8 +160,9 @@ export class Worker {
       return this.put(this.trusts(mission) ? { missionId, stage: "BID_PLACED" } : { missionId, stage: "LOST", note: UNTRUSTED });
     }
     const { terms } = mission;
-    // Run the planner first (it can take a while) and only on trusted Missions; the skip rule reports untrusted ones first anyway.
-    const limitsReachable = this.trusts(mission) && (await this.limitsReachable(missionId, terms));
+    const missionTask = taskOf(terms.courseSeed);
+    // Run the planner first (it can take a while) and only on trusted Missions this Policy can fly; the skip rule reports the others first anyway.
+    const limitsReachable = this.trusts(mission) && missionTask === policyTask(this.config.policy) && (await this.limitsReachable(missionId, terms));
     const reliability = await board.reliabilityOf(this.config.address);
     const maxBounty = fromBaseUnits(terms.maxBounty);
     const stake = expectedStake(maxBounty, reliability);
@@ -169,6 +172,8 @@ export class Worker {
     const skip = shouldSkip({
       missionVerifiers: mission.verifiers,
       trustedVerifiers: this.config.verifierAddresses,
+      missionTask,
+      policyTask: policyTask(this.config.policy),
       price: bidPrice,
       maxBounty,
       secondsLeftToBid: terms.deadlines.biddingClosesAt - clock.now(),
@@ -269,6 +274,7 @@ export class Worker {
         policy: this.config.policy,
         session,
         inference: this.deps.inference,
+        task: taskOf(terms.courseSeed),
         limits: { maxSteps: terms.maxSteps, maxCollisions: terms.maxCollisions },
         // Stop early enough that the honest partial log can still be uploaded and submitted before the deadline.
         stopAt: (mission.stakedAt ?? 0) + terms.deadlines.episodeWindow - (this.config.submitMarginSeconds ?? DEFAULT_SUBMIT_MARGIN_SECONDS),
