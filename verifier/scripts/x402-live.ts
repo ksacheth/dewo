@@ -18,7 +18,7 @@ import { PrivateKey, createClientHederaSigner } from "@x402/hedera";
 import { ExactHederaScheme } from "@x402/hedera/exact/client";
 import { ndjsonEvents } from "../src/events.js";
 import { createApp } from "../src/server.js";
-import { createX402Gate } from "../src/x402.js";
+import { TESTNET_USDC, createX402Gate } from "../src/x402.js";
 import { FakeSim, MISSION, WORKER, honestEpisode, zeroG } from "../test/fixtures/builders.js";
 
 const env = (name: string): string => {
@@ -54,7 +54,12 @@ const required = decodePaymentRequiredHeader(first.headers.get("PAYMENT-REQUIRED
 console.log("   accepts:", JSON.stringify(required.accepts[0]));
 
 const signer = createClientHederaSigner(env("HEDERA_CLIENT_ACCOUNT_ID"), PrivateKey.fromStringECDSA(env("HEDERA_CLIENT_PRIVATE_KEY")), { network: "hedera:testnet" });
-const client = new x402Client().register("hedera:*", new ExactHederaScheme(signer));
+// The client refuses non-default tokens unless told otherwise: allow only the charged asset, capped at 1 USDC (1_000_000 units).
+const chargedAsset = process.env.X402_ASSET ?? TESTNET_USDC.id;
+const client = x402Client.fromConfig({
+  schemes: [{ network: "hedera:testnet", client: new ExactHederaScheme(signer) }],
+  spendControls: { allowedAssets: [{ network: "hedera:testnet", asset: chargedAsset, maxAmountPerPayment: "1000000" }] },
+});
 const payload = await client.createPaymentPayload(required);
 
 const second = await call({ "payment-signature": encodePaymentSignatureHeader(payload) });
