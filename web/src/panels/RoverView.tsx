@@ -12,7 +12,7 @@ export function RoverView({ state }: { state: MissionState }) {
     <section className="panel hero" aria-label="Rover view">
       <h2><span className="num">03</span>Rover · every Decision is a 0G model call</h2>
       {shown ? <img className="frame" src={`/runs/${shown.frame}`} alt={`Camera frame, step ${shown.step}`} /> : <div className="frame" />}
-      {state.decisions.some((d) => d.action === "STOP") && <div className="banner bad">Safe-stop: the rover halted. Outcome is Fail.</div>}
+      {state.decisions.some((d) => d.action === "STOP") && <div className="banner bad">Episode ended by STOP</div>}
       {failed && <div className="banner bad">Outcome: {state.settled?.outcome ?? "Fail"}</div>}
       <div className="steps" role="listbox" aria-label="Decisions">
         {list.map((d) => (

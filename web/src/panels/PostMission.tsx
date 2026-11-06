@@ -1,8 +1,8 @@
 import { useState } from "react"
 import { DECISION_CAP } from "../constants"
+import { isUnreachable } from "../unreachable"
 
-/** Starts a Mission. Calls the Requester API (I7) via the proxy. The clearly labelled mock requester stands in only when no Requester is configured or it is unreachable (network error, or 502/503/504 from the proxy); a real 4xx/5xx is shown to the user. */
-const UNREACHABLE = new Set([502, 503, 504])
+/** Starts a Mission. Calls the Requester API (I7) via the proxy. The clearly labelled mock requester stands in only when no Requester is configured or it is unreachable (network error, 502/503/504, or Vite's 500 with an empty body for a refused upstream); any other error response is shown to the user. */
 
 export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: boolean) => void }) {
   const [difficultyClass, setDifficulty] = useState("medium")
@@ -18,7 +18,7 @@ export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: 
     try {
       let mock = false
       let r = import.meta.env.VITE_REQUESTER_URL ? await post("/requester/missions").catch(() => null) : null
-      if (!r || UNREACHABLE.has(r.status)) { mock = true; r = await post("/api/mock/missions") }
+      if (!r || isUnreachable(r.status, await r.clone().text().catch(() => ""))) { mock = true; r = await post("/api/mock/missions") }
       const data = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(data.error ?? r.statusText)
       onPosted(data.missionId, mock)

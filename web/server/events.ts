@@ -171,21 +171,29 @@ function deployments(server: ViteDevServer) {
   return Object.fromEntries(readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => [f.slice(0, -5), JSON.parse(readFileSync(join(dir, f), "utf8"))]))
 }
 
-/** Stand-in for the Requester API (I7) until it lands: posts a Mission entity and a mission.posted event. Labelled "mock requester" in the UI. */
-async function mockRequester(body: { difficultyClass: string; maxBounty: number; riskWeight: number }, res: ServerResponse, loadBoard: () => Promise<Record<string, any>>, mode: string) {
+/**
+ * Stand-in for the Requester API (I7) until it lands. Always emits a mission.posted event. Only the file-backed
+ * board mock also gets a Mission entity: in real board mode a fake entity (no escrow) would pollute Arkiv, so none is
+ * written. Labelled "mock requester" in the UI.
+ */
+export async function mockRequester(body: { difficultyClass: string; maxBounty: number; riskWeight: number }, res: ServerResponse, loadBoard: () => Promise<Record<string, any>>, mode: string) {
   const num = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x)
   if (!body || typeof body !== "object" || !["easy", "medium", "hard"].includes(body.difficultyClass) || !(num(body.maxBounty) && body.maxBounty > 0 && body.maxBounty <= 1000) || !(num(body.riskWeight) && body.riskWeight >= 0 && body.riskWeight <= 1))
     return send(res, 400, { error: "invalid difficultyClass, maxBounty or riskWeight" })
   const b = await loadBoard()
   const missionId = `0x${randomBytes(32).toString("hex")}`
-  const { privateKeyToAccount } = await import("viem/accounts")
-  const key = process.env.TEST_PRIVATE_KEY as `0x${string}` | undefined
-  const wallet = mode === "real" && key ? b.makeClients({ privateKey: key }).wallet : { account: key ? privateKeyToAccount(key) : { address: `0x${"0".repeat(39)}1` } }
   const biddingClosesAt = Math.floor(Date.now() / 1000) + 60
-  const { entityKey, txHash } = await b.postMission(wallet, {
-    missionId, difficultyClass: body.difficultyClass, bounty: BigInt(Math.round(body.maxBounty * 1e6)), biddingClosesAt,
-    seedCommitment: `0x${randomBytes(32).toString("hex")}`, riskWeight: body.riskWeight, verifiers: process.env.VERIFIER_ADDRESSES ?? "",
-  })
-  b.emit(missionId, "web", { type: "mission.posted", data: { difficultyClass: body.difficultyClass, maxBounty: String(Math.round(body.maxBounty * 1e6)), riskWeight: body.riskWeight, biddingClosesAt, arkivKey: entityKey }, txUrl: undefined })
-  send(res, 200, { missionId, mock: true, txHash })
+  const maxBounty = BigInt(Math.round(body.maxBounty * 1e6))
+  let posted: { entityKey: string; txHash: string } | undefined
+  if (mode !== "real") {
+    const { privateKeyToAccount } = await import("viem/accounts")
+    const key = process.env.TEST_PRIVATE_KEY as `0x${string}` | undefined
+    const wallet = { account: key ? privateKeyToAccount(key) : { address: `0x${"0".repeat(39)}1` } }
+    posted = await b.postMission(wallet, {
+      missionId, difficultyClass: body.difficultyClass, bounty: maxBounty, biddingClosesAt,
+      seedCommitment: `0x${randomBytes(32).toString("hex")}`, riskWeight: body.riskWeight, verifiers: process.env.VERIFIER_ADDRESSES ?? "",
+    })
+  }
+  b.emit(missionId, "web", { type: "mission.posted", data: { difficultyClass: body.difficultyClass, maxBounty: String(maxBounty), riskWeight: body.riskWeight, biddingClosesAt, ...(posted && { arkivKey: posted.entityKey }) }, txUrl: undefined })
+  send(res, 200, { missionId, mock: true, txHash: posted?.txHash })
 }
