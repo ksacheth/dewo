@@ -45,7 +45,10 @@ describe("x402 gate", () => {
     const ok = await counting(new Request("http://v/replay", { method: "POST", headers: { "payment-signature": header } }));
     expect("settle" in ok).toBe(true);
     expect(settled).toBe(0);
-    expect(await (ok as Paid).settle()).toEqual({ transaction: "0.0.1234@1700000000.000000000" });
+    const result = await (ok as Paid).settle();
+    expect(result.transaction).toBe("0.0.1234@1700000000.000000000");
+    // The Requester records the settlement transaction from this header (R7), so it must carry it.
+    expect(JSON.parse(Buffer.from(result.header!, "base64").toString())).toMatchObject({ success: true, transaction: "0.0.1234@1700000000.000000000" });
     expect(settled).toBe(1);
   });
 

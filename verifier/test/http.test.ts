@@ -13,9 +13,11 @@ const ESCROW = "0x5FbDB2315678afecb367f032d93F642f64180aa3" as const;
 const VERIFIER = privateKeyToAccount(KEY).address;
 
 // A stand-in x402 gate: 402 with requirements until the X-PAYMENT header says "paid".
-let settleResult: { transaction?: string; error?: string } = { transaction: "0.0.1234@1700000000.000000000" };
+type Settle = { transaction?: string; error?: string; header?: string };
+const PAID: Settle = { transaction: "0.0.1234@1700000000.000000000", header: Buffer.from(JSON.stringify({ success: true, transaction: "0.0.1234@1700000000.000000000" })).toString("base64") };
+let settleResult: Settle = PAID;
 let settleCalls = 0;
-let settleImpl: () => Promise<{ transaction?: string; error?: string }> = async () => settleResult;
+let settleImpl: () => Promise<Settle> = async () => settleResult;
 let gateThrows = false;
 const gate: PaymentGate = async (req) => {
   if (gateThrows) throw new Error("facilitator down");
@@ -28,7 +30,7 @@ const gate: PaymentGate = async (req) => {
 let runs = "";
 beforeEach(() => {
   runs = mkdtempSync(join(tmpdir(), "runs-")); process.env.RUNS_DIR = runs;
-  settleResult = { transaction: "0.0.1234@1700000000.000000000" }; settleImpl = async () => settleResult; gateThrows = false;
+  settleResult = PAID; settleImpl = async () => settleResult; gateThrows = false;
 });
 afterEach(() => { delete process.env.RUNS_DIR; });
 
@@ -107,6 +109,21 @@ describe("Verifier HTTP API (I6)", () => {
       missionId: MISSION, data: { verifier: VERIFIER, status: "paid", amount: "50000" },
       txUrl: "https://hashscan.io/testnet/transaction/0.0.1234@1700000000.000000000",
     });
+  });
+
+  it("POST /replay returns the I6 wire fields: Path Cost, Optimal Path Cost, collisions, and the settlement in PAYMENT-RESPONSE", async () => {
+    const res = await post(app().a, "/replay", { "x-payment": "paid" });
+    expect(await res.json()).toEqual({
+      verdict: "Pass", signature: expect.stringMatching(/^0x[0-9a-f]+$/), evidenceHash: expect.stringMatching(/^0x[0-9a-f]{64}$/),
+      pathCost: 3, optimalPathCost: 3, collisions: 0,
+    });
+    expect(JSON.parse(Buffer.from(res.headers.get("PAYMENT-RESPONSE")!, "base64").toString())).toMatchObject({ transaction: "0.0.1234@1700000000.000000000" });
+  });
+
+  it("POST /award answers 409 while bidding is open, and does not sign", async () => {
+    const res = await post(app({ now: () => 500 }).a, "/award");
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/bidding/);
   });
 
   it("charges only after a Verdict exists: a malformed request costs nothing", async () => {

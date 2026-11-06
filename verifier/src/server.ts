@@ -11,7 +11,8 @@ export interface GateChallenge { status: number; body: unknown; headers?: Record
  * A payment that verified but has not been charged yet. `amount` is in the asset's base units.
  * `id` identifies the payment itself (not its encoding), so one payment cannot fund two Replays running at once.
  */
-export interface GatePaid { id: string; amount: string; settle(): Promise<{ transaction?: string; error?: string }> }
+export interface Settled { transaction?: string; error?: string; /** Base64 x402 `PAYMENT-RESPONSE` header value, which the Requester reads the settlement transaction from (HCS spending log). */ header?: string }
+export interface GatePaid { id: string; amount: string; settle(): Promise<Settled> }
 /** Either an x402 402 challenge to send back, or a verified payment to settle once the work is done. x402.ts supplies the real one. */
 export type PaymentGate = (req: Request) => Promise<GateChallenge | GatePaid>;
 
@@ -32,7 +33,8 @@ const replayErrorStatus = (e: unknown) => {
 };
 
 const json = (v: unknown) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
-const respond = (body: unknown, status = 200) => new Response(json(body), { status, headers: { "content-type": "application/json" } });
+const respond = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+  new Response(json(body), { status, headers: { "content-type": "application/json", ...headers } });
 
 async function readMissionId(req: Request): Promise<Hex | null> {
   const body = (await req.json().catch(() => null)) as { missionId?: unknown } | null;
@@ -88,7 +90,7 @@ export function createApp(deps: AppDeps) {
       return respond({ error: errorMessage(e) }, replayErrorStatus(e));
     }
     // Charge before the Verdict leaves this process: if settlement fails, nothing is written to Arkiv and no signature is returned.
-    let settled: { transaction?: string; error?: string };
+    let settled: Settled;
     try {
       settled = await payment.settle();
     } catch (e) {
@@ -96,7 +98,7 @@ export function createApp(deps: AppDeps) {
     }
     if (settled.error !== undefined || !settled.transaction) return respond({ error: settled.error ?? "settlement failed" }, 402);
     await announcePaid(missionId, decided, payment.amount, settled.transaction);
-    return respond(decided.response);
+    return respond(decided.response, 200, settled.header ? { "PAYMENT-RESPONSE": settled.header } : {});
   }
 
   const paymentsInFlight = new Set<string>();

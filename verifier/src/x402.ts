@@ -1,6 +1,6 @@
 import { canonicalJson } from "@dewo/agents/formats";
 import { x402ResourceServer } from "@x402/core/server";
-import { decodePaymentSignatureHeader, encodePaymentRequiredHeader } from "@x402/core/http";
+import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from "@x402/core/http";
 import type { FacilitatorClient } from "@x402/core/server";
 import { ExactHederaScheme } from "@x402/hedera/exact/server";
 import type { PaymentGate } from "./server.js";
@@ -55,7 +55,9 @@ export async function createX402Gate(opts: X402Options): Promise<PaymentGate> {
       // Charged by the caller only after the work succeeded.
       async settle() {
         const settled = await server.settlePayment(payload, match);
-        return settled.success ? { transaction: settled.transaction } : { error: settled.errorReason ?? "settlement failed" };
+        return settled.success
+          ? { transaction: settled.transaction, header: encodePaymentResponseHeader(settled) }
+          : { error: settled.errorReason ?? "settlement failed" };
       },
     };
   };
