@@ -1,9 +1,10 @@
-"""I1 Simulator CLI: course | plan | session | replay."""
+"""I1 Simulator CLI: course | plan | session | replay, and --version (Verifiers pin it)."""
 
 import argparse
 import json
 from pathlib import Path
 
+from . import __version__
 from .planner import DEFAULT_MAX_COST
 
 
@@ -13,6 +14,8 @@ def _load(path):
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="sim")
+    # Replay semantics change between versions (0.2.0: a collision blocks the move), so Verifiers refuse any other version.
+    p.add_argument("--version", action="version", version=__version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("course", help="generate a Course from a seed")

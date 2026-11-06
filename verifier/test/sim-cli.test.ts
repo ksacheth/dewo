@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
-import { SimInputError, cliSim } from "../src/adapters/sim-cli.js";
+import { SIM_VERSION, SimInputError, assertSimVersion, cliSim } from "../src/adapters/sim-cli.js";
 
 const SEED = ("0x" + "5e".repeat(16)) as `0x${string}`;
 const COURSE = { seed: SEED, difficulty: "medium", start: { x: 0, y: 0, yaw: 0 }, goal: { x: 3, y: 0, r: 0.3 }, obstacles: [], version: "1" };
@@ -46,5 +46,20 @@ describe("cliSim (I1 over the sim CLI)", () => {
     const calls: string[][] = [];
     await cliSim(fakeRunner(calls)).replay(COURSE as never, ["STOP"]);
     expect(existsSync(calls[0]![2]!)).toBe(false);
+  });
+});
+
+describe("assertSimVersion (the Verifier pins the sim build)", () => {
+  it("accepts the pinned version, asked with `sim --version`", async () => {
+    const calls: string[][] = [];
+    await assertSimVersion(async (args) => { calls.push(args); return `${SIM_VERSION}\n`; });
+    expect(calls).toEqual([["--version"]]);
+    expect(SIM_VERSION).toBe("0.2.0");
+  });
+
+  it("refuses an older build, the stub, or a sim that cannot answer", async () => {
+    await expect(assertSimVersion(async () => "0.1.0\n")).rejects.toThrow(/0\.1\.0.*0\.2\.0/);
+    await expect(assertSimVersion(async () => "0.2.0-stub\n")).rejects.toThrow(/dewo-sim 0\.2\.0/);
+    await expect(assertSimVersion(async () => { throw new Error("unrecognized arguments: --version"); })).rejects.toThrow(/unrecognized/);
   });
 });

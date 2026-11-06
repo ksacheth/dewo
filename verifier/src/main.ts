@@ -5,7 +5,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import type { Address, Hex } from "viem";
 import { arkivAdapters } from "./adapters/board.js";
 import { hederaEscrow, viemEscrowReader } from "./adapters/escrow-chain.js";
-import { cliSim, localRunner } from "./adapters/sim-cli.js";
+import { assertSimVersion, cliSim, localRunner } from "./adapters/sim-cli.js";
 import { mainnetComputeBroker, zeroGCompute } from "./adapters/zerog-compute.js";
 import { GALILEO_FLOW, viemFlowReader, zeroGFlow } from "./adapters/zerog-flow.js";
 import { viemRegistryReader, zeroGRegistry } from "./adapters/zerog-registry.js";
@@ -56,7 +56,9 @@ async function main() {
   const zgMainnetRpc = process.env.ZG_MAINNET_RPC_URL ?? "https://evmrpc.0g.ai";
 
   // Replays run in the pinned dewo-sim image (R1) so frame hashes match the Workers'; SIM_CMD=sim inside the Verifier image, which is built on it.
-  const sim = cliSim(localRunner((process.env.SIM_CMD ?? "../sim/scripts/sim-docker").split(" ")));
+  const simRunner = localRunner((process.env.SIM_CMD ?? "../sim/scripts/sim-docker").split(" "));
+  await assertSimVersion(simRunner);
+  const sim = cliSim(simRunner);
   const broker = await mainnetComputeBroker(zgMainnetRpc);
   const { board, verdicts } = arkivAdapters(key);
   const chain = hederaEscrow(viemEscrowReader(hederaRpc, escrowAddress));

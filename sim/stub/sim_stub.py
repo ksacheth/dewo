@@ -218,6 +218,8 @@ def cmd_replay(args):
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="sim_stub")
+    # Never a real sim version, so a Verifier pinned to one refuses to start on the stub.
+    p.add_argument("--version", action="version", version="0.2.0-stub")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("course")

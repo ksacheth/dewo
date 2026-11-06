@@ -23,6 +23,20 @@ export const localRunner = (prefix: string[]): SimRunner => async (args) => {
   return stdout;
 };
 
+/**
+ * The only sim build this Verifier replays with. Replay semantics change between versions (0.2.0: a collision blocks the move
+ * and the Episode goes on), so a Verifier on another build would sign another evidenceHash and no Quorum could form.
+ */
+export const SIM_VERSION = "0.2.0";
+
+/** Refuses to start on any sim but SIM_VERSION, as reported by `sim --version` (inside the pinned image when run through sim-docker). */
+export async function assertSimVersion(run: SimRunner): Promise<void> {
+  const reported = (await run(["--version"], tmpdir())).trim();
+  if (reported !== SIM_VERSION) {
+    throw new Error(`the sim reports version ${JSON.stringify(reported)}, but this Verifier replays only with dewo-sim ${SIM_VERSION}: build it with \`make image\` in sim/`);
+  }
+}
+
 /** The sim refused its input (`sim replay` prints `{"error": ...}` and exits 1, e.g. for an unknown Action). Not an infrastructure failure. */
 export class SimInputError extends Error {}
 
