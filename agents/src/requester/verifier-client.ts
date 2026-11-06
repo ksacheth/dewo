@@ -11,10 +11,10 @@
 //              signature: 0x hex (EIP-712 Verdict), evidenceHash: 0x bytes32,
 //              pathCost: int, optimalPathCost: int, collisions: int }
 //        The x402 settlement may be reported in a PAYMENT-RESPONSE header (base64 JSON with "transaction").
-import { PrivateKey } from "@hiero-ledger/sdk";
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { ExactHederaScheme, createClientHederaSigner } from "@x402/hedera";
 import type { Hex } from "../formats";
+import { hederaPrivateKey } from "../shared/hedera-key";
 import { OUTCOMES, type ReplayPayment, type ReplayResult, type SignedAward, type SignedVerdict, type VerifiersPort } from "./ports";
 
 export interface PayerConfig {
@@ -55,7 +55,7 @@ export type PayFetchFactory = (base: typeof fetch) => typeof fetch;
 
 /** Pays any 402 through x402 on Hedera testnet, refusing anything above the cap. */
 export function payingFetch(config: PayerConfig): PayFetchFactory {
-  const signer = createClientHederaSigner(config.accountId, PrivateKey.fromString(config.privateKey), { network: "testnet" });
+  const signer = createClientHederaSigner(config.accountId, hederaPrivateKey(config.privateKey), { network: config.limits?.network ?? DEFAULT_NETWORK });
   const client = new x402Client().register("hedera:*", new ExactHederaScheme(signer));
   const capped = withSpendCap(client, config.maxAtomicAmountPerReplay, config.limits);
   return (base) => wrapFetchWithPayment(base, capped);
@@ -156,10 +156,20 @@ async function post(doFetch: typeof fetch, url: string, missionId: string, timeo
 }
 
 /** Passes calls through to fetch and notes the 402 challenge, the payment that answers it and its settlement. */
+/**
+ * The headers of a Request-like input. Checked by shape, not `instanceof Request`: libraries such as
+ * @hono/node-server replace the global Request class, so a Request built elsewhere fails `instanceof`.
+ */
+export function requestHeaders(input: unknown): HeadersInit | undefined {
+  if (typeof input !== "object" || input === null || !("headers" in input)) return undefined;
+  const { headers } = input as { headers: unknown };
+  return headers instanceof Headers || (typeof headers === "object" && headers !== null) ? (headers as HeadersInit) : undefined;
+}
+
 function recordingFetch(payment: ReplayPayment): typeof fetch {
   let quoted: Partial<PaymentTerms> = {};
   return async (input, init) => {
-    const signature = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined)).get("PAYMENT-SIGNATURE");
+    const signature = new Headers(init?.headers ?? requestHeaders(input)).get("PAYMENT-SIGNATURE");
     const response = await fetch(input, init);
     if (response.status === 402) {
       payment.challenged = true;

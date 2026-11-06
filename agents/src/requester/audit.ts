@@ -1,6 +1,7 @@
 // Tamper-evident spending log: every paid Replay is posted to a Hedera Consensus Service topic,
 // so anyone can audit what the Requester agent spent, in order, without trusting its own logs.
-import { Client, PrivateKey, TopicCreateTransaction, TopicMessageSubmitTransaction } from "@hiero-ledger/sdk";
+import { Client, TopicCreateTransaction, TopicMessageSubmitTransaction } from "@hiero-ledger/sdk";
+import { hederaPrivateKey } from "../shared/hedera-key";
 
 /** One line of the spending log, as posted to HCS (R7). */
 export interface PaymentRecord {
@@ -32,7 +33,7 @@ export class HcsAudit implements AuditPort {
 
   /** A testnet client paying with the Requester's Hedera account. */
   static client(accountId: string, privateKey: string): Client {
-    return Client.forTestnet().setOperator(accountId, PrivateKey.fromString(privateKey));
+    return Client.forTestnet().setOperator(accountId, hederaPrivateKey(privateKey));
   }
 
   /** Creates a new topic for this Requester's spending log; returns its id (e.g. 0.0.12345). */
