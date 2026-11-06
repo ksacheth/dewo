@@ -23,7 +23,7 @@ A Worker's fixed recipe for piloting: which model it calls, how it prompts it, a
 _Avoid_: strategy, brain, loadout, config
 
 **Bid**:
-A Worker's offer to complete a Mission at a price that stays hidden from everyone but the Verifiers until bidding closes, carrying a commitment to the Policy it will use.
+A Worker's offer to complete a Mission at a price of its own choosing, hidden from everyone but the Verifiers until bidding closes, carrying a commitment to the Policy it will use and no performance claim.
 _Avoid_: offer, quote, proposal, sealed bid
 
 **Award**:
@@ -41,7 +41,7 @@ _Avoid_: deposit, vault, treasury, buffer
 ### Work
 
 **Mission**:
-A job a Requester pays for only on a Pass. In this version every Mission is a robot job: get from a start pose to a goal on a specific Course within a Step Budget.
+A job a Requester pays for only on a Pass. In this version every Mission is a robot job: get from a start pose to a goal on a specific Course within its Path Allowance.
 _Avoid_: task, job, bounty, gig
 
 **Course**:
@@ -68,9 +68,21 @@ _Avoid_: marketplace, order book, job board, feed
 The public description of a Course that Workers price against, without revealing the Course itself.
 _Avoid_: tier, level, category
 
-**Step Budget**:
-The maximum number of Decisions a Worker may take to complete a Mission.
-_Avoid_: step limit, max steps
+**Path Cost**:
+The number of moving Actions (everything except stop) in an Episode, so every turn counts.
+_Avoid_: steps, step count, path length
+
+**Path Allowance**:
+The most Path Cost a Pass may have: twice the shortest possible Path Cost on that Course, plus two.
+_Avoid_: step budget, step limit, max steps
+
+**Decision Cap**:
+The fixed maximum number of Decisions in any Episode, the same for every Mission, bounding inference and Replay cost.
+_Avoid_: step budget, timeout, max steps
+
+**Path Quality**:
+How close an Episode's Path Cost came to the shortest possible on its Course, from 0 to 1; it shapes Reliability and XP, never the payout.
+_Avoid_: efficiency, SPL, score
 
 **Decision**:
 One perception-and-action turn: the robot's view goes to the model, and one action comes back.
@@ -115,11 +127,11 @@ An Outcome where the Requester fails to hand the Course Seed to the winning Work
 _Avoid_: seed timeout, requester no-show
 
 **Pass**:
-A Replay that reaches the goal with zero collisions within the Step Budget, and whose every Decision matches its model call.
+A Replay that reaches the goal with zero collisions within the Path Allowance and the Decision Cap, and whose every Decision matches its model call.
 _Avoid_: success, completed, verified
 
 **Fail**:
-A Verdict that a Worker did not reach the goal cleanly within the Step Budget on a valid Course, including a safe-stop.
+A Verdict that a Worker did not reach the goal cleanly within the Path Allowance and the Decision Cap on a valid Course, including a safe-stop.
 _Avoid_: failure, loss, miss
 
 **No-show**:
@@ -127,13 +139,13 @@ A winning Worker producing no Episode Log by the deadline; treated the same as a
 _Avoid_: timeout, abandonment, ghosting
 
 **Invalid Course**:
-A Verdict that no path to the goal exists within the Step Budget, placing the fault on the Requester rather than the Worker.
+A Verdict that no path to the goal exists whose Path Allowance fits under the Decision Cap, placing the fault on the Requester rather than the Worker.
 _Avoid_: unsolvable map, bad seed, void
 
 ### Reputation
 
 **Reliability**:
-A Worker's recent, smoothed rate of Passes; the only reputation that affects who wins a Mission.
+A Worker's recent, smoothed rate of Passes, each weighted by its Path Quality; the only reputation that affects who wins a Mission.
 _Avoid_: rating, trust score, reputation, rank
 
 **XP**:

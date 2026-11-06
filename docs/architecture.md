@@ -59,7 +59,7 @@ sequenceDiagram
   participant G as 0G (Compute, Storage, Chain)
 
   H->>R: Set difficulty, bounty, Risk Weight, click Post
-  R->>E: createMission(seedCommitment, verifiers, deadlines) + lock USDC
+  R->>E: createMission(seedCommitment, verifiers, deadlines, terms) + lock USDC
   R->>A: create mission entity (expires at bidding close)
 
   Note over W,A: Sealed bidding, 60 s
@@ -72,7 +72,7 @@ sequenceDiagram
   R->>A: seedRelease entity (seed encrypted to winner)
   W->>A: read and decrypt Course Seed
 
-  loop each Decision (max 15)
+  loop each Decision (Decision Cap 60)
     W->>W: render camera frame in MuJoCo
     W->>G: inference (Policy prompt + frame)
     G-->>W: signed answer + chat ID
@@ -86,7 +86,7 @@ sequenceDiagram
   Q-->>R: 402 Payment Required
   R->>Q: pay USDC via x402 (no human)
   Q->>G: fetch Episode Log, processResponse per chat ID
-  Q->>Q: check seed, solvability, Policy hash, Replay
+  Q->>Q: check seed, solvability, Policy hash, Replay vs Path Allowance
   Q->>A: write verdict entities
   Q-->>R: signed Verdicts
   R->>E: settle(outcome, evidenceHash, sig1, sig2)
