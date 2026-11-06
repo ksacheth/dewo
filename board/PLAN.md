@@ -27,7 +27,7 @@ Everything in one wave can run in parallel: each ticket touches its own files.
 | 3 | **B5** real client + `missions.ts` + `bids.ts` + `scripts/smoke.ts` · **W1** web skeleton, feed plugin, reducer, `fake-run.ts` | B5: B4, H1 · W1: B3, W0 | |
 | 4 | **B6** `seeds.ts` + `verdicts.ts` + `leaderboard()` · **W2** Rover view + Verifier cards · **W3** Mission Board + Bid cards (mock) · **W5** Post Mission · **A3** `why-arkiv.md` + `reach.md` | B6: B5 · W2, W3, W5: W1 · A3: A1 | Up to 5 agents. |
 | 5 | **B7** `scripts/query.ts` + explorer URL helper · **W4** Leaderboard + Worker drawer (mock) | B7: B6 · W4: W3 | |
-| 6 | **W6** web on real Arkiv (`VITE_BOARD=real`) | W4, B6 | |
+| 6 | **W6** web on real Arkiv (`BOARD=real`) | W4, B6 | |
 | 7 | **W7** demo polish on a real recorded run · **A4** evidence pass (entity keys, wallets, tx IDs, query output) · **A5** final review, delete the PLAN.md files | a real end-to-end Mission (cross-module integration) | |
 
 Critical path: **B0 → B1/B2/B3 → B4 (M4 and M5 unblocked) → B5 → B6 → W6 → W7**.
@@ -72,8 +72,8 @@ Process:
 Settled; see [`DECISIONS.md`](DECISIONS.md). Short form: D1 Mission/Bid live 60 min with `biddingClosesAt` ·
 D2 `missionId` = Escrow bytes32 · D3 Verdicts carry `difficultyClass` (+ `pathCost`/`optimalPathCost`/`pathQuality`) · D4 Quorum Outcome counts once ·
 D5 reads filter by trusted owner (`VERIFIER_ADDRESSES`) · D6 file-backed mock · D7 ciphertexts in Verifier order ·
-D8 tie-break lower price, then lower key · D9 first Bid per Worker counts · D10 export `.ts` source, run with `tsx` ·
-D11 USDC base units as `bigint` · D12 ask for a root MIT `LICENSE`.
+D8 tie-break lower price, then lower key · D9 first Bid per Worker counts, and only Bids from blocks at or before `biddingClosesAt` (R2) · D10 export `.ts` source, run with `tsx` ·
+D11 USDC base units as `bigint` · D12 ask for a root MIT `LICENSE` · D13 Seed Reveal entity · D14 M4 adapter notes · D15 I8 event file convention. Quorum matching is on Outcome and `evidenceHash` (R3).
 
 ---
 
@@ -123,7 +123,7 @@ Dev: `vitest`, `tsx`, `typescript`. Node 22.10+ (SDK requirement).
 
 ---
 
-## 3. `schemas.ts`: the four entities
+## 3. `schemas.ts`: the five entities (mission, bid, seedRelease, seedReveal, verdict)
 
 SDK facts used here (from the SDK source): column constructors `bool i32 u64 u256 dec str addr key bytes`;
 `.indexed()` on everything but `bytes`; only indexed columns can go in `where`; a named schema adds an
@@ -150,7 +150,7 @@ export const Bid = defineSchema("dewo.bid", {
   missionId:    str().indexed(),
   worker:       addr().indexed(),
   policyHash:   str(),
-  workerPubKey: str(),                       // uncompressed secp256k1, 0x04...
+  workerPubKey: bytes(),                     // uncompressed secp256k1, 0x04... (65 bytes, too long for a str)
   verifiers:    str(),                       // D7, order of priceCt0..2
   priceCt0:     bytes(), priceCt1: bytes(), priceCt2: bytes(),
 })
@@ -159,6 +159,12 @@ export const SeedRelease = defineSchema("dewo.seedRelease", {
   missionId: str().indexed(),
   worker:    addr().indexed(),
   sealed:    bytes(),                        // ECIES({seed, salt}) to workerPubKey
+})
+
+export const SeedReveal = defineSchema("dewo.seedReveal", {
+  missionId: str().indexed(),
+  seed:      str(),                          // D13: in the clear, public after the Episode
+  salt:      str(),
 })
 
 export const Verdict = defineSchema("dewo.verdict", {
@@ -170,7 +176,7 @@ export const Verdict = defineSchema("dewo.verdict", {
   difficultyClass: str().indexed(),          // D3
   optimalPathCost: i32(),
   pathQuality:     dec(),                    // display only; scoring recomputes it from the two integers
-  signature:       str(),
+  signature:       bytes(),                  // 65-byte EIP-712 signature
   evidenceHash:    str(),
   episodeLogRoot:  str(),
 })
@@ -182,8 +188,9 @@ Expirations and flags:
 |---|---|---|---|
 | `mission` | Requester | rescue deadline, 60 min (D1) | mutable (status patch) |
 | `bid` | Worker | 60 min, same as its Mission | `readonly`: a sealed Bid can't be edited after the fact |
-| `seedRelease` | Requester | Episode deadline + 10 min | `readonly` |
-| `verdict` | Verifier | `fromMonths(6)` (the chain max is about 182 days) | `readonly`: history can't be rewritten |
+| `seedRelease` | Requester | 70 min after creation | `readonly` |
+| `seedReveal` | Requester | 180 days | `readonly` |
+| `verdict` | Verifier | 180 days (the chain max is about 182 days) | `readonly`: history can't be rewritten |
 
 Outcome is a string on Arkiv (readable in the explorer and in queries). A helper `outcomeIndex()` maps it
 to the I5 enum order `0 Pass, 1 Fail, 2 NoShow, 3 InvalidCourse, 4 NoSeedRelease` for M5's EIP-712 signing.
@@ -225,15 +232,16 @@ All reads go through `pub.select(...).from(Schema).where(...).ownedBy(...).fetch
 ### `bids.ts`
 - `sealBid(price: bigint, verifierPubKeys: [Hex, Hex, Hex])` → `{ priceCt0, priceCt1, priceCt2 }`. Pure, uses `crypto.ts`. Plaintext is the decimal string of `price`.
 - `placeBid(wallet, bid: { missionId, policyHash, workerPubKey, verifiers, ...sealed })`: `createEntity(Bid, { ...bid, worker: account.address }, { expiration, flags: { readonly: true } })`.
-- `listBids(missionId)`: query by `missionId`; drop rows where `$owner !== worker` (D5); keep only the earliest Bid per worker by `$createdAt` (D9).
-- `openBid(bid: BidRow, verifierPrivKey: Hex)` → `bigint`. Picks the ciphertext by the Verifier's address (D7), throws a typed `BidOpenError` if it can't decrypt.
+- `listBids(missionId, { closesAt? })`: query by `missionId`; drop Bids whose block timestamp is after `closesAt` (default: the Mission's `biddingClosesAt`, R2); drop rows where `$owner !== worker` (D5); keep only the earliest Bid per worker by `$createdAt` (D9).
+- `openBid(bid: BidRow, verifierPrivKey: Hex, maxBounty?: bigint)` → `bigint`. Picks the ciphertext by the Verifier's address (D7), throws a typed `BidOpenError` if it can't decrypt, if the price is not a positive integer (`/^[1-9][0-9]*$/`), or if it exceeds `maxBounty` when given.
 
 ### `seeds.ts`
 - `releaseSeed(wallet, missionId, seed, salt, workerPubKey)`: worker address is derived from `workerPubKey` (`publicKeyToAddress` in viem), so the signature stays as frozen. `sealed = encrypt(workerPubKey, JSON.stringify({ seed, salt }))`.
 - `readSeedRelease(missionId, workerPrivKey)` → `{ seed, salt } | null`. Query by `missionId` + derived `worker`, `ownedBy(requester)` where `requester` comes from `getMission` (D5).
 
 ### `verdicts.ts`
-- `writeVerdict(wallet, v: VerdictInput)`: `readonly`, `fromMonths(6)`.
+- `writeVerdict(wallet, v: VerdictInput)`: `readonly`, 180 days.
+- `revealSeed(wallet, missionId, seed, salt)` / `readSeedReveal(missionId, requester?)` (D13).
 - `listVerdicts(filter: { worker?, missionId?, outcome? })`: always `ownedBy` each of `VERIFIER_ADDRESSES` (D5; run one query per address, or use an `or` on `$owner` if the query builder allows it, check in spike #8). Sorted by `$createdAt` descending. Paginate if the SDK caps results.
 - `leaderboard()` convenience for the web: group verdicts by worker, return `{ worker, reliability, xp, level, missions: [...] }`. Lives here so the UI and `scripts/query.ts` share it.
 
@@ -252,12 +260,15 @@ Known gap (already in spec §8): any single Verifier can decrypt early. No thres
 ## 7. `scoring.ts` (pure, spec §4)
 
 ```ts
-reliability(verdicts: VerdictRow[]): number
-  // D4: group by missionId, quorum outcome (>=2 matching); drop InvalidCourse, NoSeedRelease;
+reliability(verdicts: VerdictRow[], verifiers: readonly Hex[]): number
+  // D4 + R3: only Verdicts owned by `verifiers` count, one per Verifier per Mission (earliest);
+  // group by missionId, quorum = >=2 Verdicts with the same (outcome, evidenceHash); drop InvalidCourse, NoSeedRelease;
   // NoShow counts as Fail; order by $createdAt desc; i = 0 most recent
   // R = (2 + Σ 0.9^i pass_i) / (3 + Σ 0.9^i); a Pass counts 0.5 + 0.5 q, Fail and NoShow 0 (ADR 0003)
 awardScore(R: number, price: number, riskWeight: number): number   // R^w / price^(1-w)
-pickWinner(bids: { key, price: bigint, R }[], w): winner            // D8 tie-break, used by M5
+pickWinner(bids: { key, price: bigint, R }[], w): winner            // D8 tie-break, used by M5; ignores prices <= 0, throws if none left
+quorumResults(verdicts, verifiers): MissionResult[]                  // one result per Mission with a Quorum
+totalXp(verdicts, verifiers): number
 bidStake(maxBounty: bigint, R: number): bigint                       // floor(maxBounty * (1-R) * 0.5), integer-safe
 pathQuality(optimal, cost): number                                   // min(1, optimal / cost); 0 if cost is 0
 xp(v: VerdictRow): number                                            // Pass only: 100 * m * (1 + q); m = 1/1.5/2; q from the integers
@@ -295,18 +306,20 @@ export function emit(missionId: string, process: string, event: { type, data, tx
 - `process` is validated against `/^[a-z0-9-]+$/` (it goes into a file name). `missionId` must be `0x` + 64 hex (it's a directory name).
 - Define `EventData` per type, minimal and agreed with M4/M5. Proposed:
 
+Defined by `src/events.ts` (the source of truth; this table mirrors it). Files: `runs/<missionId>/events.<process>.ndjson`, `<process>` = `requester`, `worker-<name>`, `verifier-<n>`, `web`.
+
 | type | data | written by |
 |---|---|---|
 | `mission.posted` | `{ difficultyClass, maxBounty, riskWeight, biddingClosesAt, arkivKey }` | agents (Requester) |
 | `bid.sealed` | `{ worker, workerName, policyHash, arkivKey }` | agents (Worker) |
-| `bids.revealed` | `{ bids: [{ worker, workerName, price, R, score }], winner }` | verifier |
+| `bids.revealed` | `{ bids: [{ worker, workerName, price, R, score }], winner }` | verifier (`verifier-<n>`, R10) |
 | `award.signed` | `{ worker, price, stake, verifier }` | verifier |
 | `stake.deposited` | `{ worker, stake }` | agents (Worker) |
 | `seed.released` | `{ worker, arkivKey }` | agents (Requester) |
 | `decision.made` | `{ step, frame, chatID, action }` (frame = path relative to `runs/`) | agents (Worker) |
 | `episode.submitted` | `{ episodeLogRoot, policyRoot, decisionCount }` | agents (Worker) |
 | `replay.paid` | `{ verifier, status: 402 \| "paid", amount }` | agents (Requester) |
-| `verdict.signed` | `{ verifier, outcome, evidenceHash, arkivKey }` | verifier |
+| `verdict.signed` | `{ verifier, outcome, evidenceHash, arkivKey }` | verifier (`verifier-<n>`, R10) |
 | `settled` | `{ outcome, workerPayout, requesterPayout }` | agents (Requester) |
 
 `emit` is Node-only (fs). Export the types from a separate `events-types` path inside `events.ts` without
