@@ -2,7 +2,7 @@
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "../formats";
 import { numberFromEnv, privateKeyFromEnv, requiredEnv, verifiersFromEnv, wholeNumber, type Env } from "../shared/config";
-import { DEFAULT_WINDOWS, type RequesterConfig } from "./requester";
+import { DEFAULT_WINDOWS, type RequesterConfig, type Windows } from "./requester";
 import { serverOptionsFromEnv, type ServerOptions } from "./server";
 import { DEFAULT_TIMEOUT_MS, paymentLimitsFromEnv, type PayerConfig } from "./verifier-client";
 
@@ -36,6 +36,27 @@ function payerFromEnv(env: Env): PayerConfig {
   };
 }
 
+/**
+ * The spec windows (docs/spec.md section 3), each overridable in seconds. Hedera testnet needs longer ones: one Hashio
+ * write takes 20 to 40 s, so a Worker's approve + stake cannot fit the default 30 s stake window.
+ */
+function windowsFromEnv(env: Env): Windows {
+  const seconds = (name: string, fallback: number) => numberFromEnv(env, name, fallback, wholeNumber(1));
+  const windows: Windows = {
+    biddingSeconds: seconds("REQUESTER_BIDDING_SECONDS", DEFAULT_WINDOWS.biddingSeconds),
+    biddingSlackSeconds: seconds("REQUESTER_BIDDING_SLACK_SECONDS", DEFAULT_WINDOWS.biddingSlackSeconds),
+    stakeWindow: seconds("REQUESTER_STAKE_SECONDS", DEFAULT_WINDOWS.stakeWindow),
+    seedReleaseWindow: seconds("REQUESTER_SEED_RELEASE_SECONDS", DEFAULT_WINDOWS.seedReleaseWindow),
+    episodeWindow: seconds("REQUESTER_EPISODE_SECONDS", DEFAULT_WINDOWS.episodeWindow),
+    rescueSeconds: seconds("REQUESTER_RESCUE_SECONDS", DEFAULT_WINDOWS.rescueSeconds),
+  };
+  const needed = windows.biddingSeconds + windows.biddingSlackSeconds + windows.stakeWindow + windows.seedReleaseWindow + windows.episodeWindow;
+  if (windows.rescueSeconds <= needed) {
+    throw new Error(`REQUESTER_RESCUE_SECONDS (${windows.rescueSeconds}) must exceed bidding + slack + stake + seed release + episode (${needed})`);
+  }
+  return windows;
+}
+
 export function requesterSettings(env: Env): RequesterSettings {
   const privateKey = privateKeyFromEnv(env, "REQUESTER_PRIVATE_KEY");
   const verifiers = verifiersFromEnv(env);
@@ -44,7 +65,7 @@ export function requesterSettings(env: Env): RequesterSettings {
     config: {
       address: privateKeyToAccount(privateKey).address,
       verifiers: verifiers.map(({ url, address }) => ({ url, address })),
-      windows: DEFAULT_WINDOWS,
+      windows: windowsFromEnv(env),
       maxPaidReplays: numberFromEnv(env, "MAX_PAID_REPLAYS", 3, wholeNumber(0)),
     },
     verifierPubKeys: verifiers.map((verifier) => verifier.publicKey),

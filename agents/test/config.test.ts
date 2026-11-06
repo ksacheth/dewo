@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
 import { requesterSettings } from "../src/requester/config";
+import { DEFAULT_WINDOWS } from "../src/requester/requester";
 import { deploymentFromEnv, privateKeyFromEnv, verifiersFromEnv } from "../src/shared/config";
 import { workerSettings } from "../src/worker/config";
 import { policy } from "./fakes";
@@ -140,6 +141,17 @@ describe("requesterSettings", () => {
     expect(settings.payer).toMatchObject({ accountId: "0.0.11333729", maxAtomicAmountPerReplay: 100_000n });
     expect(settings.port).toBe(7000);
     expect(settings.hcsTopicId).toBeUndefined();
+  });
+
+  it("uses the spec windows unless REQUESTER_*_SECONDS override them (Hashio needs longer ones)", () => {
+    expect(requesterSettings(env).config.windows).toEqual(DEFAULT_WINDOWS);
+    const slow = requesterSettings({ ...env, REQUESTER_BIDDING_SECONDS: "120", REQUESTER_STAKE_SECONDS: "180", REQUESTER_SEED_RELEASE_SECONDS: "120", REQUESTER_EPISODE_SECONDS: "900", REQUESTER_RESCUE_SECONDS: "2400" });
+    expect(slow.config.windows).toEqual({ ...DEFAULT_WINDOWS, biddingSeconds: 120, stakeWindow: 180, seedReleaseWindow: 120, episodeWindow: 900, rescueSeconds: 2400 });
+  });
+
+  it("refuses windows that do not fit before rescue (createMission would revert with InvalidTime)", () => {
+    expect(() => requesterSettings({ ...env, REQUESTER_EPISODE_SECONDS: "3600" })).toThrow(/REQUESTER_RESCUE_SECONDS/);
+    expect(() => requesterSettings({ ...env, REQUESTER_STAKE_SECONDS: "0" })).toThrow(/REQUESTER_STAKE_SECONDS/);
   });
 
   it("rejects a malformed Hedera account id or spending cap", () => {
