@@ -199,6 +199,7 @@ th.num { text-align:right; } td.num { text-align:right; font-family:var(--mono);
 .nodes .node circle { fill:var(--panel); stroke:var(--line-3); stroke-width:1.2; transition:stroke .4s var(--ease-out), fill .4s var(--ease-out); }
 .nodes .node .halo { fill:none; stroke:none; transform-box:fill-box; transform-origin:center; }
 .nodes .node text { fill:var(--fg-2); font:11px var(--mono); }
+.nodes .node text.note { font:9px var(--mono); fill:var(--dim); }
 .nodes .node.wait circle:not(.halo) { stroke:var(--warn); }
 .nodes .node.work circle:not(.halo) { stroke:var(--cyan); }
 .nodes .node.work .halo { stroke:var(--cyan); animation:halo 1.4s cubic-bezier(.45,0,.25,1) infinite; }
