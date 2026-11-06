@@ -1,0 +1,9 @@
+{
+  "name": "Gambler",
+  "model": "TBD-vision-cheapest",
+  "providerAddress": "0x0000000000000000000000000000000000000000",
+  "promptTemplate": "{{frame}} {{history}} Move: FORWARD, TURN_LEFT, TURN_RIGHT or STOP?",
+  "memoryWindow": 0,
+  "temperature": 0,
+  "version": "1"
+}
