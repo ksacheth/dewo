@@ -7,7 +7,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import type { Address, Hex } from "viem";
 import { arkivAdapters } from "./adapters/board.js";
 import { hederaEscrow, viemEscrowReader } from "./adapters/escrow-chain.js";
-import { cliSim, dockerRunner, localRunner } from "./adapters/sim-cli.js";
+import { cliSim, localRunner } from "./adapters/sim-cli.js";
 import { zeroGCompute } from "./adapters/zerog-compute.js";
 import { viemRegistryReader, zeroGRegistry } from "./adapters/zerog-registry.js";
 import { indexerAt, zeroGStorage } from "./adapters/zerog-storage.js";
@@ -51,7 +51,8 @@ async function main() {
   const hederaRpc = process.env.HEDERA_RPC_URL ?? "https://testnet.hashio.io/api";
   const zgRpc = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
 
-  const sim = cliSim(process.env.SIM_IMAGE ? dockerRunner(process.env.SIM_IMAGE) : localRunner((process.env.SIM_CMD ?? "uv run --project ../sim sim").split(" ")));
+  // Replays run in the pinned dewo-sim image (R1) so frame hashes match the Workers'; SIM_CMD=sim inside the Verifier image, which is built on it.
+  const sim = cliSim(localRunner((process.env.SIM_CMD ?? "../sim/scripts/sim-docker").split(" ")));
   const broker = await createZGComputeNetworkBroker(new Wallet(key, new JsonRpcProvider(zgRpc)));
   const { board, seeds, verdicts } = arkivAdapters(key);
   const chain = hederaEscrow(viemEscrowReader(hederaRpc, escrowAddress));

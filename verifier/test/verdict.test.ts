@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SimInputError } from "../src/adapters/sim-cli.js";
 import { verifyEpisode } from "../src/checks/index.js";
 import { Outcome } from "../src/sign.js";
 import { FakeSim, honestEpisode, zeroG, frameHashFor, pngFor } from "./fixtures/builders.js";
@@ -146,6 +147,31 @@ describe("verifyEpisode", () => {
       const b = await verifyEpisode(deps(sim), make());
       expect(a.evidenceHash).toBe(b.evidenceHash);
     }
+  });
+
+  describe("a log the Worker wrote badly is a Fail, never an exception", () => {
+    it("fails a Decision that names an Action the sim does not know", async () => {
+      const ep = honestEpisode();
+      (ep.log.decisions[0] as { action: string }).action = "JUMP";
+      expect((await verifyEpisode(deps(), ep)).failedCheck).toBe("header");
+    });
+    it("fails a log whose Decisions are missing fields", async () => {
+      const ep = honestEpisode();
+      delete (ep.log.decisions[1] as Partial<(typeof ep.log.decisions)[number]>).frameHash;
+      expect((await verifyEpisode(deps(), ep)).outcome).toBe(Outcome.Fail);
+    });
+    it("fails when the sim itself rejects the Action list", async () => {
+      const sim = new FakeSim();
+      sim.replay = async () => { throw new SimInputError("unknown action"); };
+      const v = await verifyEpisode(deps(sim), honestEpisode());
+      expect(v.outcome).toBe(Outcome.Fail);
+      expect(v.failedCheck).toBe("replay");
+    });
+    it("fails a Decision answered by a provider other than the one the Policy commits to", async () => {
+      const ep = honestEpisode();
+      ep.log.decisions[1]!.providerAddress = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
+      expect((await verifyEpisode(deps(), ep)).failedCheck).toBe("decisions");
+    });
   });
 
   describe("Episode Log header (binds the log to this Mission)", () => {

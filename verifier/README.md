@@ -15,7 +15,7 @@ M5: the Verifier service, run as 3 instances (ports 7101 to 7103). It signs Awar
 | Seed Release time, public seed reveal | Arkiv (`$createdAt` is a block number, converted to seconds with `getBlock`) | `adapters/board.ts` |
 | Episode Submission and its block time | EpisodeRegistry `submissions(missionId, worker)` on 0G Galileo | `adapters/zerog-registry.ts` |
 | Episode Log, Policy | 0G Storage `downloadToBlob` | `adapters/zerog-storage.ts` |
-| `course`, `plan`, `replay` | the sim CLI (I1), local or in the pinned image | `adapters/sim-cli.ts` |
+| `course`, `plan --max-cost 29`, `replay` | the sim CLI (I1) through `sim/scripts/sim-docker`, the pinned `dewo-sim` image (R1) | `adapters/sim-cli.ts` |
 | 0G signature validity | `broker.inference.processResponse` | `adapters/zerog-compute.ts` |
 
 Scoring is `@dewo/board`: `reliability`, `pickWinner`, `bidStake`. Formats are `@dewo/agents/formats`: `parseAction`, `buildRequest`, `seedCommitment`, `policyHash` and the path constants. Neither is reimplemented here.
@@ -30,6 +30,9 @@ Header binds the log to this Mission, Worker and seed commitment; seed and salt 
 
 ## Award fallback
 `POST /award` takes only `{ missionId }`. Each call reads the escrow: a Worker is skipped if `lapsedWorker` says a replacement Award was already made over it, or if it holds the current Award, never staked and its stake window has passed. Every Verifier reads the same chain, so all three skip the same Workers, and a restarted instance forgets nothing. A staked Award is never replaced. An instance signs the same Award every time it is asked for a Mission, until its winner lapses.
+
+## Replays run in the pinned image (R1)
+Frame hashes and the PNGs in each 0G request must be bit-identical to the Worker's, so `SIM_CMD` defaults to `../sim/scripts/sim-docker` (build the image once with `make image` in `sim/`; `DEWO_SIM_VERSION` picks the tag, default `0.1.0`). The script bind-mounts each path argument at the same path in the container, so the temp files the adapter writes are visible to the sim. The Verifier Docker image (`verifier/Dockerfile`) is built `FROM dewo-sim:<version>`, so it contains the identical pinned sim build and runs it directly as `sim` (`SIM_CMD=sim`, no Docker socket needed). A native `uv run --project ../sim sim` is for development only. The adapter passes `plan --max-cost 29` (above it the sim answers `optimalPathCost: -1`, an Invalid Course) and turns the sim's `{"error"}` reply to a bad Action list into a Fail instead of a 500.
 
 ## Develop
 Run `pnpm install` at the repo root first (the workspace links `@dewo/agents` and `@dewo/board`). Then `pnpm test` and `pnpm typecheck`. `scripts/run-quorum.sh` starts all three instances; copy `.env.example` for the variables. Build the image from the repo root: `docker build -f verifier/Dockerfile -t dewo-verifier .` (after building `dewo-sim:0.1.0`).

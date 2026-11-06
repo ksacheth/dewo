@@ -1,5 +1,6 @@
 import { keccak256, toBytes, type Hex } from "viem";
-import { DECISION_CAP, canonicalJson, pathCost, pathQuality, type EpisodeLog, type Policy } from "@dewo/agents/formats";
+import { ACTIONS, DECISION_CAP, canonicalJson, pathCost, pathQuality, type EpisodeLog, type Policy } from "@dewo/agents/formats";
+import { SimInputError } from "../adapters/sim-cli.js";
 import type { MissionRecord, SealedBid, SimPort, ZeroGPort } from "../ports.js";
 import { Outcome } from "../sign.js";
 import { checkDecisions } from "./decisions.js";
@@ -43,8 +44,16 @@ const evidence = (e: EpisodeInput, outcome: Outcome, m: Measured): Hex =>
     seedCommitment: e.mission.seedCommitment, ...m,
   })));
 
+/** The Worker wrote the log, so nothing about its shape is trusted: a malformed one is a Fail, never an exception that leaves the Mission without a Verdict. */
+const wellFormed = (log: EpisodeLog): boolean =>
+  typeof log?.header === "object" && log.header !== null && Array.isArray(log.decisions) &&
+  log.decisions.every((d) =>
+    typeof d === "object" && d !== null && Number.isInteger(d.step) && typeof d.frameHash === "string" && typeof d.chatID === "string" &&
+    typeof d.providerAddress === "string" && typeof d.rawResponse === "string" && (ACTIONS as readonly unknown[]).includes(d.action));
+
 /** The log must be for this Mission, this Bid's Worker and Seed Commitment, and as long as the on-chain submission says. */
 const headerBindsEpisode = (e: EpisodeInput): boolean => {
+  if (!wellFormed(e.log)) return false;
   const h = e.log.header;
   const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
   return same(h.missionId, e.mission.missionId) && same(h.worker, e.bid.worker) &&
@@ -73,7 +82,11 @@ export async function verifyEpisode(deps: VerifyDeps, e: EpisodeInput): Promise<
   if (e.log.decisions.length > DECISION_CAP) return fail("replay");
 
   const actions = e.log.decisions.map((d) => d.action);
-  const replay = await deps.sim.replay(course, actions);
+  const replay = await deps.sim.replay(course, actions).catch((error: unknown) => {
+    if (error instanceof SimInputError) return null; // the sim rejected the Action list itself
+    throw error;
+  });
+  if (!replay) return fail("replay");
   const measured: Measured = { pathCost: pathCost(actions), optimalPathCost: optimal, collisions: replay.collisions, atGoal: replay.atGoal };
   if (!(await checkDecisions(deps.zeroG, e.policy, e.log.decisions, replay))) return done(Outcome.Fail, measured, "decisions");
   if (!replayPasses(replay, measured.pathCost, optimal)) return done(Outcome.Fail, measured, "replay");

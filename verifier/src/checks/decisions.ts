@@ -27,6 +27,8 @@ export async function checkDecisions(
     if (d.step !== i) return false;
     const replayHash = replay.frameHashes[i]?.toLowerCase();
     if (replayHash !== d.frameHash.toLowerCase()) return false;
+    // The Policy commits to its provider, so a Decision answered by another one did not follow the Policy.
+    if (d.providerAddress.toLowerCase() !== policy.providerAddress.toLowerCase()) return false;
     if (!(await zeroG.verifyResponse(d.providerAddress, d.chatID))) return false;
 
     const png = attachedPng(d.request);
