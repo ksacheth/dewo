@@ -47,9 +47,9 @@ The web UI reads Arkiv through its dev server (`web/.env`, falling back to `boar
 | No-show | nothing (stake slashed) | stake + max bounty |
 | Invalid Course | stake + price | max bounty - price |
 | No Seed Release | stake + price | max bounty - price |
-| Rescue (no Verdict by the final deadline) | stake | max bounty |
+| Rescue (unsettled at the final deadline, incl. no Bids) | deposited stake (0 if none) | max bounty |
 
-Verifiers are paid per Replay through x402, never from Escrow.
+Verifiers are paid per Replay through x402, never from Escrow. A payout that cannot be delivered (for example an unassociated HTS account) is deferred to the recipient's `owed` balance and claimed with `withdraw()`.
 
 ## Evidence
 
@@ -75,6 +75,10 @@ Parts of this project were written with AI assistance (Claude Code): the `@dewo/
 - A Requester whose own Worker legitimately bids best can farm XP; it costs real bounty, 0G inference and Replay fees each time.
 - In the demo, all three Verifiers run on our infrastructure. In production they would be independently operated and staked.
 - The optimistic Reliability prior (a new Worker starts at about 0.67) is partly offset by the stake formula, not eliminated.
+- Path Quality counts Actions only: a path that hugs obstacles scores the same as a safe one of equal length.
+- A Bid carries no performance claim; bonded efficiency targets are future work.
+- Award replacement has no `round` field: a replacement Award after a lapsed stake window relies on the Quorum signing a different winner (proposal open).
+- A Worker can seal different prices to each Verifier, which can stall the Award (no plaintext commitment).
 - If the 0G request-rebuild check (spike #2) can't bind the signed request, a prompt-steering gap remains next to ADR 0001.
 - Missions and Bids expire 60 minutes after posting (the rescue deadline), not at bidding close, so the Quorum can read them after bidding. The board hides a Mission at `biddingClosesAt`.
 - Arkiv timestamps are block numbers; ordering uses them as-is.
