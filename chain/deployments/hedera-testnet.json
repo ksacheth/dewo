@@ -1,6 +1,6 @@
 {
-  "address": "0x9aae6a883b4d16bf53fa6339c606d18b47342631",
-  "deployBlock": 42734243,
+  "address": "0x06adcb8415ab12423ed1cdfa2a691b3f704d673e",
+  "deployBlock": 42748007,
   "abi": [
     {
       "type": "constructor",
@@ -12,6 +12,19 @@
         }
       ],
       "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "MAX_STEPS",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "stateMutability": "view"
     },
     {
       "type": "function",
@@ -98,7 +111,7 @@
       "name": "createMission",
       "inputs": [
         {
-          "name": "seedCommitment",
+          "name": "courseSeed",
           "type": "bytes32",
           "internalType": "bytes32"
         },
@@ -119,11 +132,6 @@
             },
             {
               "name": "stakeWindow",
-              "type": "uint32",
-              "internalType": "uint32"
-            },
-            {
-              "name": "seedReleaseWindow",
               "type": "uint32",
               "internalType": "uint32"
             },
@@ -153,6 +161,16 @@
           "name": "riskWeightBps",
           "type": "uint16",
           "internalType": "uint16"
+        },
+        {
+          "name": "maxSteps",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "maxCollisions",
+          "type": "uint32",
+          "internalType": "uint32"
         }
       ],
       "outputs": [
@@ -239,7 +257,7 @@
               "internalType": "address[3]"
             },
             {
-              "name": "seedCommitment",
+              "name": "courseSeed",
               "type": "bytes32",
               "internalType": "bytes32"
             },
@@ -257,6 +275,16 @@
               "name": "riskWeightBps",
               "type": "uint16",
               "internalType": "uint16"
+            },
+            {
+              "name": "maxSteps",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "maxCollisions",
+              "type": "uint32",
+              "internalType": "uint32"
             },
             {
               "name": "price",
@@ -290,11 +318,6 @@
                 },
                 {
                   "name": "stakeWindow",
-                  "type": "uint32",
-                  "internalType": "uint32"
-                },
-                {
-                  "name": "seedReleaseWindow",
                   "type": "uint32",
                   "internalType": "uint32"
                 },

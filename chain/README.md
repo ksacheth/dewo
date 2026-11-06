@@ -81,8 +81,9 @@ variables in your shell (`set -a; source .env; set +a`) before using the command
 
 ```bash
 # Hedera: forge create, not forge script (see below)
-forge create src/MissionEscrow.sol:MissionEscrow --constructor-args "$HEDERA_USDC_ADDRESS" \
-  --rpc-url "$HEDERA_RPC_URL" --private-key "$HEDERA_PRIVATE_KEY" --broadcast
+# --constructor-args takes every value after it, so it must come last.
+forge create src/MissionEscrow.sol:MissionEscrow --rpc-url "$HEDERA_RPC_URL" \
+  --private-key "$HEDERA_PRIVATE_KEY" --broadcast --constructor-args "$HEDERA_USDC_ADDRESS"
 python3 script/export_deployments.py hedera --tx <deployment tx hash> --rpc-url "$HEDERA_RPC_URL"
 
 # 0G Galileo
@@ -96,7 +97,7 @@ that fork the HTS system contract at `0x167` is not real code (Hedera's RPC retu
 constructor's `associateToken` fails with `InvalidFEOpcode` and nothing is sent. `forge create` sends
 the deployment directly; Hedera's relay estimates gas with HTS support. If estimation fails, add
 `--gas-limit 3000000` (Hedera charges at least 80% of the limit). `DeployHedera.s.sol` stays for
-reference and checks. For an HBAR escrow, deploy with `--constructor-args 0x0000000000000000000000000000000000000000`.
+reference and checks. For an HBAR escrow, end the command with `--constructor-args 0x0000000000000000000000000000000000000000`.
 `export_deployments.py --tx` fetches the receipt from the chain, checks the chain ID and a successful
 contract creation, and writes `{ address, abi }` from the same compiled build. The 0G script can be
 simulated by omitting `--broadcast`. Scripts enforce chain 296 / 16602.
