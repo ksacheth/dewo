@@ -9,9 +9,10 @@ const CEILING = 3 // a drone Course's ceiling (sim/src/sim/course.py): an obstac
  * On a drone Course, towers (to the ceiling) are solid and blocks (can be flown over) are lighter, labelled with
  * their height; the goal is the hoop, labelled with its altitude.
  */
-export function CourseMap({ course, actions }: { course: Course; actions: string[] }) {
+export function CourseMap({ course, actions, blocked }: { course: Course; actions: string[]; blocked?: (boolean | undefined)[] }) {
   const drone = course.task === "drone"
-  const path = pathFromActions(course.start, actions)
+  // A blocked FORWARD leaves the robot where it was: use the feed's collision flags, else check a rover Course here.
+  const path = pathFromActions(course.start, actions, { blocked, obstacles: drone ? undefined : course.obstacles })
   const y = (v: number) => ARENA - v // SVG y grows downward
   const pts = path.map((p) => `${p.x},${y(p.y)}`).join(" ")
   const end = path[path.length - 1]
