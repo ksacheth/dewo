@@ -7,6 +7,7 @@ import {
   canonicalJson,
   fromBaseUnits,
   policyHash,
+  replayableSteps,
   sameVerifierSet,
   toBaseUnits,
   type EpisodeLog,
@@ -23,6 +24,7 @@ import type {
   Clock,
   EscrowMission,
   EscrowPort,
+  MissionTerms,
   EventsPort,
   InferencePort,
   RegistryPort,
@@ -55,7 +57,15 @@ export interface WorkerConfig {
   /** The trusted Verifiers' addresses (derived from VERIFIER_PUBKEYS): a Mission must name exactly these on-chain (ADR 0005). */
   verifierAddresses: readonly Hex[];
   strategy: PricingStrategy;
+  /**
+   * Seconds kept free before the Episode Submission deadline (stakedAt + episodeWindow) for the two 0G Storage uploads and
+   * submitEpisode: no Decision starts after deadline - submitMarginSeconds (DEFAULT_SUBMIT_MARGIN_SECONDS when unset).
+   */
+  submitMarginSeconds?: number;
 }
+
+/** Hashio and Galileo transactions take 20 to 40 s each; the uploads and submitEpisode fit comfortably in 90 s. */
+export const DEFAULT_SUBMIT_MARGIN_SECONDS = 90;
 
 export interface WorkerDeps {
   board: BoardPort;
@@ -148,6 +158,8 @@ export class Worker {
       return this.put(this.trusts(mission) ? { missionId, stage: "BID_PLACED" } : { missionId, stage: "LOST", note: UNTRUSTED });
     }
     const { terms } = mission;
+    // Run the planner first (it can take a while) and only on trusted Missions; the skip rule reports untrusted ones first anyway.
+    const limitsReachable = this.trusts(mission) && (await this.limitsReachable(missionId, terms));
     const reliability = await board.reliabilityOf(this.config.address);
     const maxBounty = fromBaseUnits(terms.maxBounty);
     const stake = expectedStake(maxBounty, reliability);
@@ -167,6 +179,7 @@ export class Worker {
       zgBalance: await balances.zeroG(),
       zeroGPerDecision: this.config.strategy.zeroGPerDecision,
       maxSteps: terms.maxSteps,
+      limitsReachable,
     });
     if (skip) return this.put({ missionId, stage: "SKIPPED", note: skip });
 
@@ -257,6 +270,9 @@ export class Worker {
         session,
         inference: this.deps.inference,
         limits: { maxSteps: terms.maxSteps, maxCollisions: terms.maxCollisions },
+        // Stop early enough that the honest partial log can still be uploaded and submitted before the deadline.
+        stopAt: (mission.stakedAt ?? 0) + terms.deadlines.episodeWindow - (this.config.submitMarginSeconds ?? DEFAULT_SUBMIT_MARGIN_SECONDS),
+        now: () => this.deps.clock.now(),
         onDecision: (d, frame) =>
           this.deps.events.emit(missionId, "decision.made", { step: d.step, frame, chatID: d.chatID, action: d.action }),
       });
@@ -279,6 +295,19 @@ export class Worker {
     const episodeLogRoot = await storage.upload(encode(JSON.stringify(log)));
     const { txHash } = await registry.submitEpisode(missionId, episodeLogRoot, policyRoot, log.decisions.length);
     return { payload: { episodeLogRoot, policyRoot, decisionCount: log.decisions.length }, txHash };
+  }
+
+  /**
+   * ADR 0006: the Course is public, so check before bidding that a collision-free path fits maxSteps (never above MAX_STEPS).
+   * A plan that fails to run counts as unreachable: bidding blind risks a slashed stake.
+   */
+  private async limitsReachable(missionId: string, terms: MissionTerms): Promise<boolean> {
+    try {
+      return (await this.deps.sim.plan(terms.courseSeed, terms.difficultyClass, replayableSteps(terms))).solvable;
+    } catch (error) {
+      console.error(`worker: sim plan for ${missionId} failed, not bidding:`, error);
+      return false;
+    }
   }
 
   /** Not staked yet, and the Mission's Verifiers are not the trusted set: give up the Bid or Award rather than stake. */

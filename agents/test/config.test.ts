@@ -107,7 +107,10 @@ describe("workerSettings", () => {
       verifierPubKeys: accounts.map((a) => a.publicKey),
       verifierAddresses: accounts.map((a) => a.address),
       strategy: { costPerDecision: 0.05, expectedDecisions: 15, txFees: 0.05, margin: 1.6, zeroGPerDecision: 0.0001 },
+      submitMarginSeconds: 90,
     });
+    expect(workerSettings({ ...env, WORKER_SUBMIT_MARGIN_SECONDS: "120" }).config.submitMarginSeconds).toBe(120);
+    expect(() => workerSettings({ ...env, WORKER_SUBMIT_MARGIN_SECONDS: "-1" })).toThrow(/WORKER_SUBMIT_MARGIN_SECONDS/);
   });
 
   it("refuses a WORKER_PUBKEY that is not the key's own", () => {

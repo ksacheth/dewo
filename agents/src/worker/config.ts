@@ -2,8 +2,8 @@
 import { readFileSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex, Policy } from "../formats";
-import { AT_LEAST_ZERO, numberFromEnv, POSITIVE, privateKeyFromEnv, requiredEnv, verifiersFromEnv, type Env } from "../shared/config";
-import type { PricingStrategy, WorkerConfig } from "./worker";
+import { AT_LEAST_ZERO, numberFromEnv, POSITIVE, privateKeyFromEnv, requiredEnv, verifiersFromEnv, wholeNumber, type Env } from "../shared/config";
+import { DEFAULT_SUBMIT_MARGIN_SECONDS, type PricingStrategy, type WorkerConfig } from "./worker";
 
 export interface WorkerSettings {
   config: WorkerConfig;
@@ -40,6 +40,7 @@ export function workerSettings(env: Env, readFile = (path: string) => readFileSy
       verifierPubKeys: verifiers.map((verifier) => verifier.publicKey),
       verifierAddresses: verifiers.map((verifier) => verifier.address),
       strategy: strategyFromEnv(env),
+      submitMarginSeconds: numberFromEnv(env, "WORKER_SUBMIT_MARGIN_SECONDS", DEFAULT_SUBMIT_MARGIN_SECONDS, wholeNumber(0)),
     },
   };
 }

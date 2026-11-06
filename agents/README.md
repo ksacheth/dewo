@@ -45,6 +45,8 @@ object or that set a reserved field.
   throws, so the Episode safe-stops; a failed receipt fetch is logged and the Decision is kept without `receipt`.
 - `broker`: the older direct broker flow (`src/shared/zg-compute.ts`) on Galileo with `WORKER_PRIVATE_KEY`.
 
+**Feasibility skip (ADR 0006).** Before bidding, a Worker runs the advisory `sim plan` on the escrow's public `courseSeed`, searched up to `min(maxSteps, MAX_STEPS)` moving Actions, and skips with `LIMITS_UNREACHABLE` when no collision-free path fits (or the plan cannot run). It starts no new Decision after `stakedAt + episodeWindow - WORKER_SUBMIT_MARGIN_SECONDS` (default 90), so its log is still uploaded and submitted on time.
+
 **Balance for the skip rule.** "0G balance covers the Mission's `maxSteps` Decisions" reads `BalancesPort.zeroG()`, in 0G. The source
 is pluggable (`src/shared/zg-balance.ts`): with the Router it is the account's `total_balance` from
 `GET /v1/account/balance`, which needs a management key (`ZG_ROUTER_MANAGEMENT_KEY`, `mk-`, scope `account:read`;

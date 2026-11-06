@@ -6,6 +6,7 @@ import type {
   Award,
   BidEntity,
   BoardPort,
+  CoursePlan,
   DifficultyClass,
   EscrowMission,
   EscrowPort,
@@ -239,7 +240,18 @@ export class FakeSim implements SimPort {
   sessions: CorridorSession[] = [];
   /** The Course Seed each session was opened with. */
   seeds: Hex[] = [];
+  /** Every `plan` call, and whether it should fail to run. */
+  plans: { seed: Hex; maxCost: number }[] = [];
+  planFails = false;
   constructor(private readonly goalAt = 3) {}
+
+  /** The corridor's shortest path is goalAt FORWARDs. */
+  async plan(seed: Hex, _difficulty: DifficultyClass, maxCost: number): Promise<CoursePlan> {
+    this.plans.push({ seed, maxCost });
+    if (this.planFails) throw new Error("docker: image not found");
+    const solvable = this.goalAt <= maxCost;
+    return { solvable, optimalPathCost: solvable ? this.goalAt : -1 };
+  }
 
   async openSession(seed: Hex, _difficulty: DifficultyClass, missionId: string): Promise<SimSession> {
     this.seeds.push(seed);

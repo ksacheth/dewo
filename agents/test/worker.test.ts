@@ -205,13 +205,27 @@ describe("Worker: Episode and submission", () => {
   });
 
   it("stops at the Mission's maxSteps and submits what it flew", async () => {
-    const w = setup({ goalAt: 10, answers: Array(10).fill("FORWARD") });
-    w.post("m1", terms({ maxSteps: 4 }));
+    // The goal is reachable within 4 steps, but this Policy only turns: each turn bumps a wall, which 10 collisions allow.
+    const w = setup({ goalAt: 3, answers: Array(10).fill("TURN_RIGHT") });
+    w.post("m1", terms({ maxSteps: 4, maxCollisions: 10 }));
     await w.worker.tick();
     w.escrow.grant("m1");
     await w.worker.tick();
     expect(w.stage()).toBe("SUBMITTED");
     expect(w.registry.submissions[0]?.decisionCount).toBe(4);
+  });
+
+  it("stops flying at stakedAt + episodeWindow - the submit margin, then still submits on time", async () => {
+    const w = setup({ goalAt: 10, answers: Array(10).fill("FORWARD") });
+    w.post();
+    await w.worker.tick();
+    w.escrow.grant("m1");
+    // Each 0G answer takes 50 s: the default window (300 s) less the 90 s margin leaves room for Decisions starting at 0..200 s.
+    const answer = w.inference.complete.bind(w.inference);
+    w.inference.complete = async (provider, request) => { w.clock.t += 50; return answer(provider, request); };
+    await w.worker.tick();
+    expect(w.stage()).toBe("SUBMITTED");
+    expect(w.registry.submissions[0]?.decisionCount).toBe(5);
   });
 
   it("submits an honest partial log when 0G becomes unreachable", async () => {
@@ -377,5 +391,41 @@ describe("Worker: retrying a flown Episode", () => {
     await w.worker.tick();
     expect(w.records.get("m2")).toMatchObject({ stage: "SKIPPED", note: "BUSY_WITH_UNFINISHED_WIN" });
     errors.mockRestore();
+  });
+});
+
+describe("Worker: feasibility of the public Course (ADR 0006)", () => {
+  it("plans the escrow's Course Seed up to min(maxSteps, MAX_STEPS) and bids when a path fits", async () => {
+    const w = setup({ goalAt: 3 });
+    w.post("m1", terms({ maxSteps: 40 }));
+    await w.worker.tick();
+    expect(w.sim.plans).toEqual([{ seed: SEED, maxCost: 40 }]);
+    expect(w.stage()).toBe("BID_PLACED");
+  });
+
+  it("skips with LIMITS_UNREACHABLE when no collision-free path fits maxSteps", async () => {
+    const w = setup({ goalAt: 5 });
+    w.post("m1", terms({ maxSteps: 4 }));
+    await w.worker.tick();
+    expect(w.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "LIMITS_UNREACHABLE" });
+    expect(w.board.bids).toHaveLength(0);
+  });
+
+  it("skips with LIMITS_UNREACHABLE when the plan cannot run, rather than bid blind", async () => {
+    const w = setup();
+    w.sim.planFails = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    w.post();
+    await w.worker.tick();
+    errors.mockRestore();
+    expect(w.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "LIMITS_UNREACHABLE" });
+  });
+
+  it("does not run the planner on a Mission with untrusted Verifiers", async () => {
+    const w = setup();
+    w.post("m1", terms(), ["0x00000000000000000000000000000000000000f1", ...VERIFIER_ADDRESSES.slice(1)]);
+    await w.worker.tick();
+    expect(w.sim.plans).toHaveLength(0);
+    expect(w.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "UNTRUSTED_VERIFIERS" });
   });
 });

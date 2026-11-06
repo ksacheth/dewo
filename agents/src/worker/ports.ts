@@ -115,9 +115,17 @@ export interface SimSession {
   close(): Promise<void>;
 }
 
+/** `sim plan` output: the fewest moving Actions on a collision-free path to the goal, or not solvable within the search bound. */
+export interface CoursePlan {
+  solvable: boolean;
+  optimalPathCost: number;
+}
+
 export interface SimPort {
   /** Frames are written under runs/<missionId>/frames/ so the web can serve them. */
   openSession(seed: Hex, difficulty: DifficultyClass, missionId: string): Promise<SimSession>;
+  /** The advisory planner on the public Course (ADR 0006), searched up to `maxCost` moving Actions. */
+  plan(seed: Hex, difficulty: DifficultyClass, maxCost: number): Promise<CoursePlan>;
 }
 
 export interface BalancesPort {
