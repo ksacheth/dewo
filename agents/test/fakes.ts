@@ -384,14 +384,14 @@ export function requesterIn(w: World, options: { random?: () => Hex; audit?: Aud
   return { requester, records, stage: (missionId = "m1") => records.get(missionId)?.stage };
 }
 
-export function workerIn(w: World, options: { address?: Hex; answers?: string[]; goalAt?: number; margin?: number } = {}) {
+export function workerIn(w: World, options: { address?: Hex; answers?: string[]; goalAt?: number; margin?: number; policy?: Policy } = {}) {
   const sim = new FakeSim(options.goalAt);
   const inference = new ScriptedInference(options.answers ?? ["FORWARD", "FORWARD", "FORWARD"]);
   const records = new MemoryRecordStore();
   const config: WorkerConfig = {
     address: options.address ?? ME,
     publicKey: "0x04ab",
-    policy,
+    policy: options.policy ?? policy,
     verifierPubKeys: ["0x01", "0x02", "0x03"],
     strategy: {
       costPerDecision: 0.05,

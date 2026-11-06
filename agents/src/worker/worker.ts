@@ -3,6 +3,7 @@
 // Every tick re-reads the chain before acting (check-then-act) and writes the local
 // record only after the action is confirmed. One attempt per Mission.
 import {
+  assertUsablePolicy,
   canonicalJson,
   fromBaseUnits,
   policyHash,
@@ -76,6 +77,7 @@ export class Worker {
     private readonly config: WorkerConfig,
     private readonly deps: WorkerDeps,
   ) {
+    assertUsablePolicy(config.policy);
     this.payouts = new PayoutClaimer(deps.escrow, config.address, `worker ${config.policy.name}`);
   }
 
