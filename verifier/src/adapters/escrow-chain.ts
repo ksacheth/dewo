@@ -3,9 +3,9 @@ import type { Difficulty, EscrowMission, EscrowPort } from "../ports.js";
 
 /** The slice of MissionEscrow's `Mission` struct the Verifier reads. */
 export interface RawMission {
-  requester: Address; worker: Address; seedCommitment: Hex; maxBounty: bigint; difficultyClass: number; riskWeightBps: number;
+  requester: Address; worker: Address; verifiers: readonly Address[]; seedCommitment: Hex; maxBounty: bigint; difficultyClass: number; riskWeightBps: number;
   price: bigint; bidStake: bigint; awardedAt: bigint; stakedAt: bigint;
-  deadlines: { stakeWindow: number; seedReleaseWindow: number; episodeWindow: number }; state: number;
+  deadlines: { biddingEndsAt: bigint; stakeWindow: number; seedReleaseWindow: number; episodeWindow: number }; state: number;
 }
 export interface EscrowReader {
   getMission(missionId: Hex): Promise<RawMission>;
@@ -40,6 +40,8 @@ export function hederaEscrow(reader: EscrowReader): EscrowPort {
       if (!difficultyClass) throw new Error(`unknown difficultyClass ${raw.difficultyClass} on-chain`);
       return {
         requester: raw.requester,
+        verifiers: raw.verifiers,
+        biddingEndsAt: Number(raw.deadlines.biddingEndsAt),
         mission: {
           missionId, difficultyClass, maxBounty: raw.maxBounty, seedCommitment: raw.seedCommitment, riskWeight: raw.riskWeightBps / 10_000,
           deadlines: { seedReleaseWindow: raw.deadlines.seedReleaseWindow, episodeWindow: raw.deadlines.episodeWindow },

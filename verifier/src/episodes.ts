@@ -15,7 +15,7 @@ export interface EpisodeSourceDeps {
 export function createEpisodeSource(deps: EpisodeSourceDeps): EpisodeSource {
   return {
     async load(missionId: Hex): Promise<LoadedEpisode> {
-      const { mission, requester, award } = await deps.chain.getMission(missionId);
+      const { mission, requester, award, biddingEndsAt } = await deps.chain.getMission(missionId);
       if (!award) throw new PendingError(`no award for mission ${missionId} yet`);
       if (award.stakedAt === null) throw new PendingError(`mission ${missionId}: winner has not staked yet`);
 
@@ -23,7 +23,7 @@ export function createEpisodeSource(deps: EpisodeSourceDeps): EpisodeSource {
         deps.seeds.seedReleasedAt(missionId, award.worker, requester),
         deps.registry.findSubmission(missionId, award.worker),
         deps.seeds.revealedSeed(missionId, requester),
-        deps.board.listBids(missionId),
+        deps.board.listBids(missionId, biddingEndsAt),
       ]);
       const timeline = { stakedAt: award.stakedAt, seedReleasedAt, episodeSubmittedAt: submission?.timestamp };
       const bid = bids.find((b) => b.worker.toLowerCase() === award.worker.toLowerCase());

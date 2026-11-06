@@ -4,14 +4,18 @@ import { privateKeyToAccount } from "viem/accounts";
 import { NoValidBidsError } from "../src/errors.js";
 import { createAwarder } from "../src/routes/award.js";
 import { awardTypes, eip712Domain } from "../src/sign.js";
-import { MISSION, OTHER_WORKER as VETERAN, WORKER as ROOKIE, bidKey, fakeBoard, fakeChain } from "./fixtures/builders.js";
+import type { EventSink } from "../src/ports.js";
+import { BiddingOpenError } from "../src/errors.js";
+import { MISSION, VERIFIERS, OTHER_WORKER as VETERAN, WORKER as ROOKIE, bidKey, fakeBoard, fakeChain } from "./fixtures/builders.js";
 
 const KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
 const ESCROW = "0x5FbDB2315678afecb367f032d93F642f64180aa3" as const;
 const USDC = 1_000_000n;
 
 const awarder = (board: ReturnType<typeof fakeBoard>, chain = fakeChain(), now = () => 5_000) =>
-  createAwarder({ board, chain, key: KEY, escrow: ESCROW, now });
+  createAwarder({ board, chain, events, key: KEY, escrow: ESCROW, now });
+const emitted: { type: string; data: any }[] = [];
+const events: EventSink = { emit: async (_mission, type, data) => { emitted.push({ type, data }); } };
 
 describe("award (spec 4.2, ranked with the board's scoring)", () => {
   it("lets an underpricing rookie beat a veteran at risk weight 0.5", async () => {
@@ -57,6 +61,37 @@ describe("award (spec 4.2, ranked with the board's scoring)", () => {
   });
 });
 
+describe("award against the escrow's terms (spec 3 steps 2 and 3, R2)", () => {
+  const prices = { [ROOKIE]: 5n * USDC };
+
+  it("applies the late-Bid cutoff: lists Bids as of the on-chain biddingEndsAt", async () => {
+    const seen = { closesAt: [] as number[], verifiers: [] as (readonly `0x${string}`[])[] };
+    await awarder(fakeBoard({ prices, seen }), fakeChain({ biddingEndsAt: 4_321 }))(MISSION);
+    expect(seen.closesAt).toEqual([4_321]);
+  });
+
+  it("computes Reliability over the Mission's own on-chain Verifiers", async () => {
+    const seen = { closesAt: [] as number[], verifiers: [] as (readonly `0x${string}`[])[] };
+    await awarder(fakeBoard({ prices, seen }))(MISSION);
+    expect(seen.verifiers).toEqual([VERIFIERS]);
+  });
+
+  it("refuses to sign before biddingEndsAt, when award() would revert and Bids may still arrive", async () => {
+    const ask = awarder(fakeBoard({ prices }), fakeChain({ biddingEndsAt: 5_001 }), () => 5_000);
+    await expect(ask(MISSION)).rejects.toBeInstanceOf(BiddingOpenError);
+    expect(await awarder(fakeBoard({ prices }), fakeChain({ biddingEndsAt: 5_000 }), () => 5_000)(MISSION)).toMatchObject({ worker: ROOKIE });
+  });
+
+  it("emits bids.revealed with every opened price, Reliability and score, and the winner (R10)", async () => {
+    emitted.length = 0;
+    await awarder(fakeBoard({ prices: { [ROOKIE]: 5n * USDC, [VETERAN]: 10n * USDC }, reliability: { [VETERAN]: 0.95 }, unopenable: [] }))(MISSION);
+    const revealed = emitted.find((e) => e.type === "bids.revealed")!;
+    expect(revealed.data.winner).toBe(ROOKIE);
+    expect(revealed.data.bids).toHaveLength(2);
+    expect(revealed.data.bids.find((b: any) => b.worker === VETERAN)).toMatchObject({ price: "10000000", R: 0.95, score: 0.95 ** 0.5 / 10_000_000 ** 0.5 });
+  });
+});
+
 describe("award fallback after a lapsed stake window", () => {
   const prices = { [ROOKIE]: 5n * USDC, [VETERAN]: 5n * USDC };
   const firstWinner = async () => (await awarder(fakeBoard({ prices }))(MISSION)).worker;
@@ -67,7 +102,7 @@ describe("award fallback after a lapsed stake window", () => {
     let now = 5_000;
     const ask = awarder(fakeBoard({ prices }), fakeChain({ award: unstaked(first) }), () => now);
     const initial = await ask(MISSION);
-    now = 5_030; // the last second of the stake window
+    now = 5_029; // the last second stake() still works (now < awardedAt + stakeWindow)
     expect(await ask(MISSION)).toEqual(initial);
   });
 
@@ -77,7 +112,7 @@ describe("award fallback after a lapsed stake window", () => {
     let now = 5_000;
     const ask = awarder(fakeBoard({ prices }), fakeChain({ award: unstaked(first) }), () => now);
     expect((await ask(MISSION)).worker).toBe(first);
-    now = 5_031;
+    now = 5_030; // R4: a replacement award() is allowed from awardedAt + stakeWindow, so there is no dead second
     expect((await ask(MISSION)).worker).toBe(second);
   });
 

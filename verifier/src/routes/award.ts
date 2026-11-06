@@ -1,27 +1,27 @@
-import { bidStake, pickWinner } from "@dewo/board";
+import { awardScore, bidStake, pickWinner } from "@dewo/board";
 import type { Address, Hex } from "viem";
-import { NoValidBidsError } from "../errors.js";
-import type { BoardPort, EscrowMission, EscrowPort, SealedBid } from "../ports.js";
+import { BiddingOpenError, NoValidBidsError } from "../errors.js";
+import type { BoardPort, EscrowMission, EscrowPort, EventSink, SealedBid } from "../ports.js";
 import { signAward } from "../sign.js";
 
-export interface AwardDeps { board: BoardPort; chain: EscrowPort; key: Hex; escrow: Address; now: () => number }
+export interface AwardDeps { board: BoardPort; chain: EscrowPort; events: EventSink; key: Hex; escrow: Address; now: () => number }
 export interface SignedAward { worker: Address; price: bigint; stake: bigint; signature: Hex }
 
 /** Open one Bid and read its Worker's Reliability, or null when the Bid cannot compete (garbage, or priced above maxBounty). */
-async function openCandidate(board: BoardPort, bid: SealedBid, maxBounty: bigint) {
+async function openCandidate(board: BoardPort, bid: SealedBid, maxBounty: bigint, verifiers: readonly Address[]) {
   let price: bigint;
   try {
     price = await board.openBid(bid, maxBounty);
   } catch {
     return null;
   }
-  return { key: bid.key, worker: bid.worker, price, R: await board.reliabilityOf(bid.worker) };
+  return { key: bid.key, worker: bid.worker, price, R: await board.reliabilityOf(bid.worker, verifiers) };
 }
 
 /** Open every eligible Bid, rank them with the board's public rule (`pickWinner`), and sign the Award for the best one. */
-async function signBestAward(deps: AwardDeps, missionId: Hex, { mission }: EscrowMission, bids: SealedBid[], excluded: Set<string>): Promise<SignedAward> {
+async function signBestAward(deps: AwardDeps, missionId: Hex, { mission, verifiers }: EscrowMission, bids: SealedBid[], excluded: Set<string>): Promise<SignedAward> {
   const eligible = bids.filter((bid) => !excluded.has(bid.worker.toLowerCase()));
-  const opened = await Promise.all(eligible.map((bid) => openCandidate(deps.board, bid, mission.maxBounty)));
+  const opened = await Promise.all(eligible.map((bid) => openCandidate(deps.board, bid, mission.maxBounty, verifiers)));
   const candidates = opened.filter((c) => c !== null);
   if (candidates.length === 0) throw new NoValidBidsError(`no valid bids for mission ${missionId}`);
 
@@ -29,7 +29,22 @@ async function signBestAward(deps: AwardDeps, missionId: Hex, { mission }: Escro
   const best = pickWinner(candidates, mission.riskWeight);
   const stake = bidStake(mission.maxBounty, best.R);
   const signature = await signAward(deps.key, deps.escrow, { missionId, worker: best.worker, price: best.price, stake });
+  await revealBids(deps, missionId, mission.riskWeight, candidates, best.worker);
   return { worker: best.worker, price: best.price, stake, signature };
+}
+
+/**
+ * I8 `bids.revealed` (R10): the Verifiers decrypted the prices, so the feed may show them now. Each Verifier writes its own file;
+ * all three see the same Bids and Reliability, so the copies agree. The feed is not part of the Award: a failure is only logged.
+ * The Verifier cannot know a Worker's display name (a Bid carries only the Policy hash), so the address stands in for it.
+ */
+async function revealBids(deps: AwardDeps, missionId: Hex, riskWeight: number, candidates: { worker: Address; price: bigint; R: number }[], winner: Address) {
+  const bids = candidates.map(({ worker, price, R }) => ({ worker, workerName: worker, price: price.toString(), R, score: awardScore(R, Number(price), riskWeight) }));
+  try {
+    await deps.events.emit(missionId, "bids.revealed", { bids, winner });
+  } catch (e) {
+    console.error(`award ${missionId}: bids.revealed not emitted: ${(e as Error).message}`);
+  }
 }
 
 /** Workers that may not win again: a replacement Award was already made over them, or their stake window has run out unstaked. */
@@ -37,7 +52,8 @@ async function lapsedWorkers(deps: AwardDeps, missionId: Hex, escrowMission: Esc
   const flags = await Promise.all(bids.map((bid) => deps.chain.isLapsed(missionId, bid.worker)));
   const lapsed = new Set(bids.filter((_, i) => flags[i]).map((bid) => bid.worker.toLowerCase()));
   const { award } = escrowMission;
-  if (award && award.stakedAt === null && deps.now() > award.awardedAt + award.stakeWindow) lapsed.add(award.worker.toLowerCase());
+  // MissionEscrow (R4): stake() works while now < awardedAt + stakeWindow, and a replacement award() from that second on.
+  if (award && award.stakedAt === null && deps.now() >= award.awardedAt + award.stakeWindow) lapsed.add(award.worker.toLowerCase());
   return lapsed;
 }
 
@@ -52,7 +68,9 @@ export function createAwarder(deps: AwardDeps): (missionId: Hex) => Promise<Sign
   const signed = new Map<Hex, SignedAward>();
   return async (missionId) => {
     const escrowMission = await deps.chain.getMission(missionId);
-    const bids = await deps.board.listBids(missionId);
+    // award() reverts before biddingEndsAt, and Bids are still arriving until then: a signature now would rank an unfinished Bid set.
+    if (deps.now() < escrowMission.biddingEndsAt) throw new BiddingOpenError(`bidding on mission ${missionId} is open until ${escrowMission.biddingEndsAt}`);
+    const bids = await deps.board.listBids(missionId, escrowMission.biddingEndsAt);
     const lapsed = await lapsedWorkers(deps, missionId, escrowMission, bids);
     // The Award already on-chain is the Quorum's decision: re-sign exactly its terms rather than re-ranking.
     const onChain = escrowMission.award;

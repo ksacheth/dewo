@@ -21,11 +21,12 @@ export interface SealedBid { key: Hex; worker: Address; policyHash: Hex; ciphert
 
 /** Arkiv side of the Verifier: Bids, their sealed prices and Reliability (@dewo/board). */
 export interface BoardPort {
-  listBids(missionId: Hex): Promise<SealedBid[]>;
+  /** The frozen Bid set: first Bid per Worker, created in a block at or before `closesAt` (unix seconds, R2). */
+  listBids(missionId: Hex, closesAt: number): Promise<SealedBid[]>;
   /** Decrypt this Verifier's copy of the price. Rejects if the Bid is malformed or priced above `maxBounty`. */
   openBid(bid: SealedBid, maxBounty: bigint): Promise<bigint>;
-  /** Reliability from the Quorum Verdict history of this Worker (board `reliability`). */
-  reliabilityOf(worker: Address): Promise<number>;
+  /** Reliability from this Worker's Quorum Verdict history; only Verdicts written by `verifiers` (the Mission's on-chain Verifiers) count. */
+  reliabilityOf(worker: Address, verifiers: readonly Address[]): Promise<number>;
 }
 
 /** I1 simulator surface (sim CLI). */
@@ -59,6 +60,13 @@ export interface EscrowAward { worker: Address; price: bigint; stake: bigint; aw
 export interface EscrowMission {
   mission: MissionRecord;
   requester: Address;
+  /** The Mission's 3 Verifiers: only their Verdicts count towards Reliability, and only they sign the Quorum. */
+  verifiers: readonly Address[];
+  /**
+   * `Deadlines.biddingEndsAt`, unix seconds. `award()` reverts before it, and it is the Bid cutoff: the Requester writes the same value
+   * to Arkiv as `biddingClosesAt` (agents/src/requester/requester.ts), so every Verifier freezes the same Bid set from the chain alone.
+   */
+  biddingEndsAt: number;
   award: EscrowAward | null;
 }
 export interface EscrowPort {

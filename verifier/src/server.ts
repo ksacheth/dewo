@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { isHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { EvidenceExpiredError, NoValidBidsError, PendingError } from "./errors.js";
-import { createAwarder } from "./routes/award.js";
+import { BiddingOpenError, EvidenceExpiredError, NoValidBidsError, PendingError } from "./errors.js";
+import { createAwarder, type SignedAward } from "./routes/award.js";
 import { decideVerdict, publishVerdict, type DecidedVerdict } from "./routes/replay.js";
 import type { BoardPort, EpisodeSource, EscrowPort, EventSink, SimPort, VerdictSink, ZeroGPort } from "./ports.js";
 
@@ -51,14 +51,24 @@ export function createApp(deps: AppDeps) {
     if (!missionId) return respond({ error: "missionId must be a 32-byte hex string" }, 400);
     try {
       const award = await awardFor(missionId);
-      await deps.events.emit(missionId, "award.signed", { worker: award.worker, price: award.price.toString(), stake: award.stake.toString(), verifier });
+      await announceAward(missionId, award);
       return respond(award);
     } catch (e) {
       // The Requester reads a null body as "no valid Bid to award" (agents/src/requester/verifier-client.ts).
       if (e instanceof NoValidBidsError) return respond(null);
+      if (e instanceof BiddingOpenError) return respond({ error: e.message }, 409);
       return respond({ error: (e as Error).message }, 422);
     }
   });
+
+  /** The signed Award is already in hand: a feed failure must not turn it into an error. */
+  async function announceAward(missionId: Hex, award: SignedAward) {
+    try {
+      await deps.events.emit(missionId, "award.signed", { worker: award.worker, price: award.price.toString(), stake: award.stake.toString(), verifier });
+    } catch (e) {
+      console.error(`award ${missionId}: award.signed not emitted: ${errorMessage(e)}`);
+    }
+  }
 
   /** The payer has bought the signed Verdict once settlement succeeds: an Arkiv or event-feed failure is logged, never withheld. */
   async function announcePaid(missionId: Hex, decided: DecidedVerdict, amount: string, transaction: string) {

@@ -51,7 +51,7 @@ describe("zeroGStorage", () => {
 describe("hederaEscrow (MissionEscrow)", () => {
   const raw = (over: Partial<RawMission> = {}): RawMission => ({
     requester: REQUESTER, worker: ZERO, seedCommitment: ("0x" + "cc".repeat(32)) as Hex, maxBounty: 10_000_000n, difficultyClass: 1, riskWeightBps: 5_000,
-    price: 0n, bidStake: 0n, awardedAt: 0n, stakedAt: 0n, deadlines: { stakeWindow: 30, seedReleaseWindow: 45, episodeWindow: 600 }, state: 1, ...over,
+    price: 0n, bidStake: 0n, awardedAt: 0n, stakedAt: 0n, verifiers: [WORKER, WORKER, WORKER], deadlines: { biddingEndsAt: 960n, stakeWindow: 30, seedReleaseWindow: 45, episodeWindow: 600 }, state: 1, ...over,
   });
   const chain = (m: RawMission, lapsed: string[] = []) => hederaEscrow({ getMission: async () => m, lapsedWorker: async (_id, w) => lapsed.includes(w) });
 
@@ -60,6 +60,11 @@ describe("hederaEscrow (MissionEscrow)", () => {
     expect(mission).toEqual({ missionId: MISSION, difficultyClass: "medium", maxBounty: 10_000_000n, riskWeight: 0.5, seedCommitment: "0x" + "cc".repeat(32), deadlines: { seedReleaseWindow: 45, episodeWindow: 600 } });
     expect(requester).toBe(REQUESTER);
     expect(award).toBeNull();
+  });
+  it("reads the Mission's own Verifiers and its Bid cutoff (biddingEndsAt) from the escrow", async () => {
+    const { verifiers, biddingEndsAt } = await chain(raw()).getMission(MISSION);
+    expect(verifiers).toEqual([WORKER, WORKER, WORKER]);
+    expect(biddingEndsAt).toBe(960);
   });
   it("reports the current Award and its stake window; stakedAt is null until the Worker stakes", async () => {
     const awarded = await chain(raw({ worker: WORKER, price: 4_000_000n, bidStake: 1_500_000n, awardedAt: 990n, state: 2 })).getMission(MISSION);

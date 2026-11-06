@@ -84,25 +84,33 @@ export function honestEpisode(actions: Action[] = ["FORWARD", "FORWARD", "FORWAR
 export const bidKey = (worker: Address): Hex => `0x${createHash("sha256").update(worker.toLowerCase()).digest("hex")}`;
 
 /** Arkiv stand-in. `prices` are what each Worker sealed; `reliability` defaults to a rookie at 2/3. */
-export function fakeBoard(opts: { prices: Record<string, bigint>; reliability?: Record<string, number>; unopenable?: string[] }): BoardPort {
+export function fakeBoard(opts: { prices: Record<string, bigint>; reliability?: Record<string, number>; unopenable?: string[]; seen?: { closesAt: number[]; verifiers: (readonly Address[])[] } }): BoardPort {
   return {
-    listBids: async (): Promise<SealedBid[]> =>
-      Object.keys(opts.prices).map((worker) => ({ key: bidKey(worker as Address), worker: worker as Address, policyHash: "0x00" as Hex })),
+    listBids: async (_mission, closesAt): Promise<SealedBid[]> => {
+      opts.seen?.closesAt.push(closesAt);
+      return Object.keys(opts.prices).map((worker) => ({ key: bidKey(worker as Address), worker: worker as Address, policyHash: "0x00" as Hex }));
+    },
     openBid: async (bid, maxBounty) => {
       if ((opts.unopenable ?? []).includes(bid.worker)) throw new Error("bad ciphertext");
       const price = opts.prices[bid.worker]!;
       if (price > maxBounty) throw new Error("Bid price exceeds the Mission maxBounty"); // what @dewo/board openBid does
       return price;
     },
-    reliabilityOf: async (worker) => opts.reliability?.[worker] ?? 2 / 3,
+    reliabilityOf: async (worker, verifiers) => { opts.seen?.verifiers.push(verifiers); return opts.reliability?.[worker] ?? 2 / 3; },
   };
 }
 
 /** Hedera stand-in holding the on-chain Mission terms and the current Award. */
-export function fakeChain(opts: { award?: () => EscrowAward | null; lapsed?: string[]; maxBounty?: bigint; riskWeight?: number } = {}): EscrowPort {
+export const VERIFIERS = [
+  "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+] as const;
+/** Bidding ended long before the tests' clock (5_000). */
+export const BIDDING_ENDS_AT = 1_000;
+
+export function fakeChain(opts: { award?: () => EscrowAward | null; lapsed?: string[]; maxBounty?: bigint; riskWeight?: number; biddingEndsAt?: number } = {}): EscrowPort {
   return {
     getMission: async () => ({
-      requester: REQUESTER,
+      requester: REQUESTER, verifiers: VERIFIERS, biddingEndsAt: opts.biddingEndsAt ?? BIDDING_ENDS_AT,
       mission: { missionId: MISSION, difficultyClass: "medium", riskWeight: opts.riskWeight ?? 0.5, maxBounty: opts.maxBounty ?? 10_000_000n, seedCommitment: seedCommitment(SEED, SALT), deadlines: DEADLINES },
       award: opts.award ? opts.award() : null,
     }),

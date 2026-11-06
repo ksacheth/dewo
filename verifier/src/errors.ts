@@ -9,3 +9,6 @@ export class EvidenceExpiredError extends Error {}
 
 /** No Bid can win: none was placed, every price was malformed or above maxBounty, or every bidder lapsed. The Requester treats this as "no Award". */
 export class NoValidBidsError extends Error {}
+
+/** The bidding window has not closed (`now < biddingEndsAt`): no Award can be signed yet. Callers should retry after it closes. */
+export class BiddingOpenError extends Error {}
