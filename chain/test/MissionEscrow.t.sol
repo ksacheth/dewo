@@ -12,6 +12,9 @@ contract MissionEscrowTest is EscrowFixture {
         assertEq(m.maxBounty, BOUNTY);
         assertEq(m.difficultyClass, DIFFICULTY);
         assertEq(m.riskWeightBps, RISK_BPS);
+        assertEq(m.courseSeed, SEED);
+        assertEq(m.maxSteps, MAX_STEPS);
+        assertEq(m.maxCollisions, MAX_COLLISIONS);
         assertEq(m.verifiers[2], verifiers[2]);
         assertEq(m.deadlines.rescueAt, 4600);
         assertEq(uint256(m.state), uint256(MissionEscrow.State.Created));
@@ -23,39 +26,57 @@ contract MissionEscrowTest is EscrowFixture {
         vm.expectEmit(true, true, false, true, address(escrow));
         emit MissionEscrow.MissionCreated(expected, requester, BOUNTY, 2, 10_000);
         vm.prank(requester);
-        bytes32 id = escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, 2, 10_000);
+        bytes32 id = escrow.createMission(SEED, verifiers, deadlines, BOUNTY, 2, 10_000, MAX_STEPS, MAX_COLLISIONS);
         assertEq(id, expected);
         MissionEscrow.Mission memory m = escrow.getMission(id);
         assertEq(m.difficultyClass, 2);
         assertEq(m.riskWeightBps, 10_000);
     }
 
+    function testRejectZeroCourseSeed() public {
+        vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
+        escrow.createMission(bytes32(0), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, MAX_STEPS, MAX_COLLISIONS);
+    }
+
+    function testRejectZeroMaxSteps() public {
+        vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
+        escrow.createMission(SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, 0, MAX_COLLISIONS);
+    }
+
+    function testZeroMaxCollisionsIsAllowed() public {
+        vm.prank(requester);
+        bytes32 id = escrow.createMission(SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, 1, 0);
+        MissionEscrow.Mission memory m = escrow.getMission(id);
+        assertEq(m.maxSteps, 1);
+        assertEq(m.maxCollisions, 0);
+    }
+
     function testRejectDifficultyClassAboveHard() public {
         vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
-        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, 3, RISK_BPS);
+        escrow.createMission(SEED, verifiers, deadlines, BOUNTY, 3, RISK_BPS, MAX_STEPS, MAX_COLLISIONS);
     }
 
     function testRejectRiskWeightAboveFullScale() public {
         vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
-        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, 10_001);
+        escrow.createMission(SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, 10_001, MAX_STEPS, MAX_COLLISIONS);
     }
 
     function testRejectDuplicateVerifiers() public {
         verifiers[1] = verifiers[0];
         vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
-        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
+        escrow.createMission(SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, MAX_STEPS, MAX_COLLISIONS);
     }
 
     function testRejectZeroVerifier() public {
         verifiers[0] = address(0);
         vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
-        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
+        escrow.createMission(SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, MAX_STEPS, MAX_COLLISIONS);
     }
 
     function testRejectDeadlinesWithoutTimeForEpisode() public {
-        deadlines.rescueAt = 1420;
+        deadlines.rescueAt = 1390;
         vm.expectRevert(MissionEscrow.InvalidTime.selector);
-        escrow.createMission(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
+        escrow.createMission(SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, MAX_STEPS, MAX_COLLISIONS);
     }
 
     function testAssociationFailureRevertsDeployment() public {
@@ -138,7 +159,7 @@ contract MissionEscrowTest is EscrowFixture {
     }
 
     function testAwardRejectsInsufficientTimeBeforeRescue() public {
-        vm.warp(4240);
+        vm.warp(4270); // 4270 + stakeWindow 30 + episodeWindow 300 = rescueAt
         bytes[2] memory signatures = _sigs(escrow.awardDigest(missionId, worker, PRICE, STAKE));
         vm.expectRevert(MissionEscrow.InvalidTime.selector);
         escrow.award(missionId, worker, PRICE, STAKE, signatures);
@@ -270,17 +291,6 @@ contract MissionEscrowTest is EscrowFixture {
         signatures[1] = signatures[0];
         vm.expectRevert(MissionEscrow.InvalidQuorum.selector);
         escrow.settle(missionId, MissionEscrow.Outcome.Pass, EVIDENCE, signatures);
-    }
-
-    function testNoSeedReleaseCannotSettleEarly() public {
-        _stake();
-        bytes[2] memory signatures =
-            _sigs(escrow.verdictDigest(missionId, MissionEscrow.Outcome.NoSeedRelease, EVIDENCE));
-        vm.warp(1089);
-        vm.expectRevert(MissionEscrow.InvalidTime.selector);
-        escrow.settle(missionId, MissionEscrow.Outcome.NoSeedRelease, EVIDENCE, signatures);
-        vm.warp(1090);
-        escrow.settle(missionId, MissionEscrow.Outcome.NoSeedRelease, EVIDENCE, signatures);
     }
 
     function testRescueBoundaryExcludesSettlement() public {

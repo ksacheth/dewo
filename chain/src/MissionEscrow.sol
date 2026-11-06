@@ -16,9 +16,7 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
     enum Outcome {
         Pass,
         Fail,
-        NoShow,
-        InvalidCourse,
-        NoSeedRelease
+        NoShow
     }
     enum State {
         None,
@@ -32,7 +30,6 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
     struct Deadlines {
         uint64 biddingEndsAt;
         uint32 stakeWindow;
-        uint32 seedReleaseWindow;
         uint32 episodeWindow;
         uint64 rescueAt;
     }
@@ -41,10 +38,12 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         address requester;
         address worker;
         address[3] verifiers;
-        bytes32 seedCommitment;
+        bytes32 courseSeed;
         uint256 maxBounty;
         uint8 difficultyClass;
         uint16 riskWeightBps;
+        uint32 maxSteps;
+        uint32 maxCollisions;
         uint256 price;
         uint256 bidStake;
         uint256 awardedAt;
@@ -97,15 +96,20 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         }
     }
 
+    /// @param courseSeed Public Course Seed: Workers generate and study the Course from it before bidding.
+    /// @param maxSteps Most Decisions an Episode may take (a Pass limit and the Worker's 0G spend bound); non-zero.
+    /// @param maxCollisions Most collisions a Pass may have.
     function createMission(
-        bytes32 seedCommitment,
+        bytes32 courseSeed,
         address[3] calldata verifiers,
         Deadlines calldata deadlines,
         uint256 maxBounty,
         uint8 difficultyClass,
-        uint16 riskWeightBps
+        uint16 riskWeightBps,
+        uint32 maxSteps,
+        uint32 maxCollisions
     ) external payable nonReentrant returns (bytes32 missionId) {
-        if (seedCommitment == bytes32(0) || maxBounty == 0) revert InvalidConfiguration();
+        if (courseSeed == bytes32(0) || maxBounty == 0 || maxSteps == 0) revert InvalidConfiguration();
         // 0 easy, 1 medium, 2 hard; risk weight in basis points. Stored for Verifiers, unused by payouts.
         if (difficultyClass > 2 || riskWeightBps > 10_000) revert InvalidConfiguration();
         for (uint256 i; i < 3; ++i) {
@@ -114,20 +118,22 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
                 if (verifiers[i] == verifiers[j]) revert InvalidConfiguration();
             }
         }
-        uint256 duration = uint256(deadlines.stakeWindow) + deadlines.seedReleaseWindow + deadlines.episodeWindow;
+        uint256 duration = uint256(deadlines.stakeWindow) + deadlines.episodeWindow;
         if (
-            deadlines.biddingEndsAt <= block.timestamp || deadlines.stakeWindow == 0 || deadlines.seedReleaseWindow == 0
-                || deadlines.episodeWindow == 0 || uint256(deadlines.biddingEndsAt) + duration >= deadlines.rescueAt
+            deadlines.biddingEndsAt <= block.timestamp || deadlines.stakeWindow == 0 || deadlines.episodeWindow == 0
+                || uint256(deadlines.biddingEndsAt) + duration >= deadlines.rescueAt
         ) revert InvalidTime();
 
         missionId = keccak256(abi.encode(block.chainid, address(this), msg.sender, nonce++));
         Mission storage mission = missions[missionId];
         mission.requester = msg.sender;
         mission.verifiers = verifiers;
-        mission.seedCommitment = seedCommitment;
+        mission.courseSeed = courseSeed;
         mission.maxBounty = maxBounty;
         mission.difficultyClass = difficultyClass;
         mission.riskWeightBps = riskWeightBps;
+        mission.maxSteps = maxSteps;
+        mission.maxCollisions = maxCollisions;
         mission.deadlines = deadlines;
         mission.state = State.Created;
         _collect(maxBounty);
@@ -146,8 +152,7 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         } else if (mission.state != State.Created) {
             revert InvalidState();
         }
-        uint256 duration = uint256(mission.deadlines.stakeWindow) + mission.deadlines.seedReleaseWindow
-            + mission.deadlines.episodeWindow;
+        uint256 duration = uint256(mission.deadlines.stakeWindow) + mission.deadlines.episodeWindow;
         if (
             block.timestamp < mission.deadlines.biddingEndsAt
                 || block.timestamp + duration >= mission.deadlines.rescueAt
@@ -184,13 +189,9 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         Mission storage mission = missions[missionId];
         if (mission.state != State.Staked) revert InvalidState();
         if (block.timestamp >= mission.deadlines.rescueAt) revert InvalidTime();
-        if (
-            outcome == Outcome.NoSeedRelease && block.timestamp < mission.stakedAt + mission.deadlines.seedReleaseWindow
-        ) revert InvalidTime();
         _checkQuorum(mission, verdictDigest(missionId, outcome, evidenceHash), sigs);
         mission.state = State.Settled;
-        bool payWorker = outcome == Outcome.Pass || outcome == Outcome.InvalidCourse || outcome == Outcome.NoSeedRelease;
-        uint256 workerAmount = payWorker ? mission.price + mission.bidStake : 0;
+        uint256 workerAmount = outcome == Outcome.Pass ? mission.price + mission.bidStake : 0;
         uint256 requesterAmount = mission.maxBounty + mission.bidStake - workerAmount;
         _pay(missionId, mission.worker, workerAmount);
         _pay(missionId, mission.requester, requesterAmount);
