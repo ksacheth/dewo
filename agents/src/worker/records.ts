@@ -1,6 +1,6 @@
-// The Worker's private per-Mission notebook. Chain and Arkiv are the source of truth;
-// this is a cache that says where the Worker got to, written only after an action is
-// confirmed, and reconciled against the chain on startup.
+// An agent's private per-Mission notebook. Chain and Arkiv are the source of truth;
+// this is a cache that says where the agent got to, written only after an action is
+// confirmed. Both the Worker and the Requester use these stores.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -29,38 +29,43 @@ export interface MissionRecord {
   note?: string;
 }
 
-export interface RecordStore {
-  all(): MissionRecord[];
-  get(missionId: string): MissionRecord | undefined;
-  put(record: MissionRecord): void;
+/** Any per-Mission record; the Requester keeps its own kind in the same stores. */
+export interface Keyed {
+  missionId: string;
 }
 
-export class MemoryRecordStore implements RecordStore {
-  protected readonly records = new Map<string, MissionRecord>();
+export interface RecordStore<T extends Keyed = MissionRecord> {
+  all(): T[];
+  get(missionId: string): T | undefined;
+  put(record: T): void;
+}
 
-  all(): MissionRecord[] {
+export class MemoryRecordStore<T extends Keyed = MissionRecord> implements RecordStore<T> {
+  protected readonly records = new Map<string, T>();
+
+  all(): T[] {
     return [...this.records.values()];
   }
 
-  get(missionId: string): MissionRecord | undefined {
+  get(missionId: string): T | undefined {
     return this.records.get(missionId);
   }
 
-  put(record: MissionRecord): void {
+  put(record: T): void {
     this.records.set(record.missionId, record);
   }
 }
 
 /** A JSON file, rewritten atomically (temp file + rename) on every change. */
-export class FileRecordStore extends MemoryRecordStore {
+export class FileRecordStore<T extends Keyed = MissionRecord> extends MemoryRecordStore<T> {
   constructor(private readonly path: string) {
     super();
     if (!existsSync(path)) return;
-    const saved = JSON.parse(readFileSync(path, "utf8")) as MissionRecord[];
+    const saved = JSON.parse(readFileSync(path, "utf8")) as T[];
     for (const record of saved) this.records.set(record.missionId, record);
   }
 
-  override put(record: MissionRecord): void {
+  override put(record: T): void {
     super.put(record);
     mkdirSync(dirname(this.path), { recursive: true });
     const temp = `${this.path}.tmp`;

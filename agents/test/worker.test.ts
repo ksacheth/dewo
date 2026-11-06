@@ -46,7 +46,7 @@ describe("Worker: Award and stake", () => {
     const w = setup();
     w.post();
     await w.worker.tick();
-    w.escrow.award("m1", { worker: RIVAL });
+    w.escrow.grant("m1", { worker: RIVAL });
     await w.worker.tick();
     expect(w.stage()).toBe("BID_PLACED");
   });
@@ -55,7 +55,7 @@ describe("Worker: Award and stake", () => {
     const w = setup();
     w.post();
     await w.worker.tick();
-    w.escrow.award("m1", { worker: RIVAL });
+    w.escrow.grant("m1", { worker: RIVAL });
     w.escrow.patch("m1", { stakedAt: w.clock.now() });
     await w.worker.tick();
     expect(w.stage()).toBe("LOST");
@@ -65,7 +65,7 @@ describe("Worker: Award and stake", () => {
     const w = setup();
     w.post();
     await w.worker.tick();
-    w.escrow.award("m1", { stake: 0.7 });
+    w.escrow.grant("m1", { stake: 0.7 });
     await w.worker.tick();
     expect(w.escrow.stakes).toEqual([{ missionId: "m1", amount: 0.7 }]);
     expect(w.stage()).toBe("STAKED");
@@ -75,7 +75,7 @@ describe("Worker: Award and stake", () => {
     const w = setup();
     w.post();
     w.records.put({ missionId: "m1", stage: "WON" });
-    w.escrow.award("m1");
+    w.escrow.grant("m1");
     w.escrow.patch("m1", { stakedAt: w.clock.now() });
     await w.worker.tick();
     expect(w.escrow.stakes).toHaveLength(0);
@@ -86,7 +86,7 @@ describe("Worker: Award and stake", () => {
     const w = setup();
     w.post();
     w.records.put({ missionId: "m1", stage: "WON" });
-    w.escrow.award("m1");
+    w.escrow.grant("m1");
     w.clock.t += 31;
     await w.worker.tick();
     expect(w.records.get("m1")).toMatchObject({ stage: "LOST", note: "missed the stake window" });
@@ -99,7 +99,7 @@ describe("Worker: Episode and submission", () => {
     const w = setup(options);
     w.post();
     await w.worker.tick();
-    w.escrow.award("m1");
+    w.escrow.grant("m1");
     await w.worker.tick();
     return w;
   }
