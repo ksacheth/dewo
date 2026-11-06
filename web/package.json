@@ -14,6 +14,7 @@
     "@dewo/board": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.6",
     "viem": "^2.0.0"
   },
   "devDependencies": {
@@ -21,6 +22,7 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "postcss-prefix-selector": "^2.2.1",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vite": "^5.4.0",

@@ -12,15 +12,17 @@
   font-family:"Geist Sans", system-ui, Arial, sans-serif; font-synthesis:none;
 }
 * { box-sizing: border-box; }
-body {
-  margin:0; color:var(--fg); font-size:13px; line-height:1.55; min-height:100vh;
+body { margin:0; }
+.app {
+  color:var(--fg); font-size:13px; line-height:1.55; min-height:100vh;
   background: radial-gradient(ellipse at 50% -10%, #17283a 0%, #0b1118 38%, var(--bg) 70%) fixed;
 }
 code, .mono { font-family:var(--mono); font-size:11px; }
 a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+html { scroll-behavior:smooth; }
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 
-header { display:flex; align-items:center; gap:16px; padding:18px 32px; border-bottom:1px solid var(--line); flex-wrap:wrap; background:#090c0fcc; backdrop-filter:blur(12px); position:sticky; top:0; z-index:2; }
+.app-header { display:flex; align-items:center; gap:16px; padding:18px 32px; border-bottom:1px solid var(--line); flex-wrap:wrap; background:#090c0fcc; backdrop-filter:blur(12px); position:sticky; top:0; z-index:2; }
 .brand { display:flex; align-items:center; gap:14px; }
 .brand img { display:block; width:84px; height:auto; }
 .eyebrow { font-family:var(--mono); font-size:9px; letter-spacing:1.7px; text-transform:uppercase; color:#aebbb7; }
@@ -32,7 +34,7 @@ header { display:flex; align-items:center; gap:16px; padding:18px 32px; border-b
 .panel { background:var(--panel); border:1px solid #ffffff1c; border-radius:9px; padding:20px; min-width:0; }
 .panel h2 { font:9px/1 var(--mono); text-transform:uppercase; letter-spacing:1.6px; color:#b3c7c0; margin:0 0 16px; padding-bottom:14px; border-bottom:1px solid var(--line); }
 .panel h2 .dim { color:#728487; }
-.hero { border-color:#cceddd40; box-shadow:0 0 60px #cceddd0d; }
+.panel-hero { border-color:#cceddd40; box-shadow:0 0 60px #cceddd0d; }
 .bottom { grid-column:1 / -1; }
 .layout > div { display:flex; flex-direction:column; gap:16px; min-width:0; }
 
@@ -63,7 +65,7 @@ label span { text-transform:none; letter-spacing:0; }
 .arena .onboard div { display:flex; flex-direction:column; gap:4px; min-width:0; font-size:11px; }
 .arena .onboard strong { font:500 20px var(--mono); }
 .banner.good { color:#cceddd; border-color:#cceddd60; }
-.steps { max-height:220px; overflow:auto; margin-top:12px; border-top:1px solid var(--line); }
+.decisions { max-height:220px; overflow:auto; margin-top:12px; border-top:1px solid var(--line); }
 .step { display:grid; grid-template-columns:56px 1fr 1fr; gap:8px; padding:7px 8px; cursor:pointer; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:11px; }
 .step strong { color:var(--accent); }
 .step[aria-selected="true"], .step:hover { background:var(--hover); }
@@ -81,7 +83,7 @@ tr.click { cursor:pointer; } tr.click:hover { background:var(--hover); }
 .levelup { animation:pulse 1.2s 3; } @keyframes pulse { 50% { background:#cceddd1f; } }
 p { line-height:1.7; }
 
-@media (max-width:1100px) { .layout { grid-template-columns:1fr; padding:16px; } header { padding:14px 16px; position:static; } }
+@media (max-width:1100px) { .layout { grid-template-columns:1fr; padding:16px; } .app-header { padding:14px 16px; position:static; } }
 @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
 
 /* hero strip + phase stepper */

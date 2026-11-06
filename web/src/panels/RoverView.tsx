@@ -49,7 +49,7 @@ export function RoverView({ state }: { state: MissionState }) {
   const robot = drone ? "Drone" : "Rover"
   const failed = Object.values(state.verifiers).some((v) => v.outcome && v.outcome !== "Pass") || (state.settled && state.settled.outcome !== "Pass")
   return (
-    <section className="panel hero" aria-label={`${robot} view`}>
+    <section className="panel panel-hero" aria-label={`${robot} view`}>
       <h2><span className="num">03</span>{robot} · every Decision is a 0G model call</h2>
       {arena ? (
         <div className="arena">
@@ -70,7 +70,7 @@ export function RoverView({ state }: { state: MissionState }) {
       {last?.atGoal && <div className="banner good">{drone ? "Flew through the hoop" : "Reached the charger"}</div>}
       {state.decisions.some((d) => d.action === "STOP") && <div className="banner bad">Episode ended by STOP</div>}
       {failed && <div className="banner bad">Outcome: {state.settled?.outcome ?? "Fail"}</div>}
-      <div className="steps" role="listbox" aria-label="Decisions">
+      <div className="decisions" role="listbox" aria-label="Decisions">
         {list.map((d) => (
           <div key={d.step} className="step" role="option" aria-selected={shown?.step === d.step} onClick={() => setPicked(d.step === latest?.step ? null : d.step)}>
             <span>{d.step}/{maxSteps}</span><strong>{d.action}</strong>
