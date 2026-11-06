@@ -26,17 +26,27 @@ export function sealBid(price: bigint, verifierPubKeys: [Hex, Hex, Hex]): Sealed
   return { priceCt0, priceCt1, priceCt2 }
 }
 
-/** Picks this Verifier's ciphertext by address, falling back to trying all three (D7). */
-export function openBid(bid: Pick<BidRow, "verifiers" | "priceCt0" | "priceCt1" | "priceCt2">, verifierPrivKey: Hex): bigint {
+/**
+ * Picks this Verifier's ciphertext by address, falling back to trying all three (D7).
+ * The plaintext must be a positive integer in base units (/^[1-9][0-9]*$/), else BidOpenError, so a Worker cannot
+ * seal 0 (infinite award score), a negative or garbage. Spec 4.3 rule 1 (price <= Mission maxBounty) needs the
+ * Mission, so pass `maxBounty` to have it enforced here; otherwise the caller must check it.
+ */
+export function openBid(bid: Pick<BidRow, "verifiers" | "priceCt0" | "priceCt1" | "priceCt2">, verifierPrivKey: Hex, maxBounty?: bigint): bigint {
   const cts = [bid.priceCt0, bid.priceCt1, bid.priceCt2]
   const me = privateKeyToAccount(verifierPrivKey).address.toLowerCase()
   const i = bid.verifiers.split(",").findIndex((a) => a.trim().toLowerCase() === me)
   for (const ct of i >= 0 ? [cts[i], ...cts.filter((_, j) => j !== i)] : cts) {
+    let plain: string
     try {
-      return BigInt(decrypt(verifierPrivKey, ct))
+      plain = decrypt(verifierPrivKey, ct)
     } catch {
-      // wrong key for this ciphertext, try the next
+      continue // wrong key for this ciphertext, try the next
     }
+    if (!/^[1-9][0-9]*$/.test(plain)) throw new BidOpenError("Bid price must be a positive integer in base units")
+    const price = BigInt(plain)
+    if (maxBounty !== undefined && price > maxBounty) throw new BidOpenError("Bid price exceeds the Mission maxBounty")
+    return price
   }
   throw new BidOpenError()
 }

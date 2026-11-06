@@ -31,6 +31,17 @@ describe("sealBid / openBid", () => {
   it("works when the verifiers list is missing the key (tries all)", () => {
     expect(openBid({ ...bid, verifiers: "" }, keys[2])).toBe(5_250_000n)
   })
+  it("rejects non-positive, signed, padded or non-numeric prices", () => {
+    for (const bad of ["0", "-5", "+5", "007", " 5", "5 ", "1e3", "0x10", "abc", ""]) {
+      const b = { verifiers, ...sealBid(1n, pubs) }
+      const ct = [encrypt(pubs[0], bad), encrypt(pubs[1], bad), encrypt(pubs[2], bad)]
+      expect(() => openBid({ ...b, priceCt0: ct[0], priceCt1: ct[1], priceCt2: ct[2] }, keys[0])).toThrow(BidOpenError)
+    }
+  })
+  it("rejects a price above the Mission maxBounty when given", () => {
+    expect(() => openBid(bid, keys[0], 5_000_000n)).toThrow(BidOpenError)
+    expect(openBid(bid, keys[0], 5_250_000n)).toBe(5_250_000n)
+  })
   it("a non-Verifier key throws BidOpenError", () => {
     expect(() => openBid(bid, generatePrivateKey())).toThrow(BidOpenError)
   })
