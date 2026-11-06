@@ -21,6 +21,8 @@ function attachedPng(request: unknown): Uint8Array | null {
  */
 export async function checkDecisions(
   zeroG: ZeroGPort, policy: Policy, decisions: Decision[], replay: ReplayResult, task: Task = "rover",
+  /** Called after each Decision passes, with the count checked so far and the total. */
+  onChecked?: (checked: number, total: number) => void | Promise<void>,
 ): Promise<boolean> {
   const history: Action[] = [];
   for (const [i, d] of decisions.entries()) {
@@ -37,6 +39,7 @@ export async function checkDecisions(
 
     if (parseAction(d.rawResponse, task) !== d.action) return false;
     history.push(d.action);
+    await onChecked?.(i + 1, decisions.length);
   }
   return true;
 }

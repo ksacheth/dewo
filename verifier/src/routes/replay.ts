@@ -1,3 +1,4 @@
+import type { EventData } from "@dewo/board";
 import { canonicalJson } from "@dewo/agents/formats";
 import { keccak256, toBytes, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -25,6 +26,27 @@ export interface DecidedVerdict { response: ReplayResponse; entity: VerdictEntit
 
 const NO_EPISODE: Hex = `0x${"00".repeat(32)}`;
 
+/** A 40-Decision Replay announces about this many progress steps, however long the Episode is. */
+export const MAX_PROGRESS_EVENTS = 10;
+
+/** The progress feed is display only: a failed write is logged and never fails the Replay. */
+async function announce<T extends "replay.started" | "replay.progress">(deps: ReplayDeps, missionId: Hex, type: T, data: EventData[T]): Promise<void> {
+  try {
+    await deps.events.emit(missionId, type, data);
+  } catch (e) {
+    console.error(`replay ${missionId}: ${type} not emitted: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** Emits `replay.progress` every ceil(total / MAX_PROGRESS_EVENTS) Decisions and at the last one. */
+function progressReporter(deps: ReplayDeps, missionId: Hex) {
+  const verifier = privateKeyToAccount(deps.key).address;
+  return async (step: number, total: number) => {
+    const every = Math.ceil(total / MAX_PROGRESS_EVENTS);
+    if (step % every === 0 || step === total) await announce(deps, missionId, "replay.progress", { verifier, step, total });
+  };
+}
+
 /** Decide the Outcome (by deadlines or by Replay) and sign the Verdict, without publishing it anywhere. */
 export async function decideVerdict(deps: ReplayDeps, missionId: Hex): Promise<DecidedVerdict> {
   const loaded = await deps.source.load(missionId);
@@ -39,7 +61,8 @@ export async function decideVerdict(deps: ReplayDeps, missionId: Hex): Promise<D
     outcome = byDeadline;
     evidenceHash = keccak256(toBytes(canonicalJson({ missionId, outcome })));
   } else if (loaded.episode) {
-    const result = await verifyEpisode(deps, { mission: loaded.mission, ...loaded.episode });
+    await announce(deps, missionId, "replay.started", { verifier: privateKeyToAccount(deps.key).address, decisions: loaded.episode.decisionCount });
+    const result = await verifyEpisode({ ...deps, onDecisionChecked: progressReporter(deps, missionId) }, { mission: loaded.mission, ...loaded.episode });
     outcome = result.outcome;
     evidenceHash = result.evidenceHash;
     metrics = { steps: result.steps, collisions: result.collisions };

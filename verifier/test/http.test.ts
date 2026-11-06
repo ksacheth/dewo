@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { privateKeyToAccount } from "viem/accounts";
 import { createApp, type PaymentGate } from "../src/server.js";
 import { boardEvents } from "../src/events.js";
-import { PendingError, StorageUnavailableError } from "../src/errors.js";
+import { FinalityPendingError, PendingError, StorageUnavailableError } from "../src/errors.js";
 import { createEpisodeSource } from "../src/episodes.js";
 import { Outcome } from "../src/sign.js";
 import type { EpisodeSource, EscrowAward } from "../src/ports.js";
@@ -113,6 +113,13 @@ describe("Verifier HTTP API (I6)", () => {
     expect(gateCalls).toBe(0);
   });
 
+  it("POST /replay puts a structured readyAt next to the error text for the Galileo finality wait", async () => {
+    const { a } = app({ notReady: new FinalityPendingError("Galileo is not 120 s past 1100 yet", 1220) });
+    const res = await post(a, "/replay", { "x-payment": "paid" });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "Galileo is not 120 s past 1100 yet", readyAt: 1220 });
+  });
+
   it("POST /replay after payment returns the Outcome by name with signature and evidenceHash, and logs I8 events", async () => {
     const { a, written } = app();
     const res = await post(a, "/replay", { "x-payment": "paid" });
@@ -124,12 +131,14 @@ describe("Verifier HTTP API (I6)", () => {
     expect(written).toHaveLength(1);
     const lines = eventsOf();
     // Settlement comes first, so the feed reads paid, then the Verdict.
-    expect(lines.map((l) => l.type)).toEqual(["replay.paid", "verdict.signed"]);
-    expect(lines[0]).toMatchObject({
+    expect(lines.map((l) => l.type)).toEqual(["replay.started", "replay.progress", "replay.progress", "replay.progress", "replay.paid", "verdict.signed"]);
+    expect(lines[0]).toMatchObject({ data: { verifier: VERIFIER, decisions: 3 } });
+    expect(lines[3]).toMatchObject({ data: { verifier: VERIFIER, step: 3, total: 3 } });
+    expect(lines[4]).toMatchObject({
       missionId: MISSION, data: { verifier: VERIFIER, status: "paid", amount: "50000" },
       txUrl: "https://hashscan.io/testnet/transaction/0.0.1234@1700000000.000000000",
     });
-    expect(lines[1]).toMatchObject({ data: { verifier: VERIFIER, outcome: "Pass", evidenceHash: body.evidenceHash, arkivKey: "0x" + "ab".repeat(32) } });
+    expect(lines[5]).toMatchObject({ data: { verifier: VERIFIER, outcome: "Pass", evidenceHash: body.evidenceHash, arkivKey: "0x" + "ab".repeat(32) } });
   });
 
   it("owns the paid event (D15): one replay.paid per settled payment, none for the 402 challenge", async () => {
@@ -211,7 +220,8 @@ describe("Verifier HTTP API (I6)", () => {
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: "insufficient funds" });
     expect(written).toHaveLength(0);
-    expect(() => eventsOf()).toThrow(); // no event file was ever written
+    // Only the Replay's own progress was announced: nothing says paid or signed.
+    expect(eventsOf().map((l) => l.type).filter((t) => t === "replay.paid" || t === "verdict.signed")).toEqual([]);
   });
 
   it("answers 502 and publishes nothing when the facilitator throws during settlement", async () => {
@@ -249,7 +259,7 @@ describe("Verifier HTTP API (I6)", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).verdict).toBe("Pass");
     // The payment did settle: the feed still says so, with its link.
-    expect(eventsOf().map((l) => [l.type, l.txUrl])).toEqual([["replay.paid", "https://hashscan.io/testnet/transaction/0.0.1234@1700000000.000000000"]]);
+    expect(eventsOf().filter((l) => !l.type.startsWith("replay.") || l.type === "replay.paid").map((l) => [l.type, l.txUrl])).toEqual([["replay.paid", "https://hashscan.io/testnet/transaction/0.0.1234@1700000000.000000000"]]);
   });
 
   it("answers a retryable 503 when 0G Storage is unreachable, charging nothing and signing no Verdict (issue #47)", async () => {

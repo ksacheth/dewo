@@ -19,3 +19,14 @@ export class StorageUnavailableError extends Error {}
  * Retrying cannot help: the Verifiers are fixed at `createMission`.
  */
 export class UntrustedVerifiersError extends Error {}
+
+/**
+ * Galileo's head is not yet far enough past the upload window for the Flow scan to be trusted (a finality wait). It carries the
+ * unix second the wait ends, so the answer to the Requester can say when to come back without anyone parsing the message.
+ */
+export class FinalityPendingError extends Error {
+  constructor(message: string, readonly readyAt: number) {
+    super(message);
+    this.name = "FinalityPendingError";
+  }
+}

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { isHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { BiddingOpenError, NoValidBidsError, PendingError, StorageUnavailableError, UntrustedVerifiersError } from "./errors.js";
+import { BiddingOpenError, FinalityPendingError, NoValidBidsError, PendingError, StorageUnavailableError, UntrustedVerifiersError } from "./errors.js";
 import { createAwarder, type SignedAward } from "./routes/award.js";
 import { decideVerdict, publishVerdict, type DecidedVerdict } from "./routes/replay.js";
 import type { BoardPort, EpisodeSource, EscrowPort, EventSink, SimPort, VerdictSink, ZeroGPort } from "./ports.js";
@@ -135,7 +135,9 @@ export function createApp(deps: AppDeps) {
       await deps.source.ready(missionId, deps.now());
       return null;
     } catch (e) {
-      return respond({ error: errorMessage(e) }, e instanceof PendingError ? 409 : 503);
+      // `readyAt` (unix seconds) is only there when the wait has a known end; the Requester shows it as a countdown.
+      const readyAt = e instanceof FinalityPendingError ? { readyAt: e.readyAt } : {};
+      return respond({ error: errorMessage(e), ...readyAt }, e instanceof PendingError ? 409 : 503);
     }
   }
 
