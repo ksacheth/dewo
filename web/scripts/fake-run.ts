@@ -66,9 +66,10 @@ export async function fakeRun({ dir = runsDir(), delayMs = 800, missionId = `0x$
   }
   e(missionId, "worker-cheap-and-blind", { type: "episode.submitted", data: { episodeLogRoot: "0xroot123", policyRoot: "0xpolicy456", decisionCount: 15 }, txUrl: "https://chainscan-galileo.0g.ai/tx/0xdeadbeef" })
   for (const [i, v] of VERIFIERS.entries()) {
-    e(missionId, `verifier-${i + 1}`, { type: "replay.paid", data: { verifier: v, status: 402, amount: "50000" } })
+    // D15: the Requester reports the 402 challenge; the Verifier owns "paid" with the settlement link.
+    e(missionId, "requester", { type: "replay.paid", data: { verifier: v, status: 402, amount: "50000" } })
     await sleep(Math.max(2, delayMs / 4))
-    e(missionId, "requester", { type: "replay.paid", data: { verifier: v, status: "paid", amount: "50000" }, txUrl: hs(`0.0.2000@${i}.1`) })
+    e(missionId, `verifier-${i + 1}`, { type: "replay.paid", data: { verifier: v, status: "paid", amount: "50000" }, txUrl: hs(`0.0.2000@${i}.1`) })
   }
   for (const [i, v] of VERIFIERS.slice(0, 2).entries()) { await sleep(Math.max(2, delayMs / 2)); e(missionId, `verifier-${i + 1}`, { type: "verdict.signed", data: { verifier: v, outcome: "Pass", evidenceHash: "0xevidence", arkivKey: addr(0xf0 + i) } }) }
   e(missionId, "requester", { type: "settled", data: { outcome: "Pass", workerPayout: "5590000", requesterPayout: "5200000" }, txUrl: hs("0.0.3000@9.9") })

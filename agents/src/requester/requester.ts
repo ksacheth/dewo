@@ -359,8 +359,8 @@ export class Requester {
       const { verdict, payment } = await this.deps.verifiers.requestReplay(url, record.missionId);
       next = { ...next, verdicts: { ...next.verdicts, [url]: verdict } };
       const verifier = this.config.verifiers.find((v) => v.url === url)!.address;
+      // D15: the Verifier owns the "paid" event (it alone knows the settlement transaction); the Requester reports only the challenge.
       if (payment.challenged) this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: 402, amount: payment.amount.toString() });
-      this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: "paid", amount: payment.amount.toString() });
       await this.audit({
         missionId: record.missionId,
         verifier,

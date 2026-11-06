@@ -19,6 +19,10 @@ export type MissionState = {
   phase: "waiting" | "posted" | "bidding" | "awarded" | "staked" | "running" | "verifying" | "settled"
 }
 
+const RANK: Record<VerifierView["status"], number> = { idle: 0, "402": 1, paid: 2, verdict: 3 }
+/** A Verifier card only moves forward: events from different processes may arrive out of order. */
+const later = (a: VerifierView["status"], b: VerifierView["status"]) => (RANK[b] > RANK[a] ? b : a)
+
 export const eventKey = (e: DewoEvent) => `${e.ts}|${e.type}|${JSON.stringify(e.data)}`
 
 export function foldEvents(missionId: string, events: DewoEvent[]): MissionState {
@@ -37,8 +41,9 @@ export function foldEvents(missionId: string, events: DewoEvent[]): MissionState
       case "decision.made": s.decisions.push({ ...(d as object), ts: e.ts } as never); break
       case "episode.submitted": s.episode = { ...(d as object), txUrl: e.txUrl } as never; break
       case "replay.paid": {
-        const x = d as Of<"replay.paid">
-        Object.assign(v(x.verifier), { status: x.status === 402 ? "402" : "paid", amount: x.amount, txUrl: e.txUrl ?? v(x.verifier).txUrl })
+        // The Verifier emits "paid" with the settlement link; the Requester's 402 can land after it (D15).
+        const x = d as Of<"replay.paid">, card = v(x.verifier), status = x.status === 402 ? "402" : "paid"
+        Object.assign(card, { status: later(card.status, status), amount: x.amount, txUrl: e.txUrl ?? card.txUrl })
         break
       }
       case "verdict.signed": {

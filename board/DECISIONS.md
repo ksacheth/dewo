@@ -142,7 +142,11 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
   `requester`, `worker-<name>`, `verifier-<n>` or `web` (`/^[a-z0-9-]+$/`). `board/src/events.ts` is the source of
   truth for the event types and their `data` shapes.
 - **Emitters (R10):** `bids.revealed` and `verdict.signed` are emitted by the Verifiers (`verifier-<n>`), not by
-  the Requester; the Requester emits `mission.posted`, `seed.released`, `replay.paid` and `settled`.
+  the Requester; the Requester emits `mission.posted`, `seed.released` and `settled`.
+- **`replay.paid` (#49):** one fact, one owner. The Verifier emits the `status: "paid"` event, once per settled
+  payment, with the settlement's HashScan link as `txUrl`: it alone runs settlement and knows the transaction. The
+  Requester emits only `status: 402` (no link) when a Verifier challenged it. The web never moves a Verifier card
+  back, so the Requester's 402, which can land after the Verifier's `"paid"`, does not undo it.
 - **Why:** one file per process means no write races; the web feed tails every `events.*.ndjson` of a Mission.
 
 ## Also added to I4 (needed by the spec, missing from the function list)
