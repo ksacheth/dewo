@@ -150,6 +150,14 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
     );
   }
 
+  async owed(account: Hex): Promise<bigint> {
+    return this.clients.public.readContract({ address: this.address, abi: missionEscrowAbi, functionName: "owed", args: [account] });
+  }
+
+  async withdraw(): Promise<TxResult> {
+    return txResult(await send(this.clients, { address: this.address, abi: missionEscrowAbi, functionName: "withdraw", args: [] }));
+  }
+
   /** Lets the escrow pull `amount` of the settlement token, if it can't already. */
   private async approve(amount: bigint): Promise<void> {
     const token = await this.settlementAsset();

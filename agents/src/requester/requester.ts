@@ -4,6 +4,7 @@
 // Like the Worker, it re-reads the chain before acting and records a step only after it is confirmed.
 import { randomBytes } from "node:crypto";
 import { seedCommitment, toBaseUnits, type Hex } from "../formats";
+import { PayoutClaimer } from "../shared/payout-claim";
 import { hederaTxUrl } from "../shared/tx-links";
 import type { Clock, DifficultyClass, EscrowMission, EventsPort, MissionTerms, RegistryPort, TxResult } from "../worker/ports";
 import type { Keyed, RecordStore } from "../worker/records";
@@ -98,6 +99,8 @@ export const DEFAULT_WINDOWS: Windows = {
 };
 
 export interface RequesterConfig {
+  /** The EVM address of the key that signs the escrow writes; its deferred payouts are claimed with withdraw(). */
+  address: Hex;
   verifiers: readonly { url: string; address: Hex }[];
   windows: Windows;
   /** Spending cap: the most Replays this Requester pays for on one Mission. */
@@ -122,11 +125,14 @@ const random32 = (): Hex => `0x${randomBytes(32).toString("hex")}`;
 export class Requester {
   /** CREATING records whose createMission is in flight in this process. */
   private readonly creating = new Set<string>();
+  private readonly payouts: PayoutClaimer;
 
   constructor(
     private readonly config: RequesterConfig,
     private readonly deps: RequesterDeps,
-  ) {}
+  ) {
+    this.payouts = new PayoutClaimer(deps.escrow, config.address, "requester");
+  }
 
   /** I7 POST /missions. Everything after this is autonomous. */
   async post(request: MissionRequest): Promise<string> {
@@ -153,6 +159,7 @@ export class Requester {
 
   async tick(): Promise<void> {
     for (const { missionId } of this.deps.records.all()) await this.tickMission(missionId);
+    await this.payouts.claim();
   }
 
   /** One Mission's failure never stops the others. */
@@ -177,7 +184,10 @@ export class Requester {
   private async advance(record: RequesterRecord): Promise<void> {
     if (record.stage === "CREATING") return this.recoverCreating(record);
     const mission = await this.deps.escrow.getMission(record.missionId);
-    if (mission.settled) return this.move(record, "SETTLED");
+    if (mission.settled) {
+      this.payouts.markDue();
+      return this.move(record, "SETTLED");
+    }
     if (this.deps.clock.now() >= mission.terms.deadlines.rescueAt) return this.rescue(record);
     if (record.stage === "CREATED") return this.list(record, mission);
     if (record.stage === "BIDDING") return this.closeBidding(record, mission);
@@ -257,6 +267,7 @@ export class Requester {
   private async rescue(record: RequesterRecord): Promise<void> {
     await this.deps.escrow.rescue(record.missionId);
     this.move(record, "RESCUED");
+    this.payouts.markDue();
   }
 
   private closeBidding(record: RequesterRecord, mission: EscrowMission): void {
@@ -329,6 +340,7 @@ export class Requester {
     const { outcome, evidenceHash } = agreed.value;
     const { txHash } = await this.deps.escrow.settle(record.missionId, outcome, evidenceHash, agreed.signatures);
     this.move(current, "SETTLED", outcome);
+    this.payouts.markDue();
     const { award, terms } = mission;
     const paid = payouts(outcome, terms.maxBounty, award?.price ?? 0n, award?.stake ?? 0n);
     this.deps.events.emit(record.missionId, "settled", {

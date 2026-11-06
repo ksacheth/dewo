@@ -13,6 +13,7 @@ import {
   type Policy,
 } from "../formats";
 import type { EventData } from "../shared/events";
+import { PayoutClaimer } from "../shared/payout-claim";
 import { hederaTxUrl, zeroGTxUrl } from "../shared/tx-links";
 import { runEpisode } from "./episode";
 import type {
@@ -69,10 +70,14 @@ interface Submission {
 }
 
 export class Worker {
+  private readonly payouts: PayoutClaimer;
+
   constructor(
     private readonly config: WorkerConfig,
     private readonly deps: WorkerDeps,
-  ) {}
+  ) {
+    this.payouts = new PayoutClaimer(deps.escrow, config.address, `worker ${config.policy.name}`);
+  }
 
   /** On startup: an Episode cut short by a crash is not retried (one attempt per Mission). */
   async reconcile(): Promise<void> {
@@ -92,6 +97,7 @@ export class Worker {
     for (const { missionId } of this.deps.records.all()) {
       await this.isolated(missionId, () => this.advanceUntilWaiting(missionId));
     }
+    await this.payouts.claim();
   }
 
   /** One bad Mission (a bogus Arkiv listing, an RPC hiccup) must not stop the others from being staked in time. */
@@ -116,6 +122,7 @@ export class Worker {
 
   private async advance(record: MissionRecord): Promise<void> {
     const mission = await this.deps.escrow.getMission(record.missionId);
+    if (mission.settled) this.payouts.markDue(); // settled or rescued: a payout may be parked in owed
     if (record.stage === "BID_PLACED") return this.watchAward(record, mission);
     if (record.stage === "WON") return this.stake(record, mission);
     if (record.stage === "STAKED") return this.fly(record, mission);

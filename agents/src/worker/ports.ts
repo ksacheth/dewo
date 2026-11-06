@@ -3,6 +3,7 @@
 // these once M1, M2 and M3 land; tests use in-memory fakes. Money is USDC base units (bigint).
 import type { Action, ChatReceipt, Hex } from "../formats";
 import type { EventData, EventType } from "../shared/events";
+import type { WithdrawalPort } from "../shared/payout-claim";
 
 export type DifficultyClass = "easy" | "medium" | "hard";
 
@@ -48,7 +49,7 @@ export interface TxResult {
   txHash: Hex;
 }
 
-export interface EscrowPort {
+export interface EscrowPort extends WithdrawalPort {
   getMission(missionId: string): Promise<EscrowMission>;
   stake(missionId: string, amount: bigint): Promise<TxResult>;
 }

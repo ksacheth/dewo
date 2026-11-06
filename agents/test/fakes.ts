@@ -79,6 +79,11 @@ export function terms(overrides: Partial<MissionTerms> = {}): MissionTerms {
 
 export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
   missions = new Map<string, EscrowMission>();
+  /** Payouts parked by settle/rescue for a recipient that could not receive; tests set them directly. */
+  owedBy = new Map<Hex, bigint>();
+  withdrawals: { account: Hex; amount: bigint }[] = [];
+  /** While set, withdraw() reverts like the contract does when delivery still fails. */
+  withdrawFails = false;
   stakes: { missionId: string; amount: bigint }[] = [];
   /** Every Award ever made, including lapsed ones. */
   awards: { missionId: string; award: AwardTerms; signatures: readonly Hex[] }[] = [];
@@ -133,6 +138,29 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
 
   async getMission(missionId: string): Promise<EscrowMission> {
     return this.mission(missionId);
+  }
+
+  async owed(account: Hex): Promise<bigint> {
+    return this.owedBy.get(account) ?? 0n;
+  }
+
+  /** Without an account this is the plain shared fake; `forAccount` binds the caller. */
+  async withdraw(): Promise<TxResult> {
+    throw new Error("use escrow.forAccount(address) to say who withdraws");
+  }
+
+  /** A view of this escrow whose withdraw() is called by `account` (the real contract uses msg.sender). */
+  forAccount(account: Hex): FakeEscrow {
+    const view = Object.create(this) as FakeEscrow;
+    view.withdraw = async () => {
+      const amount = this.owedBy.get(account) ?? 0n;
+      if (amount === 0n) throw new Error("NothingOwed");
+      if (this.withdrawFails) throw new Error("transfer still fails");
+      this.owedBy.delete(account);
+      this.withdrawals.push({ account, amount });
+      return fakeTx();
+    };
+    return view;
   }
 
   async stake(missionId: string, amount: bigint): Promise<TxResult> {
@@ -320,6 +348,7 @@ const sign = (url: string, missionId: string): Hex => keccak256(toBytes(`${url}:
 
 export const VERIFIER_URLS = ["http://v1", "http://v2", "http://v3"];
 export const VERIFIER_ADDRESSES: Hex[] = VERIFIER_URLS.map((_, i) => toHex(i + 1, { size: 20 }));
+export const REQUESTER_ADDRESS: Hex = "0x00000000000000000000000000000000000000cc";
 export const REPLAY_PRICE = 100_000n;
 /** Seconds after posting at which the Requester's bidding window (with slack) has closed. */
 export const BIDDING_CLOSES_AFTER = DEFAULT_WINDOWS.biddingSeconds + DEFAULT_WINDOWS.biddingSlackSeconds + 1;
@@ -345,11 +374,12 @@ export function requesterIn(w: World, options: { random?: () => Hex; audit?: Aud
   const records = new MemoryRecordStore<RequesterRecord>();
   const requester = new Requester(
     {
+      address: REQUESTER_ADDRESS,
       verifiers: VERIFIER_URLS.map((url, i) => ({ url, address: VERIFIER_ADDRESSES[i]! })),
       windows: DEFAULT_WINDOWS,
       maxPaidReplays: 3,
     },
-    { ...w, events: w.emit, records, random: options.random, audit: options.audit },
+    { ...w, escrow: w.escrow.forAccount(REQUESTER_ADDRESS), events: w.emit, records, random: options.random, audit: options.audit },
   );
   return { requester, records, stage: (missionId = "m1") => records.get(missionId)?.stage };
 }
@@ -373,6 +403,7 @@ export function workerIn(w: World, options: { address?: Hex; answers?: string[];
   };
   const worker = new Worker(config, {
     ...w,
+    escrow: w.escrow.forAccount(config.address),
     events: w.emit,
     inference,
     sim,

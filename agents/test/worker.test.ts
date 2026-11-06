@@ -244,6 +244,34 @@ describe("Worker: retrying a flown Episode", () => {
     return w;
   }
 
+  it("withdraws a deferred payout once its Mission settles, retrying while delivery fails", async () => {
+    const w = await flown();
+    await w.worker.tick();
+    expect(w.stage()).toBe("SUBMITTED");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    w.escrow.owedBy.set(ME, 7_700_000n);
+    w.escrow.withdrawFails = true;
+    w.escrow.patch("m1", { settled: true });
+
+    await w.worker.tick();
+    expect(w.stage()).toBe("DONE");
+    expect(w.escrow.withdrawals).toHaveLength(0);
+
+    w.escrow.withdrawFails = false;
+    await w.worker.tick();
+    expect(w.escrow.withdrawals).toEqual([{ account: ME, amount: 7_700_000n }]);
+    errors.mockRestore();
+  });
+
+  it("does not withdraw before any Mission has settled", async () => {
+    const w = await flown();
+    await w.worker.tick();
+    w.escrow.owedBy.set(ME, 1n);
+    await w.worker.tick();
+    // The startup check ran before the amount was parked; only a settled Mission makes it check again.
+    expect(w.escrow.withdrawals).toHaveLength(0);
+  });
+
   it("keeps the Episode when the upload fails and submits it on the next tick without re-flying", async () => {
     const w = await flown();
     vi.spyOn(w.storage, "upload").mockRejectedValueOnce(new Error("0G storage down"));

@@ -7,10 +7,11 @@ import { join } from "node:path";
 import { createTestClient, http, parseAbi, type Abi, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { foundry } from "viem/chains";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { seedCommitment } from "../src/formats";
 import { erc20Abi, missionEscrowAbi } from "../src/shared/abi";
 import { EscrowContract } from "../src/shared/escrow";
+import { PayoutClaimer } from "../src/shared/payout-claim";
 import { evmClients, type EvmClients } from "../src/shared/evm";
 import { RegistryContract } from "../src/shared/registry";
 import { SALT, SEED } from "./fakes";
@@ -156,5 +157,72 @@ describe.skipIf(!OUT)("escrow + registry adapters against M2's contracts (Anvil)
     await testClient.mine({ blocks: 1 });
     await requester.rescue(missionId);
     expect((await requester.getMission(missionId)).settled).toBe(true);
+  }, 60_000);
+
+  it("parks a payout the token refuses, then withdraws it once delivery works (R11)", async () => {
+    const requester = new EscrowContract(clientsFor(requesterKey), escrowAddress);
+    const worker = new EscrowContract(clientsFor(workerKey), escrowAddress);
+    const workerAddress = privateKeyToAccount(workerKey).address;
+    const balanceOf = (account: Hex) =>
+      deployer.public.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [account] });
+    const block = async (blocked: boolean) => {
+      const hash = await deployer.wallet.writeContract({
+        address: token,
+        abi: parseAbi(["function setBlocked(address account, bool isBlocked, uint8 mode)"]),
+        functionName: "setBlocked",
+        args: [workerAddress, blocked, 0], // 0: the transfer reverts, like an unassociated HTS account
+      });
+      await deployer.public.waitForTransactionReceipt({ hash });
+    };
+
+    const now = Number((await deployer.public.getBlock()).timestamp);
+    const { missionId, txHash } = await requester.createMission(
+      {
+        maxBounty: 10_000_000n,
+        difficultyClass: "easy",
+        riskWeightBps: 5000,
+        seedCommitment: seedCommitment(SEED, SEED),
+        deadlines: { biddingClosesAt: now + 60, stakeWindow: 30, seedReleaseWindow: 30, episodeWindow: 300, rescueAt: now + 3600 },
+      },
+      verifiers.map((v) => v.address),
+    );
+    expect(txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    await testClient.increaseTime({ seconds: 61 });
+    await testClient.mine({ blocks: 1 });
+    const awardDigest = await deployer.public.readContract({
+      address: escrowAddress,
+      abi: missionEscrowAbi,
+      functionName: "awardDigest",
+      args: [missionId as Hex, workerAddress, 6_000_000n, 1_700_000n],
+    });
+    expect((await requester.award(missionId, { worker: workerAddress, price: 6_000_000n, stake: 1_700_000n }, await signBoth(awardDigest))).txHash).toMatch(/^0x/);
+    await worker.stake(missionId, 1_700_000n);
+
+    const evidence = `0x${"ee".repeat(32)}` as Hex;
+    const verdictDigest = await deployer.public.readContract({
+      address: escrowAddress,
+      abi: missionEscrowAbi,
+      functionName: "verdictDigest",
+      args: [missionId as Hex, 0, evidence],
+    });
+    const before = await balanceOf(workerAddress);
+    await block(true);
+    await requester.settle(missionId, "Pass", evidence, await signBoth(verdictDigest)); // does not revert: the payout is parked
+    expect(await balanceOf(workerAddress)).toBe(before);
+    expect(await worker.owed(workerAddress)).toBe(7_700_000n);
+
+    // While the token still refuses, the claimer logs and keeps the amount owed.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const claimer = new PayoutClaimer(worker, workerAddress, "worker test");
+    await claimer.claim();
+    expect(errors).toHaveBeenCalled();
+    errors.mockRestore();
+    expect(await worker.owed(workerAddress)).toBe(7_700_000n);
+
+    await block(false);
+    await claimer.claim(); // still due after the failure, so it retries and succeeds
+    expect(await worker.owed(workerAddress)).toBe(0n);
+    expect(await balanceOf(workerAddress)).toBe(before + 7_700_000n);
+    expect((await worker.getMission(missionId)).settled).toBe(true);
   }, 60_000);
 });

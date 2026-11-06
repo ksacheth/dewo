@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { seedCommitment, toBaseUnits, type Hex } from "../src/formats";
 import type { AuditPort, PaymentRecord } from "../src/requester/audit";
 import { CREATE_RETRY_SECONDS } from "../src/requester/requester";
-import { BIDDING_CLOSES_AFTER, REPLAY_PRICE, RIVAL, ME, SALT, SEED, VERIFIER_ADDRESSES, VERIFIER_URLS, requesterIn, world } from "./fakes";
+import { BIDDING_CLOSES_AFTER, REPLAY_PRICE, REQUESTER_ADDRESS, RIVAL, ME, SALT, SEED, VERIFIER_ADDRESSES, VERIFIER_URLS, requesterIn, world } from "./fakes";
 
 const randoms = (): (() => Hex) => {
   const values: Hex[] = [SEED, SALT];
@@ -188,6 +188,58 @@ describe("Requester: HCS spending log", () => {
   it("still settles when the audit log is down", async () => {
     const { w } = await settledWith({ recordPayment: async () => Promise.reject(new Error("HCS down")) });
     expect(w.escrow.settlements).toHaveLength(1);
+  });
+});
+
+describe("Requester: deferred payouts (R11)", () => {
+  it("withdraws what the escrow parked for it after the Mission settles", async () => {
+    const s = await staked();
+    s.escrow.owedBy.set(REQUESTER_ADDRESS, 4_000_000n);
+    await s.registry.submitEpisode("m1", "0x01", "0x02", 3);
+    await s.requester.tick();
+
+    expect(s.stage()).toBe("SETTLED");
+    expect(s.escrow.withdrawals).toEqual([{ account: REQUESTER_ADDRESS, amount: 4_000_000n }]);
+    expect(await s.escrow.owed(REQUESTER_ADDRESS)).toBe(0n);
+  });
+
+  it("does not block settling when withdraw fails, and retries on the next tick", async () => {
+    const s = await staked();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    s.escrow.owedBy.set(REQUESTER_ADDRESS, 4_000_000n);
+    s.escrow.withdrawFails = true;
+    await s.registry.submitEpisode("m1", "0x01", "0x02", 3);
+    await s.requester.tick();
+
+    expect(s.stage()).toBe("SETTLED");
+    expect(s.escrow.withdrawals).toHaveLength(0);
+    expect(errors).toHaveBeenCalled();
+
+    s.escrow.withdrawFails = false;
+    await s.requester.tick();
+    expect(s.escrow.withdrawals).toHaveLength(1);
+    await s.requester.tick();
+    expect(s.escrow.withdrawals).toHaveLength(1);
+    errors.mockRestore();
+  });
+
+  it("claims after a rescue too", async () => {
+    const s = setupRequester();
+    await s.post();
+    s.escrow.owedBy.set(REQUESTER_ADDRESS, 10_000_000n);
+    s.clock.t += 3600;
+    await s.requester.tick();
+
+    expect(s.stage()).toBe("RESCUED");
+    expect(s.escrow.withdrawals).toEqual([{ account: REQUESTER_ADDRESS, amount: 10_000_000n }]);
+  });
+
+  it("checks once at startup and then stays quiet while nothing is owed", async () => {
+    const s = setupRequester();
+    const owed = vi.spyOn(s.escrow, "owed");
+    await s.requester.tick();
+    await s.requester.tick();
+    expect(owed).toHaveBeenCalledTimes(1);
   });
 });
 

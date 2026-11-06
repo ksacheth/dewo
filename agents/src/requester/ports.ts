@@ -1,6 +1,7 @@
 // What the Requester needs from the outside world: the MissionEscrow writes (I5), its
 // Arkiv entities (I4) and the Verifier HTTP API (I6, with x402 paid inside the adapter).
 import type { Hex } from "../formats";
+import type { WithdrawalPort } from "../shared/payout-claim";
 import type { EscrowMission, MissionTerms, TxResult } from "../worker/ports";
 
 /** I5 Outcome enum, in contract order. */
@@ -24,7 +25,7 @@ export interface SignedVerdict {
   signature: Hex;
 }
 
-export interface RequesterEscrowPort {
+export interface RequesterEscrowPort extends WithdrawalPort {
   /** Locks maxBounty and fixes the terms on-chain; returns the Mission id and the transaction. */
   createMission(terms: MissionTerms, verifiers: readonly Hex[]): Promise<{ missionId: string } & TxResult>;
   getMission(missionId: string): Promise<EscrowMission>;
