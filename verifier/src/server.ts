@@ -129,7 +129,22 @@ export function createApp(deps: AppDeps) {
   }
 
   const paymentsInFlight = new Set<string>();
+  /** "Not yet", answered before any payment is asked for (409 pending, 503 a source cannot answer yet): nobody pays to wait. */
+  async function notReady(missionId: Hex): Promise<Response | null> {
+    try {
+      await deps.source.ready(missionId, deps.now());
+      return null;
+    } catch (e) {
+      return respond({ error: errorMessage(e) }, e instanceof PendingError ? 409 : 503);
+    }
+  }
+
   app.post("/replay", async (c) => {
+    const missionId = await readMissionId(c.req.raw.clone());
+    if (!missionId) return respond({ error: "missionId must be a 32-byte hex string" }, 400);
+    const notYet = (await refuseUntrusted(missionId)) ?? (await notReady(missionId));
+    if (notYet) return notYet;
+
     let gated: GateChallenge | GatePaid;
     try {
       gated = await deps.gate(c.req.raw.clone());
@@ -137,8 +152,6 @@ export function createApp(deps: AppDeps) {
       return respond({ error: `payment facilitator unavailable: ${errorMessage(e)}` }, 502);
     }
     if ("status" in gated) return new Response(json(gated.body), { status: gated.status, headers: { "content-type": "application/json", ...gated.headers } });
-    const missionId = await readMissionId(c.req.raw);
-    if (!missionId) return respond({ error: "missionId must be a 32-byte hex string" }, 400);
 
     // Only one request may spend a given payment at a time; the others would do the Replay work and then fail to settle.
     if (paymentsInFlight.has(gated.id)) return respond({ error: "this payment is already funding another Replay" }, 409);

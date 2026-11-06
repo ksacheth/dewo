@@ -96,8 +96,15 @@ export class HttpVerifiers implements VerifiersPort {
 
   async requestReplay(verifierUrl: string, missionId: string): Promise<ReplayResult> {
     const payment: ReplayPayment = { challenged: false, amount: 0n };
-    const body = await post(this.payFetch(recordingFetch(payment)), `${verifierUrl}/replay`, missionId, this.timeoutMs);
-    return { verdict: parseVerdict(body, `${verifierUrl}/replay`), payment };
+    const sent = { signed: false };
+    try {
+      const body = await post(this.payFetch(recordingFetch(payment, sent)), `${verifierUrl}/replay`, missionId, this.timeoutMs);
+      return { verdict: parseVerdict(body, `${verifierUrl}/replay`), payment };
+    } catch (error) {
+      // "Not ready" is only free when it came before any payment was signed: a Verifier holding a signed payment could have settled it.
+      if (error instanceof VerifierNotReadyError && sent.signed) throw new Error(`${error.message} (after a signed payment, so it counts as paid)`);
+      throw error;
+    }
   }
 }
 
@@ -144,7 +151,7 @@ function matching(fields: Record<string, unknown>, name: string, pattern: RegExp
   return value;
 }
 
-/** "Ask again later": the Verifier answers these before it settles any payment (verifier/src/server.ts). */
+/** "Ask again later": a Verifier answers these before it asks for payment (verifier/src/server.ts); see requestReplay for after. */
 const NOT_READY = new Set([409, 503]);
 
 async function post(doFetch: typeof fetch, url: string, missionId: string, timeoutMs: number): Promise<unknown> {
@@ -172,10 +179,11 @@ export function requestHeaders(input: unknown): HeadersInit | undefined {
   return headers instanceof Headers || (typeof headers === "object" && headers !== null) ? (headers as HeadersInit) : undefined;
 }
 
-function recordingFetch(payment: ReplayPayment): typeof fetch {
+function recordingFetch(payment: ReplayPayment, sent: { signed: boolean }): typeof fetch {
   let quoted: Partial<PaymentTerms> = {};
   return async (input, init) => {
     const signature = new Headers(init?.headers ?? requestHeaders(input)).get("PAYMENT-SIGNATURE");
+    if (signature) sent.signed = true;
     const response = await fetch(input, init);
     if (response.status === 402) {
       payment.challenged = true;

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { privateKeyToAccount } from "viem/accounts";
 import { createApp, type PaymentGate } from "../src/server.js";
 import { boardEvents } from "../src/events.js";
-import { StorageUnavailableError } from "../src/errors.js";
+import { PendingError, StorageUnavailableError } from "../src/errors.js";
 import { createEpisodeSource } from "../src/episodes.js";
 import { Outcome } from "../src/sign.js";
 import type { EpisodeSource, EscrowAward } from "../src/ports.js";
@@ -37,15 +37,17 @@ beforeEach(() => {
 });
 afterEach(() => { delete process.env.RUNS_DIR; });
 
-function app(opts: { award?: () => EscrowAward | null; bidders?: Record<string, bigint>; now?: () => number; arkivDown?: boolean; storageDown?: boolean; source?: EpisodeSource; onChainVerifiers?: readonly `0x${string}`[]; escrowDown?: boolean } = {}) {
+function app(opts: { award?: () => EscrowAward | null; bidders?: Record<string, bigint>; now?: () => number; arkivDown?: boolean; storageDown?: boolean; source?: EpisodeSource; notReady?: Error; gate?: PaymentGate; onChainVerifiers?: readonly `0x${string}`[]; escrowDown?: boolean } = {}) {
   const { mission, ...episode } = honestEpisode();
   const written: unknown[] = [];
   const deps = {
-    key: KEY, escrow: ESCROW, gate, events: boardEvents("verifier-1"), sim: new FakeSim(), zeroG: zeroG(), now: opts.now ?? (() => 5_000),
+    key: KEY, escrow: ESCROW, gate: opts.gate ?? gate, events: boardEvents("verifier-1"), sim: new FakeSim(), zeroG: zeroG(), now: opts.now ?? (() => 5_000),
     board: fakeBoard({ prices: opts.bidders ?? { [WORKER]: 5_000_000n } }), chain: fakeChain({ award: opts.award, verifiers: opts.onChainVerifiers, down: opts.escrowDown }), trustedVerifiers: VERIFIERS,
     source: opts.source ?? { load: async () => {
       if (opts.storageDown) throw new StorageUnavailableError("0G Storage download timed out");
       return { mission, worker: WORKER, timeline: { stakedAt: 1_000, episodeSubmittedAt: 1_100 }, episode };
+    }, ready: async () => {
+      if (opts.notReady) throw opts.notReady;
     } },
     verdicts: { writeVerdict: async (v: unknown) => { if (opts.arkivDown) throw new Error("arkiv down"); written.push(v); return { entityKey: ("0x" + "ab".repeat(32)) as `0x${string}` }; } },
   };
@@ -97,6 +99,18 @@ describe("Verifier HTTP API (I6)", () => {
     expect(res.status).toBe(402);
     expect((await res.json()).accepts[0].network).toBe("hedera:testnet");
     expect(written).toHaveLength(0);
+  });
+
+  it("POST /replay says \"not yet\" before asking for payment: 409 while pending, 503 while a source cannot answer", async () => {
+    let gateCalls = 0;
+    const counting: PaymentGate = async (req) => { gateCalls++; return gate(req); };
+    for (const [notReady, status] of [[new PendingError("no Episode Submission yet"), 409], [new Error("Galileo is not 120 s past 1100 yet"), 503]] as const) {
+      const { a, written } = app({ notReady, gate: counting });
+      const res = await post(a, "/replay", { "x-payment": "paid" });
+      expect(res.status).toBe(status);
+      expect(written).toHaveLength(0);
+    }
+    expect(gateCalls).toBe(0);
   });
 
   it("POST /replay after payment returns the Outcome by name with signature and evidenceHash, and logs I8 events", async () => {
@@ -260,7 +274,7 @@ describe("Verifier HTTP API (I6)", () => {
         if (root === LOG_ROOT) throw new StorageUnavailableError(`0G Storage download of ${root} failed: file not found`);
         return POLICY;
       } },
-      uploads: { submittedBetween: async (roots) => roots.map((root) => root !== LOG_ROOT || submitted) },
+      uploads: { submittedBetween: async (roots) => roots.map((root) => root !== LOG_ROOT || submitted), assertPast: async () => {} },
     });
 
     it("signs a Fail Verdict for a root never submitted to the 0G Flow contract, and charges for the Replay", async () => {

@@ -13,7 +13,7 @@ const T = 1_000;
 function setup(load: Partial<LoadedEpisode> = {}, now = T + 1000) {
   const { mission, ...episode } = honestEpisode();
   const loaded: LoadedEpisode = { mission, worker: WORKER, timeline: { stakedAt: T, episodeSubmittedAt: T + 100 }, episode, ...load };
-  const source: EpisodeSource = { load: async () => loaded };
+  const source: EpisodeSource = { load: async () => loaded, ready: async () => {} };
   const written: VerdictEntity[] = [];
   const events: string[] = [];
   const deps = {
