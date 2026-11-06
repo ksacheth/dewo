@@ -121,7 +121,7 @@ def main():
     for seq, action in enumerate(actions, 1):
         r = ep.act(action)
         label = "goal" if r["atGoal"] else "hit" if r["collision"] else ""
-        for path in view.move({"seq": seq, "from": pose, "to": r["pose"], "collision": r["collision"], "action": action}):
+        for path in view.move({"seq": seq, "from": pose, "to": r["pose"], "collision": r["collision"], "atGoal": r["atGoal"], "action": action}):
             reel.append(compose(decode_png(path), onboard, label))
         pose = r["pose"]
         onboard = decode_png(ep.observe()["frame"])  # the view the next Decision is made from

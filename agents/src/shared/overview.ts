@@ -49,7 +49,7 @@ export class OverviewView {
     const seq = this.seq++;
     this.moves.set(seq, { step: seq, collision, atGoal });
     try {
-      this.child.stdin.write(`${JSON.stringify({ seq, from: this.last, to: pose, collision, action })}\n`);
+      this.child.stdin.write(`${JSON.stringify({ seq, from: this.last, to: pose, collision, atGoal, action })}\n`);
     } catch (error) {
       this.die(String(error));
     }

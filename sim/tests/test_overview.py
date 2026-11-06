@@ -22,7 +22,7 @@ def fly(course, actions, out):
     errors = []
     for seq, action in enumerate(actions, 1):
         r = ep.act(action)
-        images += view.move({"seq": seq, "from": pose, "to": r["pose"], "collision": r["collision"], "action": action})
+        images += view.move({"seq": seq, "from": pose, "to": r["pose"], "collision": r["collision"], "atGoal": r["atGoal"], "action": action})
         pose = r["pose"]
         keys = ("x", "y", "z") if view.drone else ("x", "y")
         errors.append(float(np.linalg.norm(view.data.qpos[: len(keys)] - np.array([pose[k] for k in keys]))))
@@ -35,7 +35,9 @@ def fly(course, actions, out):
 def test_the_physics_ends_every_move_at_the_lattice_pose(seed, tmp_path):
     course = generate(seed, "medium")
     errors, images = fly(course, solve(course), tmp_path)
+    final = errors.pop()  # a drone flies on through the hoop after its last move
     assert max(errors) < 0.03, errors
+    assert (final > 0.3) == (course["task"] == "drone"), final
     assert all(Path(p).read_bytes()[:4] == b"\x89PNG" for p in images)
 
 

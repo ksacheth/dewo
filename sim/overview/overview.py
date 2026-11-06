@@ -16,7 +16,7 @@ the lattice reports, with real dynamics:
 A blocked move (collision) is drawn as a bump: the robot heads for the move, stops
 at the obstacle and comes back, as the sim says it stays where it was.
 
-  in:  {"seq": 3, "from": {x, y, [z], yaw}, "to": {x, y, [z], yaw}, "collision": false, "action": "FORWARD"}
+  in:  {"seq": 3, "from": {x, y, [z], yaw}, "to": {x, y, [z], yaw}, "collision": false, "atGoal": false, "action": "FORWARD"}
   out: {"seq": 3, "images": ["/path/overview_0003_0.png", ...]} or {"seq": 3, "error": "..."}
 """
 
@@ -48,6 +48,12 @@ G = 9.81
 KP, KV, KR, KW = 14.0, 8.0, 6.0, 0.5
 PROP_SPEED = 90.0  # rad/s of the drawn blades
 MOVE_SECONDS = 1.0  # simulated time of one move
+# Drone chase camera: behind and above the drone, looking along the start-to-hoop line, following it with a lag.
+CHASE_DISTANCE = 2.9
+CHASE_ELEVATION = -36.0  # degrees, looking down: high enough to see over the blocks near the drone
+CHASE_LEAD = 0.3  # aim this share of the way from the drone to the hoop, so the hoop is in view on the way...
+CHASE_LEAD_MAX = 0.8  # ...but at most this far (m) ahead, so the drone stays well inside the frame
+CHASE_LAG = 0.35  # seconds: how softly the camera follows
 
 
 def _sky_and_floor():
@@ -55,7 +61,7 @@ def _sky_and_floor():
   <visual>
     <headlight ambient="0.28 0.28 0.3" diffuse="0.22 0.22 0.22" specular="0 0 0"/>
     <quality shadowsize="4096"/>
-    <global offwidth="{SIZE}" offheight="{SIZE}"/>
+    <global offwidth="{SIZE}" offheight="{SIZE}" fovy="55"/>
     <map znear="0.01"/>
   </visual>
   <asset>
@@ -80,7 +86,7 @@ def _arena(course, drone):
     t = 0.05
     for side, x, y, sx, sy in (("s", a / 2, -t, a / 2 + t, t), ("n", a / 2, a + t, a / 2 + t, t), ("w", -t, a / 2, t, a / 2), ("e", a + t, a / 2, t, a / 2)):
         geoms.append(f'<geom type="box" size="{sx} {sy} {WALL_H / 2}" pos="{x} {y} {WALL_H / 2}" material="wall"/>')
-        if drone and side != "s":  # the geofence up to the ceiling, barely there; none on the camera side
+        if drone and side in ("n", "e"):  # the geofence up to the ceiling, barely there; none on the chase camera's side
             h = (CEILING - WALL_H) / 2
             geoms.append(f'<geom type="box" size="{sx} {sy} {h}" pos="{x} {y} {WALL_H + h}" material="fence"/>')
     for i, ob in enumerate(course["obstacles"]):
@@ -170,12 +176,8 @@ def _drone_actuators():
 def overview_xml(course):
     drone = course.get("task", "rover") == "drone"
     start = course["start"]
-    # Raised and tilted so heights read as 3D while the whole 6 m arena stays in frame.
-    camera = (
-        '<camera name="overview" pos="3 -2.2 9.2" xyaxes="1 0 0 0 0.85 0.526" fovy="43"/>'
-        if drone else
-        '<camera name="overview" pos="3 -0.9 10" xyaxes="1 0 0 0 0.945 0.326" fovy="35"/>'
-    )
+    # Rover: raised and tilted so heights read as 3D while the whole 6 m arena stays in frame. The drone uses a chase camera (Overview).
+    camera = '' if drone else '<camera name="overview" pos="3 -0.9 10" xyaxes="1 0 0 0 0.945 0.326" fovy="35"/>'
     body = _drone_body(start) if drone else _rover_body()
     actuators = _drone_actuators() if drone else _rover_actuators()
     gravity = f"0 0 -{G}" if drone else "0 0 0"
@@ -219,9 +221,15 @@ def intended(pose, action, drone):
 
 
 def waypoints(course, msg):
-    """The legs to fly: [(target pose, fraction of a full move's time)]. A blocked move goes to contact and back."""
+    """The legs to fly: [(target pose, fraction of a full move's time)]. A blocked move goes to contact and back.
+
+    The move that reaches the hoop is followed by a fly-through: a Pass only needs the drone within `goal.r` of the
+    hoop centre, so it may stop beside the ring; the view carries it on through the centre and out the far side.
+    """
     drone = course.get("task", "rover") == "drone"
     a, b = msg.get("from") or msg["to"], msg["to"]
+    if drone and msg.get("atGoal") and not msg.get("collision"):
+        return [(b, 1.0), *fly_through(course, b)]
     if not msg.get("collision"):
         return [(b, 1.0)]
     goal = intended(a, msg.get("action", ""), drone)
@@ -235,6 +243,16 @@ def waypoints(course, msg):
         contact = t
     touch = {k: a[k] + (goal[k] - a[k]) * contact for k in a}
     return [(touch, 0.55), (a, 0.45)]
+
+
+def fly_through(course, pose):
+    """Through the hoop centre along its axis (x), away from the side the drone came from, then out."""
+    g = course["goal"]
+    ahead = 1.0 if pose["x"] <= g["x"] else -1.0
+    yaw = 0.0 if ahead > 0 else math.pi
+    center = {"x": g["x"], "y": g["y"], "z": g["z"], "yaw": yaw}
+    out_x = min(max(g["x"] + 0.9 * ahead, 0.3), ARENA - 0.3)
+    return [(center, 0.7), ({"x": out_x, "y": g["y"], "z": g["z"] + 0.2, "yaw": yaw}, 0.9)]
 
 
 class _Drone:
@@ -292,12 +310,27 @@ class Overview:
             self.ctrl = _Drone(self.model, self.data)
             self.data.qpos[3:7] = (math.cos(s["yaw"] / 2), 0, 0, math.sin(s["yaw"] / 2))
             self.data.ctrl[:] = MASS * G / 4
+            g = course["goal"]
+            self.cam = mujoco.MjvCamera()
+            self.cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+            self.cam.azimuth = math.degrees(math.atan2(g["y"] - s["y"], g["x"] - s["x"]))  # look from the start towards the hoop
+            self.cam.elevation = CHASE_ELEVATION
+            self.cam.distance = CHASE_DISTANCE
+            self.look = self._aim()
         else:
             self.data.qpos[0:3] = (s["x"], s["y"], s["yaw"])  # slide and hinge joints measured from the origin
             self.data.ctrl[:] = (s["x"], s["y"], s["yaw"])
             self.wheels = [self.model.joint(f"wheel_{n}").qposadr[0] for n in ("fl", "fr", "rl", "rr")]
         mujoco.mj_forward(self.model, self.data)
         self.at = dict(s)
+
+    def _aim(self):
+        """Where the chase camera points: the drone, led a little towards the hoop."""
+        g = self.course["goal"]
+        p = np.array(self.data.qpos[0:3])
+        lead = CHASE_LEAD * (np.array([g["x"], g["y"], g["z"]]) - p)
+        n = float(np.linalg.norm(lead))
+        return p + (lead if n <= CHASE_LEAD_MAX else lead * (CHASE_LEAD_MAX / n))
 
     def _pos(self):
         if self.drone:
@@ -326,7 +359,9 @@ class Overview:
             yaw_before = self.data.qpos[2] if not self.drone else 0.0
             mujoco.mj_step(self.model, self.data)
             self.t += DT
-            if not self.drone:
+            if self.drone:
+                self.look += (self._aim() - self.look) * (DT / CHASE_LAG)
+            else:
                 self._roll_wheels(before, yaw_before)
             if n in shots:
                 images.append(self._shot())
@@ -345,9 +380,11 @@ class Overview:
     def _shot(self):
         if self.drone:
             self.ctrl.draw(self.t)
+            self.cam.lookat[:] = self.look
+            self.renderer.update_scene(self.data, camera=self.cam)
         else:
             mujoco.mj_kinematics(self.model, self.data)
-        self.renderer.update_scene(self.data, camera="overview")
+            self.renderer.update_scene(self.data, camera="overview")
         return self.renderer.render().copy()
 
     def move(self, msg):
