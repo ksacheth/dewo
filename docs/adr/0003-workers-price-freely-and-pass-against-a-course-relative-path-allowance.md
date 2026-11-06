@@ -21,3 +21,7 @@ We chose this because a published floor (0G cost per Decision × a Step Budget) 
 ## Update (2026-11-06)
 
 Constants: Decision Cap is 60. A course is an Invalid Course when the Optimal Path Cost exceeds 29 (the Path Allowance would exceed the Decision Cap). Path Quality is q = min(1, Optimal Path Cost / Path Cost), 0 if Path Cost is 0. XP for a Pass is 100 × m_difficulty × (1 + q), with m = 1 / 1.5 / 2 for easy / medium / hard, and Level = floor(sqrt(XP / 100)).
+
+## Superseded (2026-11-06)
+
+ADR 0006 replaces the Pass rule here. The Requester now sets numeric limits (`maxSteps`, `maxCollisions`) in `createMission`; the Path Allowance, Optimal Path Cost, Path Quality, the Decision Cap and Invalid Course are removed, and XP for a Pass is 100 × m_difficulty. The pricing half of this ADR (no price floor, a Bid is a sealed price plus a Policy commitment and no performance claim) still holds.

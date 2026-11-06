@@ -1,5 +1,7 @@
 # M3 plan, part 3 of 3: `arkiv/` judging files + root `README.md`
 
+> **Partly superseded (2026-11-06):** [ADR 0006](../docs/adr/0006-requester-sets-numeric-limits-on-a-public-course.md) removed the Seed Release, Seed Reveal, Path Quality and the Decision Cap described below; the Mission now carries a public `courseSeed` and the Requester's `maxSteps` and `maxCollisions`. This plan is kept as a record.
+
 Working plan for issue #13 (and spikes #8, #9). Sister plans: [`board/PLAN.md`](../board/PLAN.md), [`web/PLAN.md`](../web/PLAN.md).
 **Delete this file before submission**: judges read this folder.
 

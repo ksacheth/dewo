@@ -1,4 +1,4 @@
-> **Superseded in part.** ADR 0003 sets the Pass rule, Path Quality q and XP (no SPL XP, no price floor, no stepBudget). This is a research note only, not the design.
+> **Superseded in part.** ADR 0003 set the pricing rules (no price floor) and ADR 0006 sets the Pass rule (Requester limits `maxSteps` and `maxCollisions` on a public Course) and XP (100 x difficulty multiplier). This is a research note only, not the design.
 
 # Verification methods for the Episode (research note)
 

@@ -41,7 +41,7 @@ _Avoid_: deposit, vault, treasury, buffer
 ### Work
 
 **Mission**:
-A job a Requester pays for only on a Pass. In this version every Mission is a robot job: get from a start pose to a goal on a specific Course within its Path Allowance.
+A job a Requester pays for only on a Pass. In this version every Mission is a robot job: get from a start pose to a goal on a specific Course within its Mission Limits.
 _Avoid_: task, job, gig
 
 **Course**:
@@ -49,20 +49,8 @@ The obstacle layout a Mission runs on, fully determined by its Course Seed.
 _Avoid_: map, level, environment, world
 
 **Course Seed**:
-The secret value that generates a Course; known only to the Requester until the Seed Release to the winner (after it stakes), and public via the Seed Reveal after the Episode Submission.
+The public value that generates a Course, fixed in the Mission when it is posted (`courseSeed` on-chain and on the Mission Board), so Workers can study the Course before bidding and anyone can re-run the Replay.
 _Avoid_: map seed, level seed, secret
-
-**Seed Commitment**:
-A public fingerprint of the Course Seed, fixed when the Mission is posted, so the Course cannot be changed afterward.
-_Avoid_: seed hash, commitment
-
-**Seed Release**:
-The handoff of the Course Seed to the winning Worker, readable by that Worker alone.
-_Avoid_: unlock, key delivery
-
-**Seed Reveal**:
-The public disclosure of the Course Seed (and salt) after the Episode Submission, so anyone can check it against the Seed Commitment and re-run the Replay.
-_Avoid_: seed release, unlock
 
 **Mission Board**:
 The public, queryable set of open Missions and their Bids.
@@ -73,31 +61,27 @@ The most a Mission can pay: the amount the Requester locks in Escrow. A Bid pric
 _Avoid_: budget, reward, bounty
 
 **Difficulty Class**:
-The public description of a Course that Workers price against, without revealing the Course itself; on-chain 0 (easy), 1 (medium), 2 (hard).
+A coarse public label for a Course (obstacle count and distance to the goal), used to filter the Mission Board and to weight XP; on-chain 0 (easy), 1 (medium), 2 (hard).
 _Avoid_: tier, level, category
 
-**Path Cost**:
-The number of moving Actions (everything except stop) in an Episode, so every turn counts. In code, `steps` in `sim replay` output is the Path Cost.
-_Avoid_: steps, step count, path length
+**Mission Limits**:
+The numeric limits a Requester sets for a Mission in `createMission`, which a Pass must meet: Max Steps and Max Collisions. They are public before bidding and cannot change after Bids arrive.
+_Avoid_: constraints, requirements, SLA
 
-**Optimal Path Cost**:
-The lowest Path Cost the deterministic planner finds on a Course, searching over position and heading; the baseline for the Path Allowance and Path Quality.
-_Avoid_: shortest path, best steps
+**Max Steps**:
+The most Decisions an Episode may take on this Mission (`maxSteps`, required, at least 1). It also bounds the Worker's 0G spend and the Verifier's Replay cost.
+_Avoid_: Decision Cap, step budget, timeout
 
-**Path Allowance**:
-The most Path Cost a Pass may have: twice the shortest possible Path Cost on that Course, plus two.
-_Avoid_: step budget, step limit, max steps
+**Max Collisions**:
+The most collisions a Pass may have on this Mission (`maxCollisions`, 0 or more).
+_Avoid_: safety budget, crash limit
 
-**Decision Cap**:
-The fixed maximum number of Decisions in any Episode, the same for every Mission, bounding inference and Replay cost.
-_Avoid_: step budget, timeout, max steps
-
-**Path Quality**:
-How close an Episode's Path Cost came to the Optimal Path Cost, q = min(1, Optimal Path Cost / Path Cost), 0 if Path Cost is 0; it shapes Reliability and XP, never the payout.
-_Avoid_: efficiency, SPL, score
+**Collision**:
+A move the rover could not make because it would hit an obstacle or leave the arena; the rover stays where it was and the Episode goes on.
+_Avoid_: crash, hit
 
 **Decision**:
-One perception-and-action turn: the robot's view goes to the model, and one action comes back. In code, `step` in the Episode Log is the Decision index.
+One perception-and-action turn: the robot's view goes to the model, and one action comes back. In code, `step` in the Episode Log is the Decision index. Max Steps counts Decisions; `steps` in `sim replay` output and in a Verdict counts the moving Actions (every Decision except stop).
 _Avoid_: step, move, tick, inference
 
 **Action**:
@@ -113,7 +97,7 @@ The ordered record of every Decision in an Episode, each tied to the model call 
 _Avoid_: trace, transcript, run log
 
 **Episode Submission**:
-A Worker's public announcement that an Episode is finished, pointing to its Episode Log; its timing decides whether the Outcome is a No-show. The Episode Submission deadline is the actual Seed Release plus the Mission's `episodeWindow`, checked off-chain by Verifiers.
+A Worker's public announcement that an Episode is finished, pointing to its Episode Log; its timing decides whether the Outcome is a No-show. The Episode Submission deadline is the stake time plus the Mission's `episodeWindow`, checked off-chain by Verifiers.
 _Avoid_: completion, receipt, report
 
 ### Outcome
@@ -131,12 +115,8 @@ A Mission's 3 Verifiers acting together; two matching signatures (the same Award
 _Avoid_: consensus, threshold, majority
 
 **Outcome**:
-The category a Verdict assigns to a Mission, which alone decides how Escrow is paid out: Pass, Fail, No-show, Invalid Course, or No Seed Release. Identifiers in code and on the wire: `Pass`, `Fail`, `NoShow`, `InvalidCourse`, `NoSeedRelease`.
+The category a Verdict assigns to a Mission, which alone decides how Escrow is paid out: Pass, Fail or No-show. Identifiers in code and on the wire: `Pass`, `Fail`, `NoShow`.
 _Avoid_: status, result, state
-
-**No Seed Release**:
-An Outcome where the Requester fails to hand the Course Seed to the winning Worker by the deadline; the fault is the Requester's.
-_Avoid_: seed timeout, requester no-show
 
 **Rescue**:
 The refund of an unsettled Mission at its final deadline (`rescueAt`), including one with no Bids: the Requester gets the Max Bounty back and a staked Worker its stake. Callable by anyone; no Verdict involved.
@@ -151,25 +131,21 @@ The Worker halting the rover when the model call fails (completion call or `proc
 _Avoid_: crash, abort
 
 **Pass**:
-A Replay that reaches the goal with zero collisions within the Path Allowance and the Decision Cap, and whose every Decision matches its model call.
+A Replay that reaches the goal within the Mission Limits (at most Max Steps Decisions and Max Collisions collisions), and whose every Decision matches its model call.
 _Avoid_: success, completed, verified
 
 **Fail**:
-A Verdict that a Worker did not reach the goal cleanly within the Path Allowance and the Decision Cap on a valid Course, including a safe-stop.
+A Verdict that a Worker did not reach the goal within the Mission Limits, including a safe-stop.
 _Avoid_: failure, loss, miss
 
 **No-show**:
 A winning Worker producing no Episode Log by the deadline; treated the same as a Fail.
 _Avoid_: timeout, abandonment, ghosting
 
-**Invalid Course**:
-A Verdict that no path to the goal exists whose Path Allowance fits under the Decision Cap, placing the fault on the Requester rather than the Worker.
-_Avoid_: unsolvable map, bad seed, void
-
 ### Reputation
 
 **Reliability**:
-A Worker's recent, smoothed rate of Passes, each weighted by its Path Quality; the only reputation that affects who wins a Mission.
+A Worker's recent, smoothed rate of Passes; the only reputation that affects who wins a Mission.
 _Avoid_: rating, trust score, reputation, rank
 
 **XP**:
