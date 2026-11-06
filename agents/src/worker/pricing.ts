@@ -27,3 +27,8 @@ export function costEstimate(input: PricingInput): number {
 export function price(input: PricingInput): number {
   return costEstimate(input) * input.margin;
 }
+
+/** The Bid Stake this Worker expects if it wins (the public formula in docs/spec.md 4.3; the Award carries the real one). */
+export function expectedStake(maxBounty: number, reliability: number): number {
+  return maxBounty * (1 - reliability) * 0.5;
+}
