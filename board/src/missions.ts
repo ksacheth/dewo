@@ -43,9 +43,13 @@ export async function listOpenMissions(filter: { difficultyClass?: DifficultyCla
   return rows.map((r) => plain<MissionRow>(r)).sort((a, b) => a.biddingClosesAt - b.biddingClosesAt)
 }
 
-/** Anyone may post a Mission entity, so a duplicate missionId is possible; the earliest wins and we warn. */
-export async function getMission(missionId: Hex): Promise<MissionRow | null> {
-  const { entities } = await readClient().select().from(Mission).where(eq("missionId", missionId)).limit(10).fetch()
+/**
+ * Anyone may post a Mission entity, so a duplicate missionId is possible; the earliest wins and we warn.
+ * Pass `requester` to count only entities that address owns (a Requester checking for its own listing).
+ */
+export async function getMission(missionId: Hex, requester?: Hex): Promise<MissionRow | null> {
+  const query = readClient().select().from(Mission).where(eq("missionId", missionId))
+  const { entities } = await (requester ? query.ownedBy(requester) : query).limit(10).fetch()
   const rows = entities.map((r) => plain<MissionRow>(r as never)).sort((a, b) => a.$createdAt - b.$createdAt)
   if (rows.length > 1) console.warn(`board: ${rows.length} Mission entities claim ${missionId}; using the earliest`)
   return rows[0] ?? null

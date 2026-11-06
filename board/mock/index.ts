@@ -128,8 +128,10 @@ export async function listOpenMissions(filter: { difficultyClass?: DifficultyCla
     .sort((a, b) => a.biddingClosesAt - b.biddingClosesAt)
 }
 
-export async function getMission(missionId: Hex): Promise<MissionRow | null> {
-  const found = live(load().missions).filter((m) => m.missionId === missionId).sort((a, b) => a.$createdAt - b.$createdAt)
+export async function getMission(missionId: Hex, requester?: Hex): Promise<MissionRow | null> {
+  const found = live(load().missions)
+    .filter((m) => m.missionId === missionId && (!requester || same(m.$owner, requester)))
+    .sort((a, b) => a.$createdAt - b.$createdAt)
   if (found.length > 1) console.warn(`board: ${found.length} Mission entities claim ${missionId}; using the earliest`)
   return found[0] ?? null
 }

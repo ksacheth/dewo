@@ -81,6 +81,17 @@ describe("Mission Board", () => {
     expect((await board.getMission(mid(1)))?.status).toBe("awarded")
   })
 
+  it("getMission with a requester counts only a Mission entity that address owns", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await board.postMission(workerB, mission(1, { seedCommitment: "0xbad" }))
+    vi.setSystemTime(NOW + 1_000)
+    const { entityKey } = await board.postMission(requester, mission(1))
+    expect((await board.getMission(mid(1)))?.seedCommitment).toBe("0xbad")
+    expect((await board.getMission(mid(1), requester.account.address))?.$key).toBe(entityKey)
+    expect(await board.getMission(mid(1), workerA.account.address)).toBeNull()
+    warn.mockRestore()
+  })
+
   it("getMission returns null for an unknown Mission", async () => {
     expect(await board.getMission(mid(99))).toBeNull()
   })
