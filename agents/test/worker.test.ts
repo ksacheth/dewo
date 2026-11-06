@@ -206,6 +206,16 @@ describe("Worker: Episode and submission", () => {
     expect(w.sim.sessions).toHaveLength(0);
   });
 
+  it("waits when a stale escrow read does not show its own stake yet", async () => {
+    const w = setup();
+    w.post();
+    w.escrow.grant("m1");
+    w.records.put({ missionId: "m1", stage: "STAKED" }); // staked, but the RPC node still answers stakedAt null
+    await w.worker.tick();
+    expect(w.stage()).toBe("STAKED");
+    expect(w.sim.sessions).toHaveLength(0);
+  });
+
   it("stops at the Mission's maxSteps and submits what it flew", async () => {
     // The goal is reachable within 4 steps, but this Policy only turns: each turn bumps a wall, which 10 collisions allow.
     const w = setup({ goalAt: 3, answers: Array(10).fill("TURN_RIGHT") });
