@@ -64,10 +64,33 @@ it("rejects a tampered or expired session cookie", async () => {
   expect(auth.session(c)).toBeNull()
 })
 
-it("in open mode any wallet signs in, but posting still needs the Requester role", async () => {
+it("in open mode (no allow-list) posting needs no sign-in", () => {
   const auth = new Auth(secret, null)
+  expect(auth.open).toBe(true)
+  expect(auth.canPost(undefined)).toBe(true)
+})
+
+it("with an allow-list, posting needs a signed-in Requester", async () => {
+  const auth = new Auth(secret, [stranger.address.toLowerCase()])
   expect(auth.canPost(undefined)).toBe(false)
   const c = cookieOf((await signIn(auth, stranger)).cookie)
+  expect(auth.canPost(c)).toBe(false)
   auth.setRole(c, "requester")
   expect(auth.canPost(c)).toBe(true)
+})
+
+it("pending challenges are per message: another challenge or a bad login cannot cancel a victim's", async () => {
+  const auth = new Auth(secret, null)
+  const mine = auth.challenge(operator.address)
+  auth.challenge(operator.address) // a second challenge for the same wallet does not replace the first
+  await expect(auth.login(operator.address, "Sign in to Dewo Mission Control\n\nforged", "0x00")).rejects.toMatchObject({ code: 401 })
+  await expect(auth.login(stranger.address, mine, await stranger.signMessage({ message: mine }))).rejects.toMatchObject({ code: 401 })
+  await expect(auth.login(operator.address, mine, await operator.signMessage({ message: mine }))).resolves.toMatchObject({ address: operator.address.toLowerCase() })
+})
+
+it("caps pending challenges per wallet, leaving other wallets unaffected", () => {
+  const auth = new Auth(secret, null)
+  for (let i = 0; i < 5; i++) auth.challenge(operator.address)
+  expect(() => auth.challenge(operator.address)).toThrow(/too many/)
+  expect(() => auth.challenge(stranger.address)).not.toThrow()
 })

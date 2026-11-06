@@ -21,11 +21,17 @@ const pct = (x: number) => `${(x * 100).toFixed(1).replace(/\.0$/, "")}%`
 
 /** One sign-in for everyone: connect a wallet, sign a message, then choose Requester, Worker or Verifier. */
 export default function OnboardPage() {
-  const { operator, signedIn, role, signIn, chooseRole, busy, error } = useOperator()
+  const { operator, signedIn, role, signIn, chooseRole, busy, error, loadError, retry } = useOperator()
   const { data: profile } = usePoll<OnboardProfile>(signedIn && role ? API.onboard : null, 10000)
   useEffect(() => { document.title = "Dewo · Onboarding" }, [])
 
-  if (!operator) return <main className="page"><p className="dim">Loading…</p></main>
+  if (!operator) return (
+    <main className="page">
+      {loadError
+        ? <><p className="banner bad" role="alert">{loadError}</p><button type="button" className="chip" onClick={() => void retry()}>Retry</button></>
+        : <p className="dim">Loading…</p>}
+    </main>
+  )
 
   return (
     <main className="page onboard">

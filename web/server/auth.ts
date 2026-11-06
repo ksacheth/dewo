@@ -12,6 +12,7 @@ export const COOKIE = "dewo_session"
 export const SESSION_TTL_S = 8 * 3600
 const CHALLENGE_TTL_MS = 5 * 60_000
 const MAX_PENDING = 1000
+const MAX_PENDING_PER_ADDRESS = 5
 
 export class AuthError extends Error {
   constructor(readonly code: number, message: string) { super(message) }
@@ -27,7 +28,8 @@ export const loginMessage = (address: string, nonce: string, issuedAt: string) =
   `Sign in to Dewo Mission Control\n\nAddress: ${address}\nNonce: ${nonce}\nIssued at: ${issuedAt}`
 
 export class Auth {
-  private pending = new Map<string, { message: string; expires: number }>()
+  /** Pending challenges keyed by their message (it holds a random nonce), so one wallet's challenge cannot replace another's. */
+  private pending = new Map<string, { address: string; expires: number }>()
   private roles: Record<string, Role>
 
   /** `rolesFile` keeps each wallet's chosen role across restarts; without it roles live in memory only. */
@@ -56,8 +58,10 @@ export class Auth {
     if (!isAddress(address)) throw new AuthError(400, "bad address")
     for (const [k, v] of this.pending) if (v.expires < this.now()) this.pending.delete(k)
     if (this.pending.size >= MAX_PENDING) throw new AuthError(429, "too many sign-in attempts")
+    const key = address.toLowerCase()
+    if ([...this.pending.values()].filter((v) => v.address === key).length >= MAX_PENDING_PER_ADDRESS) throw new AuthError(429, "too many sign-in attempts for this wallet")
     const message = loginMessage(address, randomBytes(16).toString("hex"), new Date(this.now()).toISOString())
-    this.pending.set(address.toLowerCase(), { message, expires: this.now() + CHALLENGE_TTL_MS })
+    this.pending.set(message, { address: key, expires: this.now() + CHALLENGE_TTL_MS })
     return message
   }
 
@@ -65,9 +69,9 @@ export class Auth {
   async login(address: string, message: string, signature: string): Promise<{ address: string; cookie: string }> {
     if (!isAddress(address)) throw new AuthError(400, "bad address")
     const key = address.toLowerCase()
-    const p = this.pending.get(key)
-    this.pending.delete(key) // single use, even when the signature turns out wrong
-    if (!p || p.expires < this.now() || p.message !== message) throw new AuthError(401, "sign-in expired, try again")
+    const p = this.pending.get(message)
+    if (!p || p.address !== key || p.expires < this.now()) throw new AuthError(401, "sign-in expired, try again")
+    this.pending.delete(message) // single use, even when the signature turns out wrong; only this challenge goes
     const ok = await verifyMessage({ address, message, signature: signature as `0x${string}` }).catch(() => false)
     if (!ok) throw new AuthError(401, "signature does not match this wallet")
     if (this.allowed && !this.allowed.includes(key)) throw new AuthError(403, "this wallet is not an operator")
@@ -85,8 +89,8 @@ export class Auth {
     return got.length === want.length && timingSafeEqual(got, want) ? address : null
   }
 
-  /** May this request post a Mission? Only a signed-in wallet that onboarded as a Requester. */
-  canPost(cookieHeader: string | undefined): boolean { return this.roleOf(this.session(cookieHeader)) === "requester" }
+  /** May this request post a Mission? Anyone when no allow-list is set (open); otherwise a signed-in Requester. */
+  canPost(cookieHeader: string | undefined): boolean { return this.open || this.roleOf(this.session(cookieHeader)) === "requester" }
 
   clearCookie = () => `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`
 

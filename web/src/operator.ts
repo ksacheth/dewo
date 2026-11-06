@@ -5,14 +5,18 @@ import { API, postJson } from "./api"
 import type { Operator, Role } from "./api"
 import { connectWallet, signMessage } from "./wallet"
 
-type State = { operator: Operator | null; busy: boolean; error: string | null }
-let state: State = { operator: null, busy: false, error: null }
+type State = { operator: Operator | null; busy: boolean; error: string | null; loadError: string | null }
+let state: State = { operator: null, busy: false, error: null, loadError: null }
 const subs = new Set<() => void>()
 const set = (p: Partial<State>) => { state = { ...state, ...p }; subs.forEach((f) => f()) }
 
 let loaded = false
 async function refresh() {
-  try { set({ operator: await (await fetch(API.authMe)).json() }) } catch { set({ operator: null }) }
+  try {
+    const r = await fetch(API.authMe)
+    if (!r.ok) throw new Error(`the server answered ${r.status}`)
+    set({ operator: await r.json(), loadError: null })
+  } catch (e) { set({ operator: null, loadError: `Could not load your session: ${(e as Error).message}` }) }
 }
 
 async function signIn(): Promise<boolean> {
@@ -49,12 +53,15 @@ export function useOperator() {
     operator: op,
     signedIn: Boolean(op?.address),
     role: op?.role ?? null,
-    /** Only a signed-in Requester posts Missions (the server enforces the same rule). */
-    canPost: op?.role === "requester",
+    /** Open server (no allow-list): anyone posts. Otherwise only a signed-in Requester (the server enforces the same rule). */
+    canPost: Boolean(op?.open) || op?.role === "requester",
     signIn: useCallback(signIn, []),
     chooseRole: useCallback(chooseRole, []),
     signOut: useCallback(signOut, []),
     busy: s.busy,
     error: s.error,
+    /** Why the session could not be loaded (the UI offers `retry`). */
+    loadError: s.loadError,
+    retry: refresh,
   }
 }
