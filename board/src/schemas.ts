@@ -28,7 +28,8 @@ export type BidInput = {
   priceCt1: Uint8Array
   priceCt2: Uint8Array
 }
-export type BidRow = BidInput & EntityMeta & { worker: Hex }
+/** `createdAtSec` is the unix-seconds timestamp of the block that created the Bid (R2); listBids fills it. */
+export type BidRow = BidInput & EntityMeta & { worker: Hex; createdAtSec: number }
 
 export type SeedReleaseRow = EntityMeta & { missionId: Hex; worker: Hex; sealed: Uint8Array }
 
