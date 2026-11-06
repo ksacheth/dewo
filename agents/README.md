@@ -15,6 +15,13 @@ against `@dewo/board/mock`). Each key must be funded where it writes: Hedera (HB
 Rabdi (Arkiv entities) and, for Workers, Galileo (Episode Submission and Storage). Records are kept in
 `AGENT_STATE_DIR` (default `.state/`, gitignored), so a restarted agent resumes its Missions.
 
+`POST /missions` takes an optional `Idempotency-Key` header (1 to 255 visible ASCII characters) so a client can retry
+without locking a second bounty. A key seen before never starts another Mission: it answers `201 { missionId }` once that
+attempt is created, or `202 { pending: true, ref }` (its Seed Commitment) while createMission is in flight or failed and
+waits for the tick to recover or retry it with the same seed; retry with the same key until it is `201`. Only the first
+attempt reports a createMission error (`500`). The key is kept for good and the body of a repeat is ignored. The web UI
+sends one per form, reused until the post succeeds or the form changes.
+
 ## Demo Policies (ADR 0004)
 
 `policies/*.json` all use `0gm-1.0-35b-a3b` on the mainnet TeeML provider
