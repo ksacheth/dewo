@@ -36,7 +36,7 @@ import { shouldSkip } from "./skip";
 /** The Worker's own strategy, in decimal USDC (converted to base units only when sealing the Bid). */
 export interface PricingStrategy {
   costPerDecision: number;
-  /** 0G Compute cost of one Decision, in the unit BalancesPort.zeroG() reports. */
+  /** 0G Compute cost of one Decision, in 0G (the unit BalancesPort.zeroG() reports). */
   zeroGPerDecision: number;
   expectedDecisions: number;
   txFees: number;

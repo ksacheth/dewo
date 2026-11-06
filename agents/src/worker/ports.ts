@@ -127,7 +127,10 @@ export interface SimPort {
 export interface BalancesPort {
   /** USDC base units. */
   wallet(): Promise<bigint>;
-  /** 0G Compute ledger balance, in the same unit as the strategy's zeroGPerDecision. */
+  /**
+   * 0G Compute balance in 0G, the unit of the strategy's zeroGPerDecision. Pluggable (shared/zg-balance.ts): the
+   * Router account balance (ADR 0004), the legacy broker ledger, or unchecked (Infinity) when it cannot be read.
+   */
   zeroG(): Promise<number>;
 }
 
