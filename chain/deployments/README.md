@@ -5,7 +5,9 @@
 | `hedera-testnet.json` | Hedera testnet (296) | `MissionEscrow`, asset USDC `0.0.429274` | [`0x9aae6A883B4d16BF53Fa6339c606D18b47342631`](https://hashscan.io/testnet/contract/0.0.11337437) (`0.0.11337437`) |
 | `0g-galileo.json` | 0G Galileo (16602) | `EpisodeRegistry` | [`0xa4D143e33a4db897C1861C4B7CB50946Aa5278BA`](https://chainscan-galileo.0g.ai/address/0xa4D143e33a4db897C1861C4B7CB50946Aa5278BA) |
 
-Each file contains `{ "address": "0x...", "abi": [...] }` for its network's contract.
+Each file contains `{ "address": "0x...", "deployBlock": <n>, "abi": [...] }` for its network's contract.
+`deployBlock` is the block of the deployment receipt; log scans start there (the agents pass it to
+`EscrowContract` as `fromBlock`, since Hashio rejects `eth_getLogs` ranges longer than 7 days).
 Export after a deployment with `python3 script/export_deployments.py hedera --tx <hash> --rpc-url <url>`
 (Hedera, deployed with `forge create`; see `../README.md`) or `python3 script/export_deployments.py 0g`
 (from the `forge script` broadcast).

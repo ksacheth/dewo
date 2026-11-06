@@ -1,5 +1,6 @@
 {
   "address": "0x9aae6a883b4d16bf53fa6339c606d18b47342631",
+  "deployBlock": 42734243,
   "abi": [
     {
       "type": "constructor",

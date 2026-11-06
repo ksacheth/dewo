@@ -27,13 +27,13 @@ def rpc(url, method, params):
 
 
 def deployed_by_tx(chain_id, tx_hash, rpc_url):
-    """Address created by a successful deployment transaction, checked against the expected chain."""
+    """(address, block) of a successful deployment transaction, checked against the expected chain."""
     if int(rpc(rpc_url, "eth_chainId", []), 16) != chain_id:
         raise ValueError("RPC is not on the expected chain")
     receipt = rpc(rpc_url, "eth_getTransactionReceipt", [tx_hash])
     if not receipt or int(receipt["status"], 16) != 1 or not receipt.get("contractAddress"):
         raise ValueError("Transaction is not a successful contract deployment")
-    return receipt["contractAddress"]
+    return receipt["contractAddress"], int(receipt["blockNumber"], 16)
 
 
 def deployed_by_broadcast(chain_id, script, contract):
@@ -52,7 +52,7 @@ def deployed_by_broadcast(chain_id, script, contract):
                 and r.get("contractAddress", "").lower() == address.lower()]
     if len(receipts) != 1 or int(str(receipts[0]["status"]), 0) != 1:
         raise ValueError("Deployment has no successful matching receipt")
-    return address
+    return address, int(str(receipts[0]["blockNumber"]), 0)
 
 
 def export(target, tx_hash=None, rpc_url=None):
@@ -60,12 +60,12 @@ def export(target, tx_hash=None, rpc_url=None):
     if tx_hash:
         if not rpc_url:
             raise ValueError("--tx needs --rpc-url")
-        address = deployed_by_tx(chain_id, tx_hash, rpc_url)
+        address, deploy_block = deployed_by_tx(chain_id, tx_hash, rpc_url)
     else:
-        address = deployed_by_broadcast(chain_id, script, contract)
+        address, deploy_block = deployed_by_broadcast(chain_id, script, contract)
     artifact = json.loads((ROOT / "out" / f"{contract}.sol" / f"{contract}.json").read_text())
     output = ROOT / "deployments" / filename
-    output.write_text(json.dumps({"address": address, "abi": artifact["abi"]}, indent=2) + "\n")
+    output.write_text(json.dumps({"address": address, "deployBlock": deploy_block, "abi": artifact["abi"]}, indent=2) + "\n")
     print(f"Exported {output}")
 
 

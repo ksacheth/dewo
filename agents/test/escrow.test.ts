@@ -27,6 +27,62 @@ describe("toEscrowMission", () => {
   });
 });
 
+describe("EscrowContract.findMission", () => {
+  const ESCROW = "0x00000000000000000000000000000000000000dd";
+  const REQUESTER = "0x00000000000000000000000000000000000000aa";
+  const commitment = (byte: string) => `0x${byte.repeat(32)}` as const;
+
+  /** A fake chain: MissionCreated logs at given blocks, each Mission carrying a seed commitment. */
+  function chain(latest: bigint, missions: { block: bigint; missionId: string; seedCommitment: string }[]) {
+    const scans: { fromBlock: unknown; toBlock: unknown }[] = [];
+    const clients = {
+      wallet: { account: { address: REQUESTER } },
+      public: {
+        getBlockNumber: async () => latest,
+        getContractEvents: async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
+          scans.push({ fromBlock, toBlock });
+          return missions.filter((m) => m.block >= fromBlock && m.block <= toBlock).map((m) => ({ args: { missionId: m.missionId } }));
+        },
+        readContract: async ({ args }: { args: [string] }) => ({
+          ...raw,
+          seedCommitment: missions.find((m) => m.missionId === args[0])!.seedCommitment,
+        }),
+      },
+    } as never;
+    return { clients, scans };
+  }
+
+  it("pages the log scan from the deployment block in bounded chunks", async () => {
+    const { clients, scans } = chain(1_250n, []);
+    const escrow = new EscrowContract(clients, ESCROW, { fromBlock: 1_000n, logChunk: 100n });
+
+    expect(await escrow.findMission(commitment("99"))).toBeNull();
+    expect(scans).toEqual([
+      { fromBlock: 1_151n, toBlock: 1_250n },
+      { fromBlock: 1_051n, toBlock: 1_150n },
+      { fromBlock: 1_000n, toBlock: 1_050n },
+    ]);
+  });
+
+  it("stops at the newest chunk holding the Mission", async () => {
+    const { clients, scans } = chain(1_250n, [
+      { block: 1_010n, missionId: commitment("01"), seedCommitment: commitment("aa") },
+      { block: 1_230n, missionId: commitment("02"), seedCommitment: commitment("bb") },
+    ]);
+    const escrow = new EscrowContract(clients, ESCROW, { fromBlock: 1_000n, logChunk: 100n });
+
+    expect(await escrow.findMission(commitment("BB"))).toBe(commitment("02"));
+    expect(scans).toHaveLength(1);
+    expect(await escrow.findMission(commitment("aa"))).toBe(commitment("01"));
+  });
+
+  it("scans nothing when the deployment block is past the chain head", async () => {
+    const { clients, scans } = chain(900n, []);
+    expect(await new EscrowContract(clients, ESCROW, { fromBlock: 1_000n }).findMission(commitment("99"))).toBeNull();
+    expect(scans).toEqual([]);
+  });
+});
+
 describe("EscrowContract settlement asset", () => {
   it("does not cache a failed lookup", async () => {
     const reads = [Promise.reject(new Error("rpc blip")), Promise.resolve("0x00000000000000000000000000000000000000cc")];
