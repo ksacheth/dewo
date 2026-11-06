@@ -72,13 +72,19 @@ token association, and transfer approvals. Foundry reads `.env`; export the RPC
 variables in your shell before using the commands below.
 
 ```bash
-forge script script/DeployHedera.s.sol --rpc-url "$HEDERA_RPC_URL" --broadcast
+forge script script/DeployHedera.s.sol --rpc-url "$HEDERA_RPC_URL" --broadcast --skip-simulation
 python3 script/export_deployments.py hedera
 forge script script/Deploy0G.s.sol --rpc-url "$OG_RPC_URL" --broadcast
 python3 script/export_deployments.py 0g
 ```
 
-Run without `--broadcast` first to simulate. Export only after successful broadcast,
+`--skip-simulation` is required for Hedera: the constructor calls the HTS system contract
+at `0x167`, which does not exist in Foundry's local EVM, so the pre-broadcast simulation
+reverts. The deployment is therefore not simulated, so double-check the env vars first.
+If Hedera's relay rejects the transaction type, add `--legacy` (Foundry's option for
+non-EIP1559 transactions), and `--gas-estimate-multiplier <percent>` (default 130) can
+raise gas, but estimation is also skipped, so use `--gas-limit` if needed. The 0G script
+can be simulated by omitting `--broadcast`. Export only after successful broadcast,
 using the same compiled source revision. Scripts enforce chain 296 / 16602.
 USDC constructor association uses HTS `0x167`, checking success code 22 per the
 [official HTS interface](https://github.com/hiero-ledger/hiero-contracts/blob/main/contracts/token-service/IHederaTokenService.sol).
