@@ -10,7 +10,7 @@ Design, deadline semantics and outstanding interface coordination are in
   all five signed Outcomes, rescue, exact Bid Stake collection.
 - Registry: immutable Episode Submission per Mission and Worker.
 - Local tests mock HTS association; they do **not** prove live HTS compatibility.
-- Deployment scripts are supplied; live deployments and HashScan evidence are pending.
+- `MissionEscrow` is deployed on Hedera testnet (see `deployments/`); USDC deposit and refund are proven on HashScan. The 0G `EpisodeRegistry` is not deployed yet.
 - Award replacement is implemented: `award()` may be called again only while Awarded
   and unstaked, from `awardedAt + stakeWindow`; the lapsed winner cannot be re-awarded;
   no round field in the signed types (proposal still open).
@@ -112,9 +112,12 @@ fallback happens if association fails. HBAR does not fulfill the USDC acceptance
 1. Resolve/review the proposed deadline tuple and registry event with the I5 consumers,
    and decide whether to add an optional round field to the signed types;
    re-awarding without it is already implemented.
-2. Deploy on Hedera; confirm association succeeds. Fund a Mission with test USDC,
-   obtain two real Verifier signatures, stake and settle. Record HashScan deposit
-   and payout links here (spike #5).
+2. Hedera: **done for deposit and refund (spike #5).** `MissionEscrow` is live at
+   [`0x9aae6A883B4d16BF53Fa6339c606D18b47342631`](https://hashscan.io/testnet/contract/0.0.11337437) (`0.0.11337437`); its constructor
+   associated it with USDC `0.0.429274`. 1 USDC went in with `createMission`
+   ([HashScan](https://hashscan.io/testnet/transaction/1793959306.817990545)) and back out with `rescue()` after `rescueAt`
+   ([HashScan](https://hashscan.io/testnet/transaction/1793959493.464701456)); `owed` stayed 0. Still to do live: two real Verifier
+   signatures, `stake` and `settle`.
 3. Deploy the registry on Galileo and submit one Episode; verify event and timestamp.
 4. Export and commit actual deployment artifacts. Hand these and signing types to
    M3/M4/M5, then exercise the real agent/Verifier integration.

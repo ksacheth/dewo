@@ -1,0 +1,774 @@
+{
+  "address": "0x9aae6a883b4d16bf53fa6339c606d18b47342631",
+  "abi": [
+    {
+      "type": "constructor",
+      "inputs": [
+        {
+          "name": "settlementAsset",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "asset",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "award",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "worker",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "price",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "bidStake",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "sigs",
+          "type": "bytes[2]",
+          "internalType": "bytes[2]"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "awardDigest",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "worker",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "price",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "bidStake",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "createMission",
+      "inputs": [
+        {
+          "name": "seedCommitment",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "verifiers",
+          "type": "address[3]",
+          "internalType": "address[3]"
+        },
+        {
+          "name": "deadlines",
+          "type": "tuple",
+          "internalType": "struct MissionEscrow.Deadlines",
+          "components": [
+            {
+              "name": "biddingEndsAt",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "stakeWindow",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "seedReleaseWindow",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "episodeWindow",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "rescueAt",
+              "type": "uint64",
+              "internalType": "uint64"
+            }
+          ]
+        },
+        {
+          "name": "maxBounty",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "difficultyClass",
+          "type": "uint8",
+          "internalType": "uint8"
+        },
+        {
+          "name": "riskWeightBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "payable"
+    },
+    {
+      "type": "function",
+      "name": "eip712Domain",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "fields",
+          "type": "bytes1",
+          "internalType": "bytes1"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "internalType": "string"
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "internalType": "string"
+        },
+        {
+          "name": "chainId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "verifyingContract",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "salt",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "extensions",
+          "type": "uint256[]",
+          "internalType": "uint256[]"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getMission",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "tuple",
+          "internalType": "struct MissionEscrow.Mission",
+          "components": [
+            {
+              "name": "requester",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "worker",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "verifiers",
+              "type": "address[3]",
+              "internalType": "address[3]"
+            },
+            {
+              "name": "seedCommitment",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "maxBounty",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "difficultyClass",
+              "type": "uint8",
+              "internalType": "uint8"
+            },
+            {
+              "name": "riskWeightBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "price",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "bidStake",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "awardedAt",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "stakedAt",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "deadlines",
+              "type": "tuple",
+              "internalType": "struct MissionEscrow.Deadlines",
+              "components": [
+                {
+                  "name": "biddingEndsAt",
+                  "type": "uint64",
+                  "internalType": "uint64"
+                },
+                {
+                  "name": "stakeWindow",
+                  "type": "uint32",
+                  "internalType": "uint32"
+                },
+                {
+                  "name": "seedReleaseWindow",
+                  "type": "uint32",
+                  "internalType": "uint32"
+                },
+                {
+                  "name": "episodeWindow",
+                  "type": "uint32",
+                  "internalType": "uint32"
+                },
+                {
+                  "name": "rescueAt",
+                  "type": "uint64",
+                  "internalType": "uint64"
+                }
+              ]
+            },
+            {
+              "name": "state",
+              "type": "uint8",
+              "internalType": "enum MissionEscrow.State"
+            }
+          ]
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "lapsedWorker",
+      "inputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "owed",
+      "inputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "rescue",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "settle",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "outcome",
+          "type": "uint8",
+          "internalType": "enum MissionEscrow.Outcome"
+        },
+        {
+          "name": "evidenceHash",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "sigs",
+          "type": "bytes[2]",
+          "internalType": "bytes[2]"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "stake",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "payable"
+    },
+    {
+      "type": "function",
+      "name": "verdictDigest",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "outcome",
+          "type": "uint8",
+          "internalType": "enum MissionEscrow.Outcome"
+        },
+        {
+          "name": "evidenceHash",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "withdraw",
+      "inputs": [],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "event",
+      "name": "Awarded",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "worker",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "price",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "stake",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "EIP712DomainChanged",
+      "inputs": [],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "MissionCreated",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "requester",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "maxBounty",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "difficultyClass",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "uint8"
+        },
+        {
+          "name": "riskWeightBps",
+          "type": "uint16",
+          "indexed": false,
+          "internalType": "uint16"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "PayoutDeferred",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "recipient",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "Rescued",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "Settled",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "outcome",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "enum MissionEscrow.Outcome"
+        },
+        {
+          "name": "evidenceHash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "Staked",
+      "inputs": [
+        {
+          "name": "missionId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "worker",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "Withdrawn",
+      "inputs": [
+        {
+          "name": "recipient",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "AddressEmptyCode",
+      "inputs": [
+        {
+          "name": "target",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "AddressInsufficientBalance",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "AssociationFailed",
+      "inputs": [
+        {
+          "name": "responseCode",
+          "type": "int64",
+          "internalType": "int64"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "ECDSAInvalidSignature",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "ECDSAInvalidSignatureLength",
+      "inputs": [
+        {
+          "name": "length",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "ECDSAInvalidSignatureS",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "FailedInnerCall",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidAmount",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidConfiguration",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidQuorum",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidShortString",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidState",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidTime",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NativeTransferFailed",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NotWorker",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NothingOwed",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "ReentrancyGuardReentrantCall",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "SafeERC20FailedOperation",
+      "inputs": [
+        {
+          "name": "token",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "StringTooLong",
+      "inputs": [
+        {
+          "name": "str",
+          "type": "string",
+          "internalType": "string"
+        }
+      ]
+    }
+  ]
+}

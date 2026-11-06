@@ -56,7 +56,9 @@ Verifiers are paid per Replay through x402, never from Escrow. A payout that can
 | Item | Value |
 |---|---|
 | Hedera transaction ID of a settled x402 payment | TODO(evidence): from the end-to-end run |
-| HashScan link of a `settle()` | TODO(evidence) |
+| `MissionEscrow` on Hedera testnet | [`0x9aae6A883B4d16BF53Fa6339c606D18b47342631`](https://hashscan.io/testnet/contract/0.0.11337437) (`0.0.11337437`), settles in Circle USDC `0.0.429274` |
+| Escrow holds and pays out HTS USDC (spike #5) | 1 USDC in via `createMission`: [HashScan](https://hashscan.io/testnet/transaction/1793959306.817990545); back out via `rescue()`: [HashScan](https://hashscan.io/testnet/transaction/1793959493.464701456) |
+| HashScan link of a `settle()` | TODO(evidence): from the end-to-end run |
 | `EpisodeRegistry` address and an `EpisodeSubmitted` tx on 0G Chainscan | TODO(evidence) |
 | Arkiv writer wallet | [`0xbb465214d0D2028016102ec38358D6643366cE96`](https://rabdi.explorer.arkiv.network/address/0xbb465214d0D2028016102ec38358D6643366cE96) (test wallet; agent wallets TODO(evidence)) |
 | One runnable Arkiv query | `pnpm --filter @dewo/board query`; output in [arkiv/how-you-use-arkiv.md](arkiv/how-you-use-arkiv.md) |
