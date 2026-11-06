@@ -15,7 +15,7 @@ import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { ExactHederaScheme, createClientHederaSigner } from "@x402/hedera";
 import type { Hex } from "../formats";
 import { hederaPrivateKey } from "../shared/hedera-key";
-import { OUTCOMES, type ReplayPayment, type ReplayResult, type SignedAward, type SignedVerdict, type VerifiersPort } from "./ports";
+import { OUTCOMES, VerifierNotReadyError, type ReplayPayment, type ReplayResult, type SignedAward, type SignedVerdict, type VerifiersPort } from "./ports";
 
 export interface PayerConfig {
   /** Hedera account id of the Requester, e.g. 0.0.12345. */
@@ -144,6 +144,9 @@ function matching(fields: Record<string, unknown>, name: string, pattern: RegExp
   return value;
 }
 
+/** "Ask again later": the Verifier answers these before it settles any payment (verifier/src/server.ts). */
+const NOT_READY = new Set([409, 503]);
+
 async function post(doFetch: typeof fetch, url: string, missionId: string, timeoutMs: number): Promise<unknown> {
   const response = await doFetch(url, {
     method: "POST",
@@ -151,7 +154,10 @@ async function post(doFetch: typeof fetch, url: string, missionId: string, timeo
     body: JSON.stringify({ missionId }),
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!response.ok) throw new Error(`${url} answered ${response.status}: ${await response.text()}`);
+  if (!response.ok) {
+    const message = `${url} answered ${response.status}: ${await response.text()}`;
+    throw NOT_READY.has(response.status) ? new VerifierNotReadyError(response.status, message) : new Error(message);
+  }
   return response.json();
 }
 

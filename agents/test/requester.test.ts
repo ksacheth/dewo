@@ -159,6 +159,20 @@ describe("Requester: Episode and settlement", () => {
     expect(s.escrow.settlements).toHaveLength(0);
     expect(s.records.get("m1")?.note).toContain("Replay budget");
   });
+  it("asks again when a Verifier is not ready yet, without using up the Replay budget", async () => {
+    const s = await staked();
+    VERIFIER_URLS.forEach((url) => s.verifiers.notReady.add(url));
+    await s.registry.submitEpisode("m1", "0x01", "0x02", 3);
+    await s.requester.tick();
+    await s.requester.tick();
+    expect(s.records.get("m1")).toMatchObject({ stage: "VERIFYING", paidReplays: 0 });
+    expect(s.records.get("m1")?.note).toContain("not ready yet");
+
+    s.verifiers.notReady.clear();
+    await s.requester.tick();
+    expect(s.escrow.settlements[0]?.outcome).toBe("Pass");
+    expect(s.records.get("m1")?.paidReplays).toBe(3);
+  });
 });
 
 describe("Requester: HCS spending log", () => {

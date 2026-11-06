@@ -10,7 +10,7 @@ import type { Clock, DifficultyClass, EscrowMission, EventsPort, MissionTerms, R
 import type { Keyed, RecordStore } from "../worker/records";
 import type { AuditPort, PaymentRecord } from "./audit";
 import { payouts } from "./payouts";
-import type { RequesterBoardPort, RequesterEscrowPort, SignedVerdict, VerifiersPort } from "./ports";
+import { VerifierNotReadyError, type RequesterBoardPort, type RequesterEscrowPort, type SignedVerdict, type VerifiersPort } from "./ports";
 import { quorum } from "./quorum";
 
 /**
@@ -379,7 +379,7 @@ export class Requester {
     }, hederaTxUrl(txHash));
   }
 
-  /** A failed call still counts against the cap: the payment may have gone through. */
+  /** A failed call still counts against the cap (the payment may have gone through), except a Verifier's "not ready yet". */
   private async payForReplay(record: RequesterRecord, url: string): Promise<RequesterRecord> {
     // Reserve the slot before paying: a crash mid-payment must count as spent.
     let next: RequesterRecord = { ...record, paidReplays: record.paidReplays + 1 };
@@ -402,7 +402,10 @@ export class Requester {
         paymentTx: payment.paymentTx,
       });
     } catch (error) {
-      next = { ...next, note: `Replay at ${url} failed: ${String(error)}` };
+      // Not ready yet (409/503) was never charged, so the slot goes back and the next tick asks again; anything else may have been paid.
+      next = error instanceof VerifierNotReadyError
+        ? { ...record, note: `Replay at ${url} not ready yet: ${error.message}` }
+        : { ...next, note: `Replay at ${url} failed: ${String(error)}` };
     }
     this.deps.records.put(next);
     return next;

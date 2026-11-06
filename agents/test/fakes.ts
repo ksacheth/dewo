@@ -32,6 +32,7 @@ import type {
   SignedVerdict,
   VerifiersPort,
 } from "../src/requester/ports";
+import { VerifierNotReadyError } from "../src/requester/ports";
 import { DEFAULT_WINDOWS, Requester, type RequesterRecord } from "../src/requester/requester";
 import { expectedStake } from "../src/worker/pricing";
 import { MemoryRecordStore } from "../src/worker/records";
@@ -309,6 +310,8 @@ export class FakeVerifiers implements VerifiersPort {
   broken = new Set<string>();
   /** Verifier URLs that return a different Verdict from the others. */
   dissenting = new Set<string>();
+  /** Verifier URLs that answer /replay with 503 "not ready yet" (never charged). */
+  notReady = new Set<string>();
 
   constructor(
     private readonly board: FakeBoard,
@@ -332,6 +335,7 @@ export class FakeVerifiers implements VerifiersPort {
 
   async requestReplay(url: string, missionId: string): Promise<ReplayResult> {
     this.failIfBroken(url);
+    if (this.notReady.has(url)) throw new VerifierNotReadyError(503, `${url} answered 503: Galileo is not 120 s past the submission yet`);
     this.replays.push(url);
     const submitted = await this.registry.isSubmitted(missionId);
     const outcome: Outcome = this.dissenting.has(url) ? "Fail" : submitted ? "Pass" : "NoShow";

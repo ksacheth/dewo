@@ -5,6 +5,7 @@ import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { findDefaultAsset } from "@x402/hedera";
 import { createServer } from "node:http";
 import { HttpVerifiers, acceptablePayments, parseAward, parseVerdict, paymentLimitsFromEnv, withSpendCap, type PayFetchFactory } from "../src/requester/verifier-client";
+import { VerifierNotReadyError } from "../src/requester/ports";
 import { ME } from "./fakes";
 
 const verdict = { outcome: "Pass", evidenceHash: `0x${"e1".repeat(32)}`, signature: `0x${"51".repeat(65)}` } as const;
@@ -60,6 +61,23 @@ describe("HttpVerifiers against the I6 mock", () => {
       expect(payment.paymentTx).toBeUndefined();
     } finally {
       quiet.close();
+    }
+  });
+
+  it("reports a 409 or 503 from /replay as not ready yet (never charged), and other errors as plain failures", async () => {
+    const answers = [503, 409, 500];
+    const busy = createServer((_, res) => res.writeHead(answers.shift()!, { "content-type": "application/json" }).end('{"error":"not yet"}'));
+    await new Promise<void>((resolve) => busy.listen(0, resolve));
+    try {
+      const busyUrl = `http://127.0.0.1:${(busy.address() as AddressInfo).port}`;
+      const verifiers = new HttpVerifiers(fakePayFetch);
+      await expect(verifiers.requestReplay(busyUrl, "m1")).rejects.toMatchObject({ name: "VerifierNotReadyError", status: 503 });
+      await expect(verifiers.requestReplay(busyUrl, "m1")).rejects.toBeInstanceOf(VerifierNotReadyError);
+      const other = await verifiers.requestReplay(busyUrl, "m1").catch((e: unknown) => e);
+      expect(other).not.toBeInstanceOf(VerifierNotReadyError);
+      expect(String(other)).toMatch(/500/);
+    } finally {
+      busy.close();
     }
   });
 
