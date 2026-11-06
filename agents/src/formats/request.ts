@@ -8,6 +8,9 @@ export const HISTORY_PLACEHOLDER = "{{history}}";
 /** What {{frame}} becomes in the prompt text; the frame itself is attached as an image. */
 export const FRAME_TEXT = "the attached image";
 
+/** The body fields buildRequest always sets itself; a Policy's requestOptions cannot override them. */
+export const RESERVED_REQUEST_FIELDS = ["model", "temperature", "messages"] as const;
+
 export interface ChatRequest {
   model: string;
   temperature: number;
@@ -17,6 +20,8 @@ export interface ChatRequest {
       content: [{ type: "text"; text: string }, { type: "image_url"; image_url: { url: string } }];
     },
   ];
+  /** The Policy's requestOptions, e.g. chat_template_kwargs (ADR 0004). */
+  [option: string]: unknown;
 }
 
 /** The last `memoryWindow` Actions, oldest first, or "none". */
@@ -31,6 +36,7 @@ export function buildRequest(policy: Policy, framePng: Uint8Array, history: read
     .replaceAll(HISTORY_PLACEHOLDER, formatHistory(history, policy.memoryWindow));
   const url = `data:image/png;base64,${Buffer.from(framePng).toString("base64")}`;
   return {
+    ...policy.requestOptions,
     model: policy.model,
     temperature: policy.temperature,
     messages: [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url } }] }],

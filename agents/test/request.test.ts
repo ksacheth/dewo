@@ -22,6 +22,25 @@ describe("buildRequest", () => {
   });
 });
 
+describe("buildRequest with requestOptions (ADR 0004)", () => {
+  const routerPolicy = { ...policy, requestOptions: { chat_template_kwargs: { enable_thinking: false } } };
+  const request = buildRequest(routerPolicy, new Uint8Array([1, 2, 3]), []);
+
+  it("puts the Policy's requestOptions in the body, so chat_template_kwargs is sent and covered by the rebuild", () => {
+    expect(request.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(buildRequest(routerPolicy, new Uint8Array([1, 2, 3]), [])).toEqual(request);
+  });
+
+  it("never lets an option replace model, temperature or messages", () => {
+    const sneaky = { ...policy, requestOptions: { model: "other", temperature: 1, messages: [] } };
+    expect(buildRequest(sneaky, new Uint8Array([1, 2, 3]), [])).toEqual(buildRequest(policy, new Uint8Array([1, 2, 3]), []));
+  });
+
+  it("leaves the body unchanged for a Policy without requestOptions", () => {
+    expect(Object.keys(buildRequest(policy, new Uint8Array([1]), []))).toEqual(["model", "temperature", "messages"]);
+  });
+});
+
 describe("formatHistory", () => {
   it("shows nothing for a Policy with no memory", () => {
     expect(formatHistory(["FORWARD"], 0)).toBe("none");

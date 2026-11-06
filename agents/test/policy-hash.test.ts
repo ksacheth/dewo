@@ -32,6 +32,13 @@ describe("policyHash", () => {
     expect(policyHash({ ...policy, memoryWindow: 2 })).not.toBe(policyHash(policy));
   });
 
+  it("covers requestOptions, and hashes an undefined one like an absent one", () => {
+    const withOptions = { ...policy, requestOptions: { chat_template_kwargs: { enable_thinking: false } } };
+    expect(policyHash(withOptions)).not.toBe(policyHash(policy));
+    expect(policyHash({ ...withOptions, requestOptions: { chat_template_kwargs: { enable_thinking: true } } })).not.toBe(policyHash(withOptions));
+    expect(policyHash({ ...policy, requestOptions: undefined })).toBe(policyHash(policy));
+  });
+
   it("is a 32-byte hex string", () => {
     expect(policyHash(policy)).toMatch(/^0x[0-9a-f]{64}$/);
   });
