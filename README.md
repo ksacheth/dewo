@@ -81,6 +81,7 @@ Parts of this project were written with AI assistance (Claude Code): the `@dewo/
 - Path Quality counts Actions only: a path that hugs obstacles scores the same as a safe one of equal length.
 - A Bid carries no performance claim; bonded efficiency targets are future work.
 - Award replacement has no `round` field: a replacement Award after a lapsed stake window relies on the Quorum signing a different winner (proposal open).
+- Decisions run on mainnet 0G Compute through the Router (ADR 0004). Verifiers check each one independently with `processResponse`, but the signed receipt covers the sealed request and response, so binding the exact rebuilt request is still open (#48). The Router is also a liveness dependency, and there is a single verifiable vision provider.
 - A Worker can seal different prices to each Verifier, which can stall the Award (no plaintext commitment).
 - If the 0G request-rebuild check (spike #2) can't bind the signed request, a prompt-steering gap remains next to ADR 0001.
 - Missions and Bids expire 60 minutes after posting (the rescue deadline), not at bidding close, so the Quorum can read them after bidding. The board hides a Mission at `biddingClosesAt`.
