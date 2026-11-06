@@ -107,7 +107,10 @@ describe("workerSettings", () => {
       verifierPubKeys: accounts.map((a) => a.publicKey),
       verifierAddresses: accounts.map((a) => a.address),
       strategy: { costPerDecision: 0.05, expectedDecisions: 15, txFees: 0.05, margin: 1.6, zeroGPerDecision: 0.0001 },
+      submitMarginSeconds: 90,
     });
+    expect(workerSettings({ ...env, WORKER_SUBMIT_MARGIN_SECONDS: "120" }).config.submitMarginSeconds).toBe(120);
+    expect(() => workerSettings({ ...env, WORKER_SUBMIT_MARGIN_SECONDS: "-1" })).toThrow(/WORKER_SUBMIT_MARGIN_SECONDS/);
   });
 
   it("refuses a WORKER_PUBKEY that is not the key's own", () => {
@@ -146,8 +149,8 @@ describe("requesterSettings", () => {
 
   it("uses the spec windows unless REQUESTER_*_SECONDS override them (Hashio needs longer ones)", () => {
     expect(requesterSettings(env).config.windows).toEqual(DEFAULT_WINDOWS);
-    const slow = requesterSettings({ ...env, REQUESTER_BIDDING_SECONDS: "120", REQUESTER_STAKE_SECONDS: "180", REQUESTER_SEED_RELEASE_SECONDS: "120", REQUESTER_EPISODE_SECONDS: "900", REQUESTER_RESCUE_SECONDS: "2400" });
-    expect(slow.config.windows).toEqual({ ...DEFAULT_WINDOWS, biddingSeconds: 120, stakeWindow: 180, seedReleaseWindow: 120, episodeWindow: 900, rescueSeconds: 2400 });
+    const slow = requesterSettings({ ...env, REQUESTER_BIDDING_SECONDS: "120", REQUESTER_STAKE_SECONDS: "180", REQUESTER_EPISODE_SECONDS: "900", REQUESTER_RESCUE_SECONDS: "2400" });
+    expect(slow.config.windows).toEqual({ ...DEFAULT_WINDOWS, biddingSeconds: 120, stakeWindow: 180, episodeWindow: 900, rescueSeconds: 2400 });
   });
 
   it("refuses windows that do not fit before rescue (createMission would revert with InvalidTime)", () => {
@@ -156,10 +159,17 @@ describe("requesterSettings", () => {
   });
 
   it("refuses windows that outlast the Arkiv Bid, which the Verifiers read at Replay", () => {
-    // 150 + 15 + 300 + 240 + 3000 = 3705 s, past the 3600 s Bid lifetime, although the rescue is later still.
-    const long = { ...env, REQUESTER_BIDDING_SECONDS: "150", REQUESTER_STAKE_SECONDS: "300", REQUESTER_SEED_RELEASE_SECONDS: "240", REQUESTER_EPISODE_SECONDS: "3000", REQUESTER_RESCUE_SECONDS: "4000" };
+    // 150 + 15 + 300 + 3200 = 3665 s, past the 3600 s Bid lifetime, although the rescue is later still.
+    const long = { ...env, REQUESTER_BIDDING_SECONDS: "150", REQUESTER_STAKE_SECONDS: "300", REQUESTER_EPISODE_SECONDS: "3200", REQUESTER_RESCUE_SECONDS: "4000" };
     expect(() => requesterSettings(long)).toThrow(/Bid lifetime/);
     expect(requesterSettings({ ...long, REQUESTER_EPISODE_SECONDS: "1200" }).config.windows.episodeWindow).toBe(1200);
+  });
+
+  it("takes the default Mission Limits from REQUESTER_MAX_STEPS and REQUESTER_MAX_COLLISIONS", () => {
+    expect(requesterSettings(env).config.defaultLimits).toEqual({ maxSteps: 60, maxCollisions: 0 });
+    expect(requesterSettings({ ...env, REQUESTER_MAX_STEPS: "35", REQUESTER_MAX_COLLISIONS: "2" }).config.defaultLimits).toEqual({ maxSteps: 35, maxCollisions: 2 });
+    expect(() => requesterSettings({ ...env, REQUESTER_MAX_STEPS: "0" })).toThrow(/REQUESTER_MAX_STEPS/);
+    expect(() => requesterSettings({ ...env, REQUESTER_MAX_COLLISIONS: "-1" })).toThrow(/REQUESTER_MAX_COLLISIONS/);
   });
 
   it("rejects a malformed Hedera account id or spending cap", () => {

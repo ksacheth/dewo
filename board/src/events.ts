@@ -1,16 +1,15 @@
 // I8 event feed: types are browser-safe; emit() is Node-only and loads fs lazily.
 export type EventType =
-  | "mission.posted" | "bid.sealed" | "bids.revealed" | "award.signed" | "stake.deposited" | "seed.released"
+  | "mission.posted" | "bid.sealed" | "bids.revealed" | "award.signed" | "stake.deposited"
   | "decision.made" | "episode.submitted" | "replay.paid" | "verdict.signed" | "settled"
 
 type Addr = string
 export type EventData = {
-  "mission.posted": { difficultyClass: string; maxBounty: string; riskWeight: number; biddingClosesAt: number; arkivKey: string }
+  "mission.posted": { difficultyClass: string; maxBounty: string; riskWeight: number; maxSteps: number; maxCollisions: number; biddingClosesAt: number; arkivKey: string }
   "bid.sealed": { worker: Addr; workerName: string; policyHash: string; arkivKey: string }
   "bids.revealed": { bids: { worker: Addr; workerName: string; price: string; R: number; score: number }[]; winner: Addr }
   "award.signed": { worker: Addr; price: string; stake: string; verifier: Addr }
   "stake.deposited": { worker: Addr; stake: string }
-  "seed.released": { worker: Addr; arkivKey: string }
   /** frame is a path relative to the runs/ folder */
   "decision.made": { step: number; frame: string; chatID: string; action: string }
   "episode.submitted": { episodeLogRoot: string; policyRoot: string; decisionCount: number }

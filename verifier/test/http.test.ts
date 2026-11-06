@@ -9,7 +9,7 @@ import { StorageUnavailableError } from "../src/errors.js";
 import { createEpisodeSource } from "../src/episodes.js";
 import { Outcome } from "../src/sign.js";
 import type { EpisodeSource, EscrowAward } from "../src/ports.js";
-import { FakeSim, MISSION, OTHER_WORKER, POLICY, SALT, SEED, VERIFIERS, WORKER, fakeBoard, fakeChain, honestEpisode, zeroG } from "./fixtures/builders.js";
+import { FakeSim, MISSION, OTHER_WORKER, POLICY, VERIFIERS, WORKER, fakeBoard, fakeChain, honestEpisode, zeroG } from "./fixtures/builders.js";
 
 const KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
 const ESCROW = "0x5FbDB2315678afecb367f032d93F642f64180aa3" as const;
@@ -45,7 +45,7 @@ function app(opts: { award?: () => EscrowAward | null; bidders?: Record<string, 
     board: fakeBoard({ prices: opts.bidders ?? { [WORKER]: 5_000_000n } }), chain: fakeChain({ award: opts.award, verifiers: opts.onChainVerifiers, down: opts.escrowDown }), trustedVerifiers: VERIFIERS,
     source: opts.source ?? { load: async () => {
       if (opts.storageDown) throw new StorageUnavailableError("0G Storage download timed out");
-      return { mission, worker: WORKER, timeline: { stakedAt: 1_000, seedReleasedAt: 1_010, episodeSubmittedAt: 1_100 }, episode };
+      return { mission, worker: WORKER, timeline: { stakedAt: 1_000, episodeSubmittedAt: 1_100 }, episode };
     } },
     verdicts: { writeVerdict: async (v: unknown) => { if (opts.arkivDown) throw new Error("arkiv down"); written.push(v); return { entityKey: ("0x" + "ab".repeat(32)) as `0x${string}` }; } },
   };
@@ -127,11 +127,11 @@ describe("Verifier HTTP API (I6)", () => {
     ]);
   });
 
-  it("POST /replay returns the I6 wire fields: Path Cost, Optimal Path Cost, collisions, and the settlement in PAYMENT-RESPONSE", async () => {
+  it("POST /replay returns the I6 wire fields: steps, collisions, and the settlement in PAYMENT-RESPONSE", async () => {
     const res = await post(app().a, "/replay", { "x-payment": "paid" });
     expect(await res.json()).toEqual({
       verdict: "Pass", signature: expect.stringMatching(/^0x[0-9a-f]+$/), evidenceHash: expect.stringMatching(/^0x[0-9a-f]{64}$/),
-      pathCost: 3, optimalPathCost: 3, collisions: 0,
+      steps: 3, collisions: 0,
     });
     expect(JSON.parse(Buffer.from(res.headers.get("PAYMENT-RESPONSE")!, "base64").toString())).toMatchObject({ transaction: "0.0.1234@1700000000.000000000" });
   });
@@ -255,7 +255,6 @@ describe("Verifier HTTP API (I6)", () => {
     const sourceWith = (submitted: boolean): EpisodeSource => createEpisodeSource({
       board: fakeBoard({ prices: { [WORKER]: 5_000_000n } }),
       chain: fakeChain({ award: () => ({ worker: WORKER, price: 5_000_000n, stake: 1n, awardedAt: 990, stakeWindow: 30, stakedAt: 1_000 }) }),
-      seeds: { seedReleasedAt: async () => 1_010, revealedSeed: async () => ({ seed: SEED, salt: SALT }) },
       registry: { findSubmission: async () => ({ episodeLogRoot: LOG_ROOT, policyRoot: POLICY_ROOT, decisionCount: 3, timestamp: 1_100 }) },
       storage: { downloadJson: async (root) => {
         if (root === LOG_ROOT) throw new StorageUnavailableError(`0G Storage download of ${root} failed: file not found`);

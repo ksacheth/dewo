@@ -1,19 +1,20 @@
 import { createHash } from "node:crypto";
 import { crc32, deflateSync } from "node:zlib";
 import type { Address, Hex } from "viem";
-import { buildRequest, policyHash, seedCommitment, type Action, type Decision, type EpisodeLog, type Policy } from "@dewo/agents/formats";
+import { buildRequest, policyHash, type Action, type Decision, type EpisodeLog, type Policy } from "@dewo/agents/formats";
 import { frameHashOfPng } from "../../src/checks/frame.js";
 import type { BoardPort, Course, EscrowAward, EscrowPort, ReplayResult, SealedBid, SimPort, ZeroGPort } from "../../src/ports.js";
 import type { EpisodeInput } from "../../src/checks/index.js";
 
-export const SEED = ("0x" + "5e".repeat(16)) as Hex;
-export const SALT = ("0x" + "a1".repeat(16)) as Hex;
+export const SEED = ("0x" + "5e".repeat(32)) as Hex;
 export const MISSION = ("0x" + "11".repeat(32)) as Hex;
 export const WORKER = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" as const;
 export const REQUESTER = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC" as const;
 export const OTHER_WORKER = "0x90F79bf6EB2c4f870365E785982E1f101E93b906" as const;
-/** The spec section 3 defaults: Seed Release within 30 s of stake, Episode Submission within 5 min of Seed Release. */
-export const DEADLINES = { seedReleaseWindow: 30, episodeWindow: 300 };
+/** The spec section 3 default: Episode Submission within 5 min of the stake. */
+export const DEADLINES = { episodeWindow: 300 };
+/** The Mission Limits the fixtures post: the spec's demo values. */
+export const LIMITS = { maxSteps: 60, maxCollisions: 0 };
 export const PROVIDER ="0x90F79bf6EB2c4f870365E785982E1f101E93b906" as const;
 
 export const POLICY: Policy = {
@@ -22,11 +23,14 @@ export const POLICY: Policy = {
   memoryWindow: 3, temperature: 0, version: "1",
 };
 
-/** Straight-line stand-in for the sim: the goal is 3 FORWARDs away; TURN_LEFT hits an obstacle. Frames depend on history. */
+/**
+ * Straight-line stand-in for the sim: the goal is 3 FORWARDs away; TURN_LEFT hits an obstacle (blocked, the Episode goes on).
+ * Frames depend on history. `seeds` records each Course it generated.
+ */
 export class FakeSim implements SimPort {
-  constructor(private opts: { solvable?: boolean; optimalPathCost?: number; collideAt?: Action } = {}) {}
-  async course(seed: Hex): Promise<Course> { return { seed, difficulty: "medium" }; }
-  async plan() { return { solvable: this.opts.solvable ?? true, optimalPathCost: this.opts.optimalPathCost ?? 3 }; }
+  seeds: Hex[] = [];
+  constructor(private opts: { collideAt?: Action } = {}) {}
+  async course(seed: Hex): Promise<Course> { this.seeds.push(seed); return { seed, difficulty: "medium" }; }
   async replay(_c: Course, actions: Action[]): Promise<ReplayResult> {
     const frameHashes = actions.map((_, i) => frameHashFor(actions.slice(0, i)));
     return {
@@ -75,13 +79,12 @@ export function honestEpisode(actions: Action[] = ["FORWARD", "FORWARD", "FORWAR
     };
   });
   const log: EpisodeLog = {
-    header: { missionId: MISSION, worker: WORKER, policyRoot: ("0x" + "22".repeat(32)) as Hex, seedCommitment: seedCommitment(SEED, SALT) },
+    header: { missionId: MISSION, worker: WORKER, policyRoot: ("0x" + "22".repeat(32)) as Hex, courseSeed: SEED },
     decisions,
   };
   return {
-    mission: { missionId: MISSION, seedCommitment: log.header.seedCommitment, difficultyClass: "medium", riskWeight: 0.5, maxBounty: 10_000_000n, deadlines: DEADLINES },
+    mission: { missionId: MISSION, courseSeed: SEED, ...LIMITS, difficultyClass: "medium", riskWeight: 0.5, maxBounty: 10_000_000n, deadlines: DEADLINES },
     bid: { key: bidKey(WORKER), worker: WORKER, policyHash: policyHash(policy) },
-    reveal: { seed: SEED, salt: SALT },
     policy,
     log,
     episodeLogRoot: ("0x" + "33".repeat(32)) as Hex,
@@ -122,7 +125,7 @@ export function fakeChain(opts: { award?: () => EscrowAward | null; lapsed?: str
       if (opts.down) throw new Error("Hashio timed out");
       return {
       requester: REQUESTER, verifiers: opts.verifiers ?? VERIFIERS, biddingEndsAt: opts.biddingEndsAt ?? BIDDING_ENDS_AT,
-      mission: { missionId: MISSION, difficultyClass: "medium", riskWeight: opts.riskWeight ?? 0.5, maxBounty: opts.maxBounty ?? 10_000_000n, seedCommitment: seedCommitment(SEED, SALT), deadlines: DEADLINES },
+      mission: { missionId: MISSION, difficultyClass: "medium", riskWeight: opts.riskWeight ?? 0.5, maxBounty: opts.maxBounty ?? 10_000_000n, courseSeed: SEED, ...LIMITS, deadlines: DEADLINES },
       award: opts.award ? opts.award() : null,
       };
     },

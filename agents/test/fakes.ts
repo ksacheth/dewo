@@ -1,11 +1,12 @@
 // In-memory stand-ins for Arkiv, Hedera, 0G and the simulator.
 import { keccak256, toBytes, toHex } from "viem";
-import { fromBaseUnits, seedCommitment, toBaseUnits, type Action, type Hex, type Policy } from "../src/formats";
+import { fromBaseUnits, toBaseUnits, type Action, type Hex, type Policy } from "../src/formats";
 import type {
   ActResult,
   Award,
   BidEntity,
   BoardPort,
+  CoursePlan,
   DifficultyClass,
   EscrowMission,
   EscrowPort,
@@ -14,7 +15,6 @@ import type {
   MissionTerms,
   Observation,
   RegistryPort,
-  SeedRelease,
   SimPort,
   SimSession,
   StoragePort,
@@ -40,7 +40,6 @@ import { Worker, type WorkerConfig } from "../src/worker/worker";
 export const ME: Hex = "0x00000000000000000000000000000000000000aa";
 export const RIVAL: Hex = "0x00000000000000000000000000000000000000bb";
 export const SEED: Hex = "0x1111111111111111111111111111111111111111111111111111111111111111";
-export const SALT: Hex = "0x2222222222222222222222222222222222222222222222222222222222222222";
 
 export const policy: Policy = {
   name: "Careful",
@@ -71,8 +70,10 @@ export function terms(overrides: Partial<MissionTerms> = {}): MissionTerms {
     maxBounty: 10_000_000n,
     difficultyClass: "easy",
     riskWeightBps: 5000,
-    seedCommitment: seedCommitment(SEED, SALT),
-    deadlines: { biddingClosesAt: 1_060, stakeWindow: 30, seedReleaseWindow: 30, episodeWindow: 300, rescueAt: 4_600 },
+    courseSeed: SEED,
+    maxSteps: 60,
+    maxCollisions: 0,
+    deadlines: { biddingClosesAt: 1_060, stakeWindow: 30, episodeWindow: 300, rescueAt: 4_600 },
     ...overrides,
   };
 }
@@ -104,8 +105,8 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
 
   rescues: string[] = [];
 
-  async findMission(commitment: Hex): Promise<string | null> {
-    return [...this.missions].find(([, m]) => m.terms.seedCommitment === commitment)?.[0] ?? null;
+  async findMission(courseSeed: Hex): Promise<string | null> {
+    return [...this.missions].find(([, m]) => m.terms.courseSeed === courseSeed)?.[0] ?? null;
   }
 
   async rescue(missionId: string): Promise<TxResult> {
@@ -181,11 +182,7 @@ export class FakeBoard implements BoardPort, RequesterBoardPort {
   open: string[] = [];
   listings: MissionListing[] = [];
   bids: BidEntity[] = [];
-  releases = new Map<string, SeedRelease>();
-  reveals = new Map<string, { seed: Hex; salt: Hex }>();
   reliability = 0.9;
-
-  constructor(private readonly clock: FakeClock) {}
 
   async postMission(listing: MissionListing): Promise<{ key: string }> {
     this.listings.push(listing);
@@ -195,19 +192,6 @@ export class FakeBoard implements BoardPort, RequesterBoardPort {
   async listingOf(missionId: string): Promise<{ key: string } | null> {
     const index = this.listings.findIndex((l) => l.missionId === missionId);
     return index < 0 ? null : { key: `arkiv-mission-${index + 1}` };
-  }
-  async workerPubKey(missionId: string, worker: Hex): Promise<Hex | null> {
-    return this.bids.find((b) => b.missionId === missionId && b.worker === worker)?.workerPubKey ?? null;
-  }
-  async hasSeedRelease(missionId: string): Promise<boolean> {
-    return this.releases.has(missionId);
-  }
-  async releaseSeed(missionId: string, seed: Hex, salt: Hex): Promise<{ key: string }> {
-    this.releases.set(missionId, { seed, salt, releasedAt: this.clock.now() });
-    return { key: `arkiv-seed-${missionId}` };
-  }
-  async revealSeed(missionId: string, seed: Hex, salt: Hex): Promise<void> {
-    this.reveals.set(missionId, { seed, salt });
   }
 
   async listOpenMissionIds(): Promise<string[]> {
@@ -226,9 +210,6 @@ export class FakeBoard implements BoardPort, RequesterBoardPort {
   async myBid(missionId: string, worker: Hex): Promise<{ key: string } | null> {
     const index = this.bids.findIndex((b) => b.missionId === missionId && b.worker === worker);
     return index < 0 ? null : { key: `arkiv-bid-${index + 1}` };
-  }
-  async readSeedRelease(missionId: string): Promise<SeedRelease | null> {
-    return this.releases.get(missionId) ?? null;
   }
 }
 
@@ -254,12 +235,26 @@ export class FakeStorage implements StoragePort {
   }
 }
 
-/** A corridor: the goal is `goalAt` FORWARDs away; any turn hits a wall. */
+/** A corridor: the goal is `goalAt` FORWARDs away; any turn hits a wall (blocked, the Episode goes on). */
 export class FakeSim implements SimPort {
   sessions: CorridorSession[] = [];
+  /** The Course Seed each session was opened with. */
+  seeds: Hex[] = [];
+  /** Every `plan` call, and whether it should fail to run. */
+  plans: { seed: Hex; maxCost: number }[] = [];
+  planFails = false;
   constructor(private readonly goalAt = 3) {}
 
-  async openSession(_seed: Hex, _difficulty: DifficultyClass, missionId: string): Promise<SimSession> {
+  /** The corridor's shortest path is goalAt FORWARDs. */
+  async plan(seed: Hex, _difficulty: DifficultyClass, maxCost: number): Promise<CoursePlan> {
+    this.plans.push({ seed, maxCost });
+    if (this.planFails) throw new Error("docker: image not found");
+    const solvable = this.goalAt <= maxCost;
+    return { solvable, optimalPathCost: solvable ? this.goalAt : -1 };
+  }
+
+  async openSession(seed: Hex, _difficulty: DifficultyClass, missionId: string): Promise<SimSession> {
+    this.seeds.push(seed);
     const session = new CorridorSession(this.goalAt, missionId);
     this.sessions.push(session);
     return session;
@@ -362,7 +357,7 @@ export const BIDDING_CLOSES_AFTER = DEFAULT_WINDOWS.biddingSeconds + DEFAULT_WIN
 export function world() {
   const clock = new FakeClock();
   const escrow = new FakeEscrow(clock);
-  const board = new FakeBoard(clock);
+  const board = new FakeBoard();
   const registry = new FakeRegistry();
   const storage = new FakeStorage();
   const verifiers = new FakeVerifiers(board, escrow, registry);
@@ -382,6 +377,7 @@ export function requesterIn(w: World, options: { random?: () => Hex; audit?: Aud
       address: REQUESTER_ADDRESS,
       verifiers: VERIFIER_URLS.map((url, i) => ({ url, address: VERIFIER_ADDRESSES[i]! })),
       windows: DEFAULT_WINDOWS,
+      defaultLimits: { maxSteps: 60, maxCollisions: 0 },
       maxPaidReplays: 3,
     },
     { ...w, escrow: w.escrow.forAccount(REQUESTER_ADDRESS), events: w.emit, records, random: options.random, audit: options.audit },
@@ -429,8 +425,5 @@ export function setup(options: { answers?: string[]; goalAt?: number } = {}) {
     w.escrow.open(missionId, missionTerms, verifiers);
     w.board.open.push(missionId);
   };
-  const release = (missionId = "m1", seed = SEED) =>
-    w.board.releases.set(missionId, { seed, salt: SALT, releasedAt: w.clock.now() });
-
-  return { ...w, ...me, post, release };
+  return { ...w, ...me, post };
 }

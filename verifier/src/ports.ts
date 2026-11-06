@@ -10,10 +10,14 @@ export interface MissionRecord {
   missionId: Hex;
   riskWeight: number; // w in [0, 1]
   maxBounty: bigint; // USDC base units (6 decimals)
-  seedCommitment: Hex;
+  /** The public Course Seed: the Verifier generates the Course from it (ADR 0006). */
+  courseSeed: Hex;
   difficultyClass: Difficulty;
-  /** Per-Mission deadline windows in seconds, fixed at `createMission`; `settle()` enforces these, so the Verifier must too. */
-  deadlines: { seedReleaseWindow: number; episodeWindow: number };
+  /** The Requester's Mission Limits a Pass must meet (spec 4.6). */
+  maxSteps: number;
+  maxCollisions: number;
+  /** Per-Mission deadline window in seconds, fixed at `createMission`: the Episode Submission is due by stakedAt + episodeWindow. */
+  deadlines: { episodeWindow: number };
 }
 
 /** A sealed Bid as the board returns it. `ciphertext` is the board's own row, handed back to `openBid` untouched. */
@@ -36,13 +40,11 @@ export interface ReplayResult {
   frameHashes: Hex[];
   collisions: number;
   atGoal: boolean;
-  /** Path Cost the sim executed: non-STOP Actions. It stops at the goal, a collision or STOP. */
+  /** Moving Actions the sim executed (non-STOP). It stops at the goal or STOP; a collision blocks a move but does not stop it. */
   steps: number;
 }
 export interface SimPort {
   course(seed: Hex, difficulty: Difficulty): Promise<Course>;
-  /** `optimalPathCost`: the lowest count of non-STOP Actions to the goal; -1 and not solvable when above 29. */
-  plan(course: Course): Promise<{ solvable: boolean; optimalPathCost: number }>;
   replay(course: Course, actions: Action[]): Promise<ReplayResult>;
 }
 
@@ -73,13 +75,6 @@ export interface EscrowPort {
   getMission(missionId: Hex): Promise<EscrowMission>;
   /** `lapsedWorker[missionId][worker]` on chain: an Award to this Worker was replaced because it missed the stake window. */
   isLapsed(missionId: Hex, worker: Address): Promise<boolean>;
-}
-
-/** Arkiv seed facts. The revealed seed and salt become public after the Episode Submission. */
-export interface SeedPort {
-  /** Unix seconds the Requester published the Seed Release for this Worker, or undefined if it did not. */
-  seedReleasedAt(missionId: Hex, worker: Address, requester: Address): Promise<number | undefined>;
-  revealedSeed(missionId: Hex, requester: Address): Promise<{ seed: Hex; salt: Hex } | null>;
 }
 
 /** 0G Galileo EpisodeRegistry. Only the winning Worker's own submission counts. `timestamp` is its block time (No-show evidence). */
@@ -128,11 +123,10 @@ export interface LoadedEpisode {
   mission: MissionRecord;
   /** The winning Worker of the Mission. */
   worker: Address;
-  timeline: { stakedAt: number; seedReleasedAt?: number; episodeSubmittedAt?: number };
-  /** Present once the Seed was released and an Episode Submission exists. */
+  timeline: { stakedAt: number; episodeSubmittedAt?: number };
+  /** Present once an Episode Submission exists. */
   episode?: {
     bid: SealedBid;
-    reveal: { seed: Hex; salt: Hex };
     /** As downloaded from 0G Storage: the checks validate both before trusting them. */
     policy: Fetched<Policy>;
     log: Fetched<EpisodeLog>;
@@ -144,7 +138,7 @@ export interface LoadedEpisode {
 /** The Verdict entity written to Arkiv (board `VerdictInput`). */
 export interface VerdictEntity {
   missionId: Hex; worker: Address; outcome: Outcome; difficultyClass: Difficulty;
-  pathCost: number; optimalPathCost: number; collisions: number;
+  steps: number; collisions: number;
   signature: Hex; evidenceHash: Hex; episodeLogRoot: Hex;
 }
 export interface VerdictSink { writeVerdict(v: VerdictEntity): Promise<{ entityKey: Hex }> }

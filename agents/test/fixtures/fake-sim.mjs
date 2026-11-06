@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// A stand-in for the I1 sim CLI: a corridor where the goal is 3 FORWARDs away and any turn collides.
+// A stand-in for the I1 sim CLI: a corridor where the goal is 3 FORWARDs away and any turn collides (blocked, as in sim 0.2.0:
+// the Episode goes on). `plan` answers the corridor's shortest path (3) within --max-cost; a seed of all f's makes `plan` fail.
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,6 +12,14 @@ const flag = (name) => rest[rest.indexOf(`--${name}`) + 1];
 
 if (command === "course") {
   writeFileSync(flag("out"), JSON.stringify({ seed: flag("seed"), difficulty: flag("difficulty"), goalAt: 3 }));
+} else if (command === "plan") {
+  const { seed, goalAt } = JSON.parse(readFileSync(flag("course"), "utf8"));
+  if (/^0xf+$/.test(seed)) {
+    console.error("plan crashed");
+    process.exit(4);
+  }
+  const solvable = goalAt <= Number(flag("max-cost"));
+  console.log(JSON.stringify({ solvable, optimalPathCost: solvable ? goalAt : -1 }));
 } else if (command === "session") {
   const { goalAt } = JSON.parse(readFileSync(flag("course"), "utf8"));
   const framesDir = flag("frames-dir");
@@ -48,7 +57,7 @@ if (command === "course") {
         step += 1;
         if (message.action === "FORWARD") position += 1;
         const collision = message.action === "TURN_LEFT" || message.action === "TURN_RIGHT";
-        ended = collision || position >= goalAt;
+        ended = position >= goalAt; // a collision blocks the move; the Episode goes on
         console.log(JSON.stringify({ step, collision, atGoal: position >= goalAt, pose: pose() }));
       }
     } else {

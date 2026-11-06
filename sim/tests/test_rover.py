@@ -43,12 +43,15 @@ def test_lattice_gives_the_same_state_for_different_routes():
     assert a.state == b.state  # exact integer lattice: same place means the same state
 
 
-def test_collision_with_an_obstacle_ends_the_episode():
+def test_collision_blocks_the_move_and_the_episode_goes_on():
     r = Rover(course([{"x": 1.6, "y": 3.0, "w": 0.4, "h": 0.4}]))
+    start = r.state
     assert r.act("FORWARD") is True
-    assert r.collisions == 1 and r.done
-    with pytest.raises(RuntimeError):
-        r.act("FORWARD")
+    assert r.collisions == 1 and not r.done
+    assert r.state == start and r.step == 1  # bumped: stays put, but the Action still counts
+    assert r.act("FORWARD") is True
+    assert r.collisions == 2 and r.step == 2
+    assert r.act("TURN_LEFT") is False and r.collisions == 2
 
 
 def test_hitting_the_arena_wall_is_a_collision():

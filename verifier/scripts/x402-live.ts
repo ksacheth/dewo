@@ -40,7 +40,7 @@ const app = createApp({
   key: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80", // throwaway test key, signs the fixture Verdict only
   escrow: "0x5FbDB2315678afecb367f032d93F642f64180aa3", gate, now: () => 5_000,
   board: fakeBoard({ prices: {} }), chain: fakeChain(), trustedVerifiers: VERIFIERS,
-  source: { load: async () => ({ mission, worker: WORKER, timeline: { stakedAt: 1_000, seedReleasedAt: 1_010, episodeSubmittedAt: 1_100 }, episode }) },
+  source: { load: async () => ({ mission, worker: WORKER, timeline: { stakedAt: 1_000, episodeSubmittedAt: 1_100 }, episode }) },
   sim: new FakeSim(), zeroG: zeroG(), verdicts: { writeVerdict: async () => ({ entityKey: `0x${"00".repeat(32)}` as const }) },
   events: boardEvents("verifier-spike"),
 });

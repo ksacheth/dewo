@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, openSync, r
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { dirname, join, resolve, sep } from "node:path"
 import { randomBytes } from "node:crypto"
+import { MAX_STEPS } from "../src/constants"
 import type { Plugin, ViteDevServer } from "vite"
 
 const MISSION_ID = /^0x[0-9a-fA-F]{64}$/
@@ -176,10 +177,24 @@ function deployments(server: ViteDevServer) {
  * board mock also gets a Mission entity: in real board mode a fake entity (no escrow) would pollute Arkiv, so none is
  * written. Labelled "mock requester" in the UI.
  */
-export async function mockRequester(body: { difficultyClass: string; maxBounty: number; riskWeight: number }, res: ServerResponse, loadBoard: () => Promise<Record<string, any>>, mode: string) {
+type MockMissionBody = { difficultyClass: string; maxBounty: number; riskWeight: number; maxSteps: number; maxCollisions: number }
+
+const wholeBetween = (x: unknown, min: number, max: number): boolean => Number.isInteger(x) && (x as number) >= min && (x as number) <= max
+
+/** Why a mock POST /missions body is invalid, or null. The limits mirror createMission (ADR 0006): maxSteps 1 to MAX_STEPS. */
+function mockBodyError(body: MockMissionBody): string | null {
   const num = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x)
   if (!body || typeof body !== "object" || !["easy", "medium", "hard"].includes(body.difficultyClass) || !(num(body.maxBounty) && body.maxBounty > 0 && body.maxBounty <= 1000) || !(num(body.riskWeight) && body.riskWeight >= 0 && body.riskWeight <= 1))
-    return send(res, 400, { error: "invalid difficultyClass, maxBounty or riskWeight" })
+    return "invalid difficultyClass, maxBounty or riskWeight"
+  if (!wholeBetween(body.maxSteps, 1, MAX_STEPS) || !wholeBetween(body.maxCollisions, 0, 0xffffffff))
+    return `maxSteps must be a whole number from 1 to ${MAX_STEPS} and maxCollisions a whole number of at least 0`
+  return null
+}
+
+export async function mockRequester(body: MockMissionBody, res: ServerResponse, loadBoard: () => Promise<Record<string, any>>, mode: string) {
+  const error = mockBodyError(body)
+  if (error) return send(res, 400, { error })
+  const { maxSteps, maxCollisions } = body
   const b = await loadBoard()
   const missionId = `0x${randomBytes(32).toString("hex")}`
   const biddingClosesAt = Math.floor(Date.now() / 1000) + 60
@@ -191,9 +206,9 @@ export async function mockRequester(body: { difficultyClass: string; maxBounty: 
     const wallet = { account: key ? privateKeyToAccount(key) : { address: `0x${"0".repeat(39)}1` } }
     posted = await b.postMission(wallet, {
       missionId, difficultyClass: body.difficultyClass, bounty: maxBounty, biddingClosesAt,
-      seedCommitment: `0x${randomBytes(32).toString("hex")}`, riskWeight: body.riskWeight, verifiers: process.env.VERIFIER_ADDRESSES ?? "",
+      courseSeed: `0x${randomBytes(32).toString("hex")}`, maxSteps, maxCollisions, riskWeight: body.riskWeight, verifiers: process.env.VERIFIER_ADDRESSES ?? "",
     })
   }
-  b.emit(missionId, "web", { type: "mission.posted", data: { difficultyClass: body.difficultyClass, maxBounty: String(maxBounty), riskWeight: body.riskWeight, biddingClosesAt, ...(posted && { arkivKey: posted.entityKey }) }, txUrl: undefined })
+  b.emit(missionId, "web", { type: "mission.posted", data: { difficultyClass: body.difficultyClass, maxBounty: String(maxBounty), riskWeight: body.riskWeight, maxSteps, maxCollisions, biddingClosesAt, ...(posted && { arkivKey: posted.entityKey }) }, txUrl: undefined })
   send(res, 200, { missionId, mock: true, txHash: posted?.txHash })
 }

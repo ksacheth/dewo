@@ -21,6 +21,8 @@ const ok: SkipContext = {
   txFees: 0.05,
   zgBalance: 5,
   zeroGPerDecision: 0.05,
+  maxSteps: 60,
+  limitsReachable: true,
 };
 
 describe("shouldSkip", () => {
@@ -32,6 +34,7 @@ describe("shouldSkip", () => {
     ["one on-chain Verifier is not trusted", { missionVerifiers: [TRUSTED[0]!, TRUSTED[1]!, FOREIGN] }, "UNTRUSTED_VERIFIERS"],
     ["two on-chain Verifiers are not trusted", { missionVerifiers: [TRUSTED[0]!, FOREIGN, FOREIGN] }, "UNTRUSTED_VERIFIERS"],
     ["the Mission names only 2 Verifiers", { missionVerifiers: TRUSTED.slice(0, 2) }, "UNTRUSTED_VERIFIERS"],
+    ["the public Course has no path within maxSteps, or the plan could not run", { limitsReachable: false }, "LIMITS_UNREACHABLE"],
     ["price is zero", { price: 0 }, "PRICE_NOT_POSITIVE"],
     ["price rounds to zero base units", { price: 0.0000004 }, "PRICE_NOT_POSITIVE"],
     ["price is NaN", { price: Number.NaN }, "PRICE_NOT_POSITIVE"],
@@ -41,7 +44,8 @@ describe("shouldSkip", () => {
     ["under 10 s of bidding left", { secondsLeftToBid: 9 }, "BIDDING_CLOSING"],
     ["already holding an unfinished win", { hasUnfinishedWin: true }, "BUSY_WITH_UNFINISHED_WIN"],
     ["wallet can't cover stake + fees", { walletBalance: 0.54 }, "WALLET_CANNOT_COVER_STAKE"],
-    ["0G balance can't cover the 60-Decision cap", { zgBalance: 2.99 }, "ZG_BALANCE_CANNOT_COVER_EPISODE"],
+    ["0G balance can't cover the Mission's 60 maxSteps Decisions", { zgBalance: 2.99 }, "ZG_BALANCE_CANNOT_COVER_EPISODE"],
+    ["0G balance can't cover a Mission with more maxSteps", { zgBalance: 4, maxSteps: 100 }, "ZG_BALANCE_CANNOT_COVER_EPISODE"],
   ])("skips when %s", (_label, change, reason) => {
     expect(shouldSkip({ ...ok, ...change })).toBe(reason);
   });

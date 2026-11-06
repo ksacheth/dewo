@@ -113,7 +113,7 @@ contract DeferredTokenTest is EscrowFixture {
     {
         uint256 price = bound(uint256(priceInput), 1, BOUNTY);
         uint256 bidStake = bound(uint256(stakeInput), 0, BOUNTY / 2);
-        MissionEscrow.Outcome outcome = MissionEscrow.Outcome(bound(uint256(outcomeInput), 0, 4));
+        MissionEscrow.Outcome outcome = MissionEscrow.Outcome(bound(uint256(outcomeInput), 0, 2));
         vm.warp(1060);
         escrow.award(missionId, worker, price, bidStake, _sigs(escrow.awardDigest(missionId, worker, price, bidStake)));
         vm.prank(worker);
@@ -139,8 +139,9 @@ contract DeferredNativeTest is EscrowFixture {
 
     function _create() internal {
         vm.prank(requester);
-        missionId =
-            escrow.createMission{value: BOUNTY}(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
+        missionId = escrow.createMission{value: BOUNTY}(
+            SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, MAX_STEPS, MAX_COLLISIONS
+        );
     }
 
     function _awardTo(address who) internal {
@@ -173,8 +174,9 @@ contract DeferredNativeTest is EscrowFixture {
     function testRescueDefersRejectingRequester() public {
         vm.deal(address(bad), BOUNTY);
         vm.prank(address(bad));
-        missionId =
-            escrow.createMission{value: BOUNTY}(keccak256("seed"), verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS);
+        missionId = escrow.createMission{value: BOUNTY}(
+            SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, MAX_STEPS, MAX_COLLISIONS
+        );
         vm.warp(4600);
         escrow.rescue(missionId);
         assertEq(escrow.owed(address(bad)), BOUNTY);

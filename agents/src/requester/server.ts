@@ -1,12 +1,13 @@
-// I7 Requester API: POST /missions { difficulty, maxBounty, riskWeight } -> 201 { missionId }.
+// I7 Requester API: POST /missions { difficulty, maxBounty, riskWeight, maxSteps?, maxCollisions? } -> 201 { missionId }.
+// A missing limit takes the Requester's configured default (REQUESTER_MAX_STEPS, REQUESTER_MAX_COLLISIONS).
 // An optional Idempotency-Key header makes a retry safe: the same key returns the first attempt's
-// 201 { missionId }, or 202 { pending: true, ref } (its Seed Commitment) while that attempt is still
+// 201 { missionId }, or 202 { pending: true, ref } (its Course Seed) while that attempt is still
 // being created or waits for the tick to recover or retry it. Poll with the same key until it is 201.
 // Creating a Mission locks real funds, so the API is local-only by default, optionally needs a bearer
 // token, is open to one browser origin only, and caps the bounty and the body size.
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { toBaseUnits, USDC_DECIMALS } from "../formats";
+import { limitsProblems, toBaseUnits, USDC_DECIMALS } from "../formats";
 import type { MissionRequest, PostResult } from "./requester";
 
 const DIFFICULTIES = new Set(["easy", "medium", "hard"]);
@@ -45,14 +46,26 @@ export function listenRequester(server: Server, port: number, host = process.env
 /** The request body if valid, otherwise a message saying what is wrong. */
 export function parseMissionRequest(body: unknown, maxBountyLimit = Infinity): MissionRequest | string {
   if (typeof body !== "object" || body === null) return "body must be a JSON object";
-  const { difficulty, maxBounty, riskWeight } = body as Record<string, unknown>;
+  const { difficulty, maxBounty, riskWeight, maxSteps, maxCollisions } = body as Record<string, unknown>;
   if (typeof difficulty !== "string" || !DIFFICULTIES.has(difficulty)) return "difficulty must be easy, medium or hard";
   if (typeof maxBounty !== "number" || !(maxBounty > 0)) return "maxBounty must be a positive number";
   const decimalsError = bountyPrecisionError(maxBounty);
   if (decimalsError) return decimalsError;
   if (maxBounty > maxBountyLimit) return `maxBounty must be at most ${maxBountyLimit} USDC`;
   if (typeof riskWeight !== "number" || riskWeight < 0 || riskWeight > 1) return "riskWeight must be between 0 and 1";
-  return { difficulty: difficulty as MissionRequest["difficulty"], maxBounty, riskWeight };
+  const limits = limitsOf(maxSteps, maxCollisions);
+  if (typeof limits === "string") return limits;
+  return { difficulty: difficulty as MissionRequest["difficulty"], maxBounty, riskWeight, ...limits };
+}
+
+/** The optional Mission Limits in a body; an absent one stays absent so the Requester's default applies. */
+function limitsOf(maxSteps: unknown, maxCollisions: unknown): Pick<MissionRequest, "maxSteps" | "maxCollisions"> | string {
+  for (const [name, value] of [["maxSteps", maxSteps], ["maxCollisions", maxCollisions]] as const) {
+    if (value !== undefined && typeof value !== "number") return `${name} must be a number`;
+  }
+  const problems = limitsProblems({ maxSteps: (maxSteps as number | undefined) ?? 1, maxCollisions: (maxCollisions as number | undefined) ?? 0 });
+  if (problems.length > 0) return problems.join("; ");
+  return { ...(maxSteps !== undefined && { maxSteps: maxSteps as number }), ...(maxCollisions !== undefined && { maxCollisions: maxCollisions as number }) };
 }
 
 /** USDC has 6 decimals: a maxBounty finer than that, or under 1 base unit, would lock nothing or something else than asked. */

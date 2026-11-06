@@ -4,8 +4,10 @@
 export interface PricingInput {
   /** Estimated 0G cost of one Decision with this Worker's Policy. */
   costPerDecision: number;
-  /** This Worker's own guess of Decisions for the Mission's Difficulty Class. */
+  /** This Worker's own guess of Decisions for the Mission's Difficulty Class (or from studying its public Course). */
   expectedDecisions: number;
+  /** The Mission's maxSteps: the Episode never takes more Decisions, so it caps expectedDecisions. */
+  maxSteps: number;
   /** Stake tx, Bid write, two 0G Storage uploads, submitEpisode. */
   txFees: number;
   /** This Worker's current Reliability, between 0 and 1. */
@@ -18,7 +20,7 @@ export interface PricingInput {
 
 /** What this Worker expects one Mission to cost it, including the stake it expects to lose. */
 export function costEstimate(input: PricingInput): number {
-  const inference = input.costPerDecision * input.expectedDecisions;
+  const inference = input.costPerDecision * Math.min(input.expectedDecisions, input.maxSteps);
   const expectedStakeLoss = (1 - input.reliability) * input.stake;
   return inference + input.txFees + expectedStakeLoss;
 }

@@ -16,9 +16,9 @@ describe("a full Mission against mocks, no human input", () => {
     expect(w.board.bids).toHaveLength(2);
 
     w.clock.t += BIDDING_CLOSES_AFTER; // bidding closes
-    await everyone(); // Quorum Award; the winner stakes
-    await everyone(); // Seed Release; the winner flies and submits; the loser sees the stake
-    await everyone(); // seed revealed, three paid Replays, settle(); the winner sees it
+    await everyone(); // Quorum Award; the winner stakes, then flies the public Course and submits
+    await everyone(); // the Requester sees the stake; the loser sees it too
+    await everyone(); // three paid Replays, settle(); the winner sees it
 
     expect(w.escrow.awards[0]?.award.worker).toBe(RIVAL);
     expect(w.registry.submissions[0]).toMatchObject({ missionId, decisionCount: 3 });
@@ -27,7 +27,7 @@ describe("a full Mission against mocks, no human input", () => {
     expect(gambler.stage(missionId)).toBe("DONE");
     expect(careful.stage(missionId)).toBe("LOST");
     expect(w.events.map((e) => e.type)).toEqual(
-      expect.arrayContaining(["mission.posted", "bid.sealed", "award.signed", "stake.deposited", "seed.released",
+      expect.arrayContaining(["mission.posted", "bid.sealed", "award.signed", "stake.deposited",
         "decision.made", "episode.submitted", "replay.paid", "settled"]),
     );
   });

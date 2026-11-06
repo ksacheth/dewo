@@ -28,14 +28,6 @@ contract OutcomesTest is EscrowFixture {
         _check(MissionEscrow.Outcome.NoShow, false);
     }
 
-    function testInvalidCourse() public {
-        _check(MissionEscrow.Outcome.InvalidCourse, true);
-    }
-
-    function testNoSeedRelease() public {
-        _check(MissionEscrow.Outcome.NoSeedRelease, true);
-    }
-
     function testRescueStakedMission() public {
         _stake();
         vm.warp(4600);
@@ -70,11 +62,13 @@ contract OutcomesTest is EscrowFixture {
         uint256 bounty = bound(uint256(bountyInput), 1, 1e24);
         uint256 price = bound(uint256(priceInput), 1, bounty);
         uint256 bidStake = bound(uint256(stakeInput), 0, bounty / 2);
-        MissionEscrow.Outcome outcome = MissionEscrow.Outcome(bound(uint256(outcomeInput), 0, 4));
+        MissionEscrow.Outcome outcome = MissionEscrow.Outcome(bound(uint256(outcomeInput), 0, 2));
         token.mint(requester, bounty);
         token.mint(worker, bidStake);
         vm.prank(requester);
-        bytes32 second = escrow.createMission(keccak256("second"), verifiers, deadlines, bounty, DIFFICULTY, RISK_BPS);
+        bytes32 second = escrow.createMission(
+            keccak256("second"), verifiers, deadlines, bounty, DIFFICULTY, RISK_BPS, MAX_STEPS, MAX_COLLISIONS
+        );
         assertNotEq(second, missionId);
         vm.warp(1060);
         escrow.award(second, worker, price, bidStake, _sigs(escrow.awardDigest(second, worker, price, bidStake)));

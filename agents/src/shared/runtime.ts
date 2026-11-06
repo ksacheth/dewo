@@ -10,8 +10,8 @@ export const systemClock: Clock = { now: () => Math.floor(Date.now() / 1000) };
 export const runsDir = (env: Env): string => resolve(env.RUNS_DIR || "../runs");
 
 /**
- * Each agent's records (the Requester's hold the secret Course Seed). Kept out of runs/, which the web serves from,
- * and gitignored. AGENT_STATE_DIR, default agents/.state.
+ * Each agent's records (Missions in flight, a Worker's Bid and Episode state). Kept out of runs/, which the web serves
+ * from, and gitignored. AGENT_STATE_DIR, default agents/.state.
  */
 export const statePath = (env: Env, process: string): string => join(resolve(env.AGENT_STATE_DIR || ".state"), `${process}.json`);
 

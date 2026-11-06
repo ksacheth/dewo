@@ -8,13 +8,15 @@ import { createTestClient, http, parseAbi, type Abi, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { foundry } from "viem/chains";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { seedCommitment } from "../src/formats";
 import { erc20Abi, missionEscrowAbi } from "../src/shared/abi";
 import { EscrowContract } from "../src/shared/escrow";
 import { PayoutClaimer } from "../src/shared/payout-claim";
 import { evmClients, type EvmClients } from "../src/shared/evm";
 import { RegistryContract } from "../src/shared/registry";
-import { SALT, SEED } from "./fakes";
+import { SEED } from "./fakes";
+
+const SEED_2: Hex = `0x${"22".repeat(32)}`;
+const SEED_3: Hex = `0x${"33".repeat(32)}`;
 
 const OUT = process.env.DEWO_CHAIN_OUT;
 const PORT = 18545;
@@ -98,17 +100,19 @@ describe.skipIf(!OUT)("escrow + registry adapters against M2's contracts (Anvil)
         maxBounty: 10_000_000n,
         difficultyClass: "medium",
         riskWeightBps: 7500,
-        seedCommitment: seedCommitment(SEED, SALT),
-        deadlines: { biddingClosesAt: now + 60, stakeWindow: 30, seedReleaseWindow: 30, episodeWindow: 300, rescueAt: now + 3600 },
+        courseSeed: SEED,
+        maxSteps: 40,
+        maxCollisions: 1,
+        deadlines: { biddingClosesAt: now + 60, stakeWindow: 30, episodeWindow: 300, rescueAt: now + 3600 },
       },
       verifiers.map((v) => v.address),
     );
-    expect(await requester.findMission(seedCommitment(SEED, SALT))).toBe(missionId);
+    expect(await requester.findMission(SEED)).toBe(missionId);
     expect(await requester.findMission(`0x${"99".repeat(32)}` as Hex)).toBeNull();
     const posted = await worker.getMission(missionId);
     expect(posted).toMatchObject({ award: null, stakedAt: null, settled: false });
-    expect(posted.terms).toMatchObject({ maxBounty: 10_000_000n, difficultyClass: "medium", riskWeightBps: 7500, seedCommitment: seedCommitment(SEED, SALT) });
-    expect(posted.terms.deadlines).toEqual({ biddingClosesAt: now + 60, stakeWindow: 30, seedReleaseWindow: 30, episodeWindow: 300, rescueAt: now + 3600 });
+    expect(posted.terms).toMatchObject({ maxBounty: 10_000_000n, difficultyClass: "medium", riskWeightBps: 7500, courseSeed: SEED, maxSteps: 40, maxCollisions: 1 });
+    expect(posted.terms.deadlines).toEqual({ biddingClosesAt: now + 60, stakeWindow: 30, episodeWindow: 300, rescueAt: now + 3600 });
 
     await testClient.increaseTime({ seconds: 61 });
     await testClient.mine({ blocks: 1 });
@@ -150,8 +154,10 @@ describe.skipIf(!OUT)("escrow + registry adapters against M2's contracts (Anvil)
         maxBounty: 1_000_000n,
         difficultyClass: "easy",
         riskWeightBps: 5000,
-        seedCommitment: seedCommitment(SALT, SEED),
-        deadlines: { biddingClosesAt: now + 60, stakeWindow: 30, seedReleaseWindow: 30, episodeWindow: 300, rescueAt: now + 3600 },
+        courseSeed: SEED_2,
+        maxSteps: 60,
+        maxCollisions: 0,
+        deadlines: { biddingClosesAt: now + 60, stakeWindow: 30, episodeWindow: 300, rescueAt: now + 3600 },
       },
       verifiers.map((v) => v.address),
     );
@@ -183,8 +189,10 @@ describe.skipIf(!OUT)("escrow + registry adapters against M2's contracts (Anvil)
         maxBounty: 10_000_000n,
         difficultyClass: "easy",
         riskWeightBps: 5000,
-        seedCommitment: seedCommitment(SEED, SEED),
-        deadlines: { biddingClosesAt: now + 60, stakeWindow: 30, seedReleaseWindow: 30, episodeWindow: 300, rescueAt: now + 3600 },
+        courseSeed: SEED_3,
+        maxSteps: 60,
+        maxCollisions: 0,
+        deadlines: { biddingClosesAt: now + 60, stakeWindow: 30, episodeWindow: 300, rescueAt: now + 3600 },
       },
       verifiers.map((v) => v.address),
     );

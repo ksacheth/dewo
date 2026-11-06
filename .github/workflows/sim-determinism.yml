@@ -63,7 +63,7 @@ jobs:
             -v "$PWD/sim/stub:/app/stub:ro" \
             -v "$PWD/sim/pyproject.toml:/app/pyproject.toml:ro" \
             -v "$PWD/sim/uv.lock:/app/uv.lock:ro" \
-            -w /app --entrypoint uv dewo-sim:0.1.0 \
+            -w /app --entrypoint uv dewo-sim:0.2.0 \
             run --frozen pytest -q -p no:cacheprovider
 
       - name: Upload replay output

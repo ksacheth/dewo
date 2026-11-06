@@ -1,5 +1,7 @@
 # M3 plan, part 2 of 3: `web/` (demo UI)
 
+> **Partly superseded (2026-11-06):** [ADR 0006](../docs/adr/0006-requester-sets-numeric-limits-on-a-public-course.md) removed the Seed Release, Seed Reveal, Path Quality and the Decision Cap described below; the Mission now carries a public `courseSeed` and the Requester's `maxSteps` and `maxCollisions`. This plan is kept as a record.
+
 Working plan for issue #13. Sister plans: [`board/PLAN.md`](../board/PLAN.md) (read §0 and §1 first: shared order and open decisions), [`arkiv/PLAN.md`](../arkiv/PLAN.md).
 Sources: `docs/spec.md` §2, §5.3 ("what judges see"), §6 (demo script), PRD #10 (I7, I8).
 

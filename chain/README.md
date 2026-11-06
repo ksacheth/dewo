@@ -35,9 +35,11 @@ Paris to avoid relying on newer opcodes across the two target networks.
 ## Contract usage
 
 For USDC, Requester approves `maxBounty`, then calls
-`createMission(seedCommitment, verifiers, deadlines, maxBounty, difficultyClass, riskWeightBps)`.
-`difficultyClass` is 0 easy, 1 medium, 2 hard and `riskWeightBps` is 0 to 10000;
-both are stored on-chain so Verifiers score against terms the Requester cannot change
+`createMission(courseSeed, verifiers, deadlines, maxBounty, difficultyClass, riskWeightBps, maxSteps, maxCollisions)`.
+`courseSeed` is the public, non-zero Course Seed. `maxSteps` must be 1 to `MAX_STEPS` (200), a public constant that bounds every Verifier's Replay. `difficultyClass` is 0 easy, 1 medium,
+2 hard and `riskWeightBps` is 0 to 10000. `maxSteps` (non-zero) and `maxCollisions` are
+the Requester's Pass limits: at most that many Decisions and collisions. All are stored
+on-chain so Workers price and Verifiers judge against terms the Requester cannot change
 after Bids arrive. Payouts and signatures do not use them. Read the
 returned `bytes32` Mission ID or `MissionCreated` event. After bidding closes,
 anyone can submit two Verifier signatures via `award`. Worker approves the signed
@@ -49,10 +51,9 @@ recipient cannot receive is deferred: read `owed(address)`, watch `PayoutDeferre
 recipient calls `withdraw()` (emits `Withdrawn`; reverts with `NothingOwed` or while
 delivery still fails). USDC amounts are integer token base units (six decimals for USDC).
 
-Deadline tuple order: `biddingEndsAt, stakeWindow, seedReleaseWindow, episodeWindow,
-rescueAt`. Example relative to creation time `t`: `(t+60, 30, 30, 300, t+3600)`.
-The actual Seed Release timestamp and Episode Submission deadline are verified
-off-chain. The Quorum must not sign premature or contradictory Verdicts.
+Deadline tuple order: `biddingEndsAt, stakeWindow, episodeWindow, rescueAt`.
+Example relative to creation time `t`: `(t+60, 30, 300, t+3600)`. The Episode
+Submission deadline (`stakedAt + episodeWindow`) is verified off-chain. The Quorum must not sign premature or contradictory Verdicts.
 
 EIP-712 domain: `{ name: "Dewo", version: "1", chainId: 296,
 verifyingContract: <deployed escrow> }`. Types (field order is significant):
@@ -64,7 +65,7 @@ Verdict(bytes32 missionId,uint8 outcome,bytes32 evidenceHash)
 
 `awardDigest` and `verdictDigest` return the full digest for tooling/tests. Clients
 should use their wallet's typed-data signer, not `personal_sign`. Outcome values:
-0 Pass, 1 Fail, 2 NoShow, 3 InvalidCourse, 4 NoSeedRelease. Rescue is not a Verdict.
+0 Pass, 1 Fail, 2 NoShow. Rescue is not a Verdict.
 
 `EpisodeSubmitted(bytes32 indexed missionId,address indexed worker,bytes32 episodeLogRoot,
 bytes32 policyRoot,uint256 decisionCount)` identifies the submission to fetch.

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { seedCommitment, toBaseUnits, type Hex } from "../src/formats";
+import { toBaseUnits, type Hex } from "../src/formats";
 import type { AuditPort, PaymentRecord } from "../src/requester/audit";
 import { CREATE_RETRY_SECONDS } from "../src/requester/requester";
-import { BIDDING_CLOSES_AFTER, REPLAY_PRICE, REQUESTER_ADDRESS, RIVAL, ME, SALT, SEED, VERIFIER_ADDRESSES, VERIFIER_URLS, requesterIn, world } from "./fakes";
+import { BIDDING_CLOSES_AFTER, REPLAY_PRICE, REQUESTER_ADDRESS, RIVAL, ME, SEED, VERIFIER_ADDRESSES, VERIFIER_URLS, requesterIn, world } from "./fakes";
 
 const randoms = (): (() => Hex) => {
-  const values: Hex[] = [SEED, SALT];
+  const values: Hex[] = [SEED];
   return () => values.shift()!;
 };
 
@@ -32,16 +32,28 @@ async function staked() {
 }
 
 describe("Requester: posting", () => {
-  it("fixes the terms on-chain and lists only the Seed Commitment", async () => {
+  it("fixes the terms on-chain, with the public Course Seed and the default limits, and lists them", async () => {
     const s = setupRequester();
     const missionId = await s.post();
 
     const { terms } = await s.escrow.getMission(missionId);
-    expect(terms).toMatchObject({ maxBounty: 10_000_000n, difficultyClass: "medium", riskWeightBps: 5000 });
-    expect(terms.seedCommitment).toBe(seedCommitment(SEED, SALT));
+    expect(terms).toMatchObject({ maxBounty: 10_000_000n, difficultyClass: "medium", riskWeightBps: 5000, courseSeed: SEED, maxSteps: 60, maxCollisions: 0 });
     expect(terms.deadlines).toMatchObject({ biddingClosesAt: s.clock.t + 75, rescueAt: s.clock.t + 3600 });
-    expect(JSON.stringify(s.board.listings, (_k, v) => (typeof v === "bigint" ? String(v) : v))).not.toContain(SEED.slice(2));
+    expect(s.board.listings[0]).toMatchObject({ courseSeed: SEED, maxSteps: 60, maxCollisions: 0 });
+    expect(s.events.find((e) => e.type === "mission.posted")?.data).toMatchObject({ maxSteps: 60, maxCollisions: 0 });
     expect(s.stage()).toBe("BIDDING");
+  });
+
+  it("uses the limits the request names", async () => {
+    const s = setupRequester();
+    const missionId = await s.requester.post({ difficulty: "easy", maxBounty: 5, riskWeight: 0.2, maxSteps: 25, maxCollisions: 2 });
+    expect((await s.escrow.getMission(missionId)).terms).toMatchObject({ maxSteps: 25, maxCollisions: 2 });
+  });
+
+  it("refuses limits createMission would reject", async () => {
+    const s = setupRequester();
+    await expect(s.requester.post({ difficulty: "easy", maxBounty: 5, riskWeight: 0.2, maxSteps: 0 })).rejects.toThrow(/maxSteps/);
+    expect(s.escrow.missions.size).toBe(0);
   });
 });
 
@@ -101,19 +113,17 @@ describe("Requester: Award", () => {
   });
 });
 
-describe("Requester: Seed Release and settlement", () => {
-  it("releases the seed to the winner's key once it has staked", async () => {
+describe("Requester: Episode and settlement", () => {
+  it("waits for the Episode once the winner has staked", async () => {
     const s = await staked();
-    expect(s.board.releases.get("m1")).toMatchObject({ seed: SEED, salt: SALT });
-    expect(s.stage()).toBe("SEED_RELEASED");
+    expect(s.stage()).toBe("STAKED");
   });
 
-  it("reveals the seed, pays three Replays and settles a Pass", async () => {
+  it("pays three Replays and settles a Pass", async () => {
     const s = await staked();
     await s.registry.submitEpisode("m1", "0x01", "0x02", 3);
     await s.requester.tick();
 
-    expect(s.board.reveals.get("m1")).toEqual({ seed: SEED, salt: SALT });
     expect(s.verifiers.replays).toEqual(VERIFIER_URLS);
     expect(s.escrow.settlements[0]).toMatchObject({ missionId: "m1", outcome: "Pass" });
     expect(s.escrow.settlements[0]?.signatures).toHaveLength(2);
@@ -259,15 +269,9 @@ describe("Requester: crash safety", () => {
     await s.requester.tick();
     expect(s.escrow.missions.size).toBe(1);
     expect(s.stage()).toBe("BIDDING");
-    expect(s.records.get("m1")).toMatchObject({ seed: SEED, salt: SALT });
+    expect(s.records.get("m1")).toMatchObject({ seed: SEED });
     expect(s.board.listings).toHaveLength(1);
-
-    s.bid(ME, 2);
-    s.closeBidding();
-    await s.requester.tick();
-    await s.escrow.stake("m1", 500_000n);
-    await s.requester.tick();
-    expect(s.board.releases.get("m1")).toMatchObject({ seed: SEED, salt: SALT });
+    expect(s.escrow.missions.get("m1")?.terms.courseSeed).toBe(SEED);
   });
 
   it("retries createMission with the same seed once the failed attempt is stale", async () => {
@@ -281,7 +285,7 @@ describe("Requester: crash safety", () => {
     expect(s.escrow.missions.size).toBe(0);
     s.clock.t += CREATE_RETRY_SECONDS + 1;
     await s.requester.tick();
-    expect([...s.escrow.missions.values()].map((m) => m.terms.seedCommitment)).toEqual([seedCommitment(SEED, SALT)]);
+    expect([...s.escrow.missions.values()].map((m) => m.terms.courseSeed)).toEqual([SEED]);
     expect(s.stage()).toBe("BIDDING");
   });
 
@@ -348,16 +352,6 @@ describe("Requester: crash safety", () => {
     await s.requester.tick();
     expect(s.stage()).toBe("RESCUED");
     vi.restoreAllMocks();
-  });
-
-  it("does not release the seed twice when a crash lost the record write", async () => {
-    const s = await staked();
-    expect(s.board.releases.size).toBe(1);
-    s.records.put({ ...s.records.get("m1")!, stage: "AWARDED" });
-    const release = vi.spyOn(s.board, "releaseSeed");
-    await s.requester.tick();
-    expect(release).not.toHaveBeenCalled();
-    expect(s.stage()).toBe("SEED_RELEASED");
   });
 
   it("counts a Replay as spent before the payment goes out", async () => {
@@ -461,7 +455,7 @@ describe("Requester: idempotent posting (#37)", () => {
     s.escrow.createMission = (t, v) => new Promise((resolve) => (release = () => resolve(create(t, v))));
     const first = s.requester.postOnce(request, "k1");
 
-    expect(await s.requester.postOnce(request, "k1")).toEqual({ pending: true, ref: seedCommitment(SEED, SALT) });
+    expect(await s.requester.postOnce(request, "k1")).toEqual({ pending: true, ref: SEED });
     release();
     expect(await first).toEqual({ missionId: "m1" });
     expect(s.escrow.missions.size).toBe(1);
@@ -478,7 +472,7 @@ describe("Requester: idempotent posting (#37)", () => {
     await expect(s.requester.postOnce(request, "k1")).rejects.toThrow("rpc timeout");
     s.escrow.createMission = create;
 
-    expect(await s.requester.postOnce(request, "k1")).toEqual({ pending: true, ref: seedCommitment(SEED, SALT) });
+    expect(await s.requester.postOnce(request, "k1")).toEqual({ pending: true, ref: SEED });
     await s.requester.tick();
     expect(await s.requester.postOnce(request, "k1")).toEqual({ missionId: "m1" });
     expect(s.escrow.missions.size).toBe(1);

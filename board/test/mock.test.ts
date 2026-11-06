@@ -29,7 +29,9 @@ const mission = (n: number, over: Partial<MissionInput> = {}): MissionInput => (
   difficultyClass: "easy",
   bounty: 10_000_000n,
   biddingClosesAt: nowSec + 60,
-  seedCommitment: "0xfeed",
+  courseSeed: "0xfeed",
+  maxSteps: 60,
+  maxCollisions: 0,
   riskWeight: 0.5,
   verifiers: verifierAddrs,
   ...over,
@@ -39,8 +41,7 @@ const verdict = (n: number, w: Hex, outcome: VerdictInput["outcome"], over: Part
   missionId: mid(n),
   worker: w,
   outcome,
-  pathCost: 10,
-  optimalPathCost: 8,
+  steps: 10,
   collisions: 0,
   difficultyClass: "medium",
   signature: "0xsig",
@@ -83,10 +84,10 @@ describe("Mission Board", () => {
 
   it("getMission with a requester counts only a Mission entity that address owns", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    await board.postMission(workerB, mission(1, { seedCommitment: "0xbad" }))
+    await board.postMission(workerB, mission(1, { courseSeed: "0xbad" }))
     vi.setSystemTime(NOW + 1_000)
     const { entityKey } = await board.postMission(requester, mission(1))
-    expect((await board.getMission(mid(1)))?.seedCommitment).toBe("0xbad")
+    expect((await board.getMission(mid(1)))?.courseSeed).toBe("0xbad")
     expect((await board.getMission(mid(1), requester.account.address))?.$key).toBe(entityKey)
     expect(await board.getMission(mid(1), workerA.account.address)).toBeNull()
     warn.mockRestore()
@@ -153,69 +154,11 @@ describe("Bids", () => {
   })
 })
 
-describe("Seed Release", () => {
-  const seed = { seed: "42", salt: "0xsalt" }
-  it("only the winning Worker can read it", async () => {
-    await board.postMission(requester, mission(1))
-    await board.releaseSeed(requester, mid(1), seed.seed, seed.salt, pubKeyOf(workerA.privateKey))
-    expect(await board.readSeedRelease(mid(1), workerA.privateKey)).toEqual(seed)
-    expect(await board.readSeedRelease(mid(1), workerB.privateKey)).toBeNull()
-  })
-
-  it("ignores a Seed Release written by someone other than the Requester", async () => {
-    await board.postMission(requester, mission(1))
-    await board.releaseSeed(workerB, mid(1), "666", "0xevil", pubKeyOf(workerA.privateKey))
-    expect(await board.readSeedRelease(mid(1), workerA.privateKey)).toBeNull()
-  })
-
-  it("seedReleasedAt: when the Requester released to that Worker, in unix seconds; anyone can ask", async () => {
-    await board.postMission(requester, mission(1))
-    expect(await board.seedReleasedAt(mid(1), workerA.account.address)).toBeNull()
-    vi.setSystemTime(NOW + 5_000)
-    await board.releaseSeed(requester, mid(1), seed.seed, seed.salt, pubKeyOf(workerA.privateKey))
-    vi.setSystemTime(NOW + 9_000)
-    await board.releaseSeed(requester, mid(1), "43", "0xlater", pubKeyOf(workerA.privateKey))
-    expect(await board.seedReleasedAt(mid(1), workerA.account.address)).toBe(nowSec + 5)
-    expect(await board.seedReleasedAt(mid(1), workerA.account.address, requester.account.address)).toBe(nowSec + 5)
-    expect(await board.seedReleasedAt(mid(1), workerB.account.address)).toBeNull()
-  })
-
-  it("seedReleasedAt ignores a Release not written by the Requester, and an unknown Mission", async () => {
-    await board.postMission(requester, mission(1))
-    await board.releaseSeed(workerB, mid(1), "666", "0xevil", pubKeyOf(workerA.privateKey))
-    expect(await board.seedReleasedAt(mid(1), workerA.account.address)).toBeNull()
-    expect(await board.seedReleasedAt(mid(2), workerA.account.address)).toBeNull()
-  })
-})
-
-describe("Seed Reveal", () => {
-  it("is public: anyone can read the seed once the Requester reveals it", async () => {
-    await board.postMission(requester, mission(1))
-    expect(await board.readSeedReveal(mid(1))).toBeNull()
-    await board.revealSeed(requester, mid(1), "0x2a", "0x5a17")
-    expect(await board.readSeedReveal(mid(1))).toEqual({ seed: "0x2a", salt: "0x5a17" })
-  })
-
-  it("ignores a reveal written by someone other than the Requester", async () => {
-    await board.postMission(requester, mission(1))
-    await board.revealSeed(workerA, mid(1), "0xbad", "0xbad")
-    expect(await board.readSeedReveal(mid(1))).toBeNull()
-  })
-
-  it("the first reveal from the Requester counts", async () => {
-    await board.postMission(requester, mission(1))
-    await board.revealSeed(requester, mid(1), "0x01", "0x02")
-    vi.setSystemTime(NOW + 1000)
-    await board.revealSeed(requester, mid(1), "0x03", "0x04")
-    expect(await board.readSeedReveal(mid(1))).toEqual({ seed: "0x01", salt: "0x02" })
-  })
-
-  it("outlives the Mission (long-lived like a Verdict)", async () => {
-    await board.postMission(requester, mission(1))
-    await board.revealSeed(requester, mid(1), "0x2a", "0x5a17")
-    vi.setSystemTime(NOW + 2 * 60 * 60_000)
-    expect(await board.getMission(mid(1))).toBeNull()
-    expect(await board.readSeedReveal(mid(1), requester.account.address)).toEqual({ seed: "0x2a", salt: "0x5a17" })
+describe("Public Course and limits", () => {
+  it("publishes the Course Seed and the Requester's limits on the Mission", async () => {
+    await board.postMission(requester, mission(1, { courseSeed: "0xc0ffee", maxSteps: 40, maxCollisions: 2 }))
+    const row = await board.getMission(mid(1))
+    expect(row).toMatchObject({ courseSeed: "0xc0ffee", maxSteps: 40, maxCollisions: 2 })
   })
 })
 
@@ -234,14 +177,14 @@ describe("Verdicts and leaderboard", () => {
     const [row] = await board.leaderboard()
     expect(row.worker).toBe(w)
     expect(row.missions.map((m) => m.outcome).sort()).toEqual(["Fail", "Pass", "Pass"])
-    expect(row.xp).toBeCloseTo(2 * 100 * 1.5 * (1 + 8 / 10)) // q = optimal 8 / cost 10
+    expect(row.xp).toBe(2 * 100 * 1.5) // two medium Passes
     expect(row.level).toBe(board.level(row.xp))
     const verdicts = (await board.listVerdicts({ worker: w })) as VerdictRow[]
     expect(row.reliability).toBeCloseTo(board.reliability(verdicts, board.trustedVerifiers()))
   })
 
   it("outcomeIndex follows the I5 enum order", () => {
-    expect(["Pass", "Fail", "NoShow", "InvalidCourse", "NoSeedRelease"].map((o) => board.outcomeIndex(o as never))).toEqual([0, 1, 2, 3, 4])
+    expect(["Pass", "Fail", "NoShow"].map((o) => board.outcomeIndex(o as never))).toEqual([0, 1, 2])
   })
 })
 
@@ -268,12 +211,13 @@ describe("separate processes share the mock file", () => {
       import { privateKeyToAccount } from "viem/accounts";
       const wallet = { account: privateKeyToAccount(${JSON.stringify(workerA.privateKey)}) };
       await new Promise((r) => setTimeout(r, ${startAt} - Date.now()));
-      for (let i = 0; i < ${each}; i++) await b.revealSeed(wallet, "0x${(p + 1).toString(16).padStart(64, "0")}", "seed" + ${p} + "-" + i, "salt")`
+      const verdict = ${JSON.stringify(verdict(p + 1, workerA.account.address, "Pass"))};
+      for (let i = 0; i < ${each}; i++) await b.writeVerdict(wallet, { ...verdict, evidenceHash: "0x" + ${p} + "-" + i })`
     await Promise.all(Array.from({ length: procs }, (_, p) => new Promise<void>((ok, fail) => {
       const c = spawn(tsx, ["--input-type=module", "-e", script(p)], { env: process.env, stdio: "inherit" })
       c.on("exit", (code) => (code === 0 ? ok() : fail(new Error(`child ${p} exited ${code}`))))
     })))
-    const stored = JSON.parse(readFileSync(process.env.BOARD_MOCK_FILE!, "utf8")).seedReveals as unknown[]
+    const stored = JSON.parse(readFileSync(process.env.BOARD_MOCK_FILE!, "utf8")).verdicts as unknown[]
     expect(stored).toHaveLength(procs * each)
   }, 60_000)
 })

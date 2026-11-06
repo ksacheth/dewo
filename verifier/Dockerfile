@@ -1,8 +1,8 @@
 # Verifier image: built ON the pinned sim image so Replay runs the exact MuJoCo build Workers used (spike #4).
-# Build the sim image first: docker build --platform linux/amd64 -t dewo-sim:0.1.0 sim/
+# Build the sim image first: docker build --platform linux/amd64 -t dewo-sim:0.2.0 sim/
 # Then, from the repo root (the build needs ../agents and ../board):
-#   docker build --platform linux/amd64 --build-arg SIM_VERSION=0.1.0 -f verifier/Dockerfile -t dewo-verifier .
-ARG SIM_VERSION=0.1.0
+#   docker build --platform linux/amd64 --build-arg SIM_VERSION=0.2.0 -f verifier/Dockerfile -t dewo-verifier .
+ARG SIM_VERSION=0.2.0
 FROM dewo-sim:${SIM_VERSION}
 
 # Add Node 22 (same Debian bookworm base as python:3.12-slim) next to the sim; the sim ENTRYPOINT is cleared below.

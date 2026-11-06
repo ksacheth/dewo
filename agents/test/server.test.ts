@@ -30,6 +30,25 @@ describe("parseMissionRequest limits", () => {
   });
 });
 
+describe("parseMissionRequest Mission Limits (ADR 0006)", () => {
+  const base = { difficulty: "easy", maxBounty: 5, riskWeight: 0.5 };
+
+  it("passes the limits through, and leaves a missing one for the Requester's default", () => {
+    expect(parseMissionRequest({ ...base, maxSteps: 30, maxCollisions: 2 })).toMatchObject({ maxSteps: 30, maxCollisions: 2 });
+    const bare = parseMissionRequest(base) as MissionRequest;
+    expect("maxSteps" in bare || "maxCollisions" in bare).toBe(false);
+  });
+
+  it.each([
+    [{ maxSteps: 0 }, "maxSteps"],
+    [{ maxSteps: 2.5 }, "maxSteps"],
+    [{ maxSteps: "60" }, "maxSteps"],
+    [{ maxCollisions: -1 }, "maxCollisions"],
+  ])("rejects %j", (limits, field) => {
+    expect(parseMissionRequest({ ...base, ...limits })).toContain(field);
+  });
+});
+
 describe("parseMissionRequest money precision", () => {
   const request = (maxBounty: number) => parseMissionRequest({ difficulty: "easy", maxBounty, riskWeight: 0.5 });
 

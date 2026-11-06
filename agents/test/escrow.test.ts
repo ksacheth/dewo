@@ -10,21 +10,26 @@ const VERIFIERS = [
 const raw: RawMission = {
   worker: "0x0000000000000000000000000000000000000000",
   verifiers: VERIFIERS,
-  seedCommitment: `0x${"11".repeat(32)}`,
+  courseSeed: `0x${"11".repeat(32)}`,
   maxBounty: 10_000_000n,
   difficultyClass: 2,
   riskWeightBps: 7500,
+  maxSteps: 40,
+  maxCollisions: 1,
   price: 0n,
   bidStake: 0n,
   awardedAt: 0n,
   stakedAt: 0n,
-  deadlines: { biddingEndsAt: 1_060n, stakeWindow: 30, seedReleaseWindow: 30, episodeWindow: 300, rescueAt: 4_600n },
+  deadlines: { biddingEndsAt: 1_060n, stakeWindow: 30, episodeWindow: 300, rescueAt: 4_600n },
   state: 1,
 };
 
 describe("toEscrowMission", () => {
   it("reads the Mission terms from the on-chain struct", () => {
-    expect(toEscrowMission(raw).terms).toMatchObject({ maxBounty: 10_000_000n, difficultyClass: "hard", riskWeightBps: 7500 });
+    expect(toEscrowMission(raw).terms).toMatchObject({
+      maxBounty: 10_000_000n, difficultyClass: "hard", riskWeightBps: 7500, courseSeed: `0x${"11".repeat(32)}`, maxSteps: 40, maxCollisions: 1,
+    });
+    expect(toEscrowMission(raw).terms.deadlines).toEqual({ biddingClosesAt: 1_060, stakeWindow: 30, episodeWindow: 300, rescueAt: 4_600 });
     expect(toEscrowMission({ ...raw, difficultyClass: 0 }).terms.difficultyClass).toBe("easy");
     expect(toEscrowMission({ ...raw, difficultyClass: 1 }).terms.difficultyClass).toBe("medium");
   });
@@ -43,8 +48,8 @@ describe("EscrowContract.findMission", () => {
   const REQUESTER = "0x00000000000000000000000000000000000000aa";
   const commitment = (byte: string) => `0x${byte.repeat(32)}` as const;
 
-  /** A fake chain: MissionCreated logs at given blocks, each Mission carrying a seed commitment. */
-  function chain(latest: bigint, missions: { block: bigint; missionId: string; seedCommitment: string }[]) {
+  /** A fake chain: MissionCreated logs at given blocks, each Mission carrying a Course Seed. */
+  function chain(latest: bigint, missions: { block: bigint; missionId: string; courseSeed: string }[]) {
     const scans: { fromBlock: unknown; toBlock: unknown }[] = [];
     const clients = {
       wallet: { account: { address: REQUESTER } },
@@ -56,7 +61,7 @@ describe("EscrowContract.findMission", () => {
         },
         readContract: async ({ args }: { args: [string] }) => ({
           ...raw,
-          seedCommitment: missions.find((m) => m.missionId === args[0])!.seedCommitment,
+          courseSeed: missions.find((m) => m.missionId === args[0])!.courseSeed,
         }),
       },
     } as never;
@@ -77,8 +82,8 @@ describe("EscrowContract.findMission", () => {
 
   it("stops at the newest chunk holding the Mission", async () => {
     const { clients, scans } = chain(1_250n, [
-      { block: 1_010n, missionId: commitment("01"), seedCommitment: commitment("aa") },
-      { block: 1_230n, missionId: commitment("02"), seedCommitment: commitment("bb") },
+      { block: 1_010n, missionId: commitment("01"), courseSeed: commitment("aa") },
+      { block: 1_230n, missionId: commitment("02"), courseSeed: commitment("bb") },
     ]);
     const escrow = new EscrowContract(clients, ESCROW, { fromBlock: 1_000n, logChunk: 100n });
 

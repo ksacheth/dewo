@@ -1,12 +1,12 @@
 import { useState } from "react"
 import type { MissionState } from "../feed"
 import { short } from "../links"
-import { DECISION_CAP } from "../constants"
 
 export function RoverView({ state }: { state: MissionState }) {
   const [picked, setPicked] = useState<number | null>(null)
   const list = [...state.decisions].reverse()
   const shown = (picked !== null && state.decisions.find((d) => d.step === picked)) || state.decisions[state.decisions.length - 1]
+  const maxSteps = state.posted?.maxSteps ?? "?"
   const failed = Object.values(state.verifiers).some((v) => v.outcome && v.outcome !== "Pass") || (state.settled && state.settled.outcome !== "Pass")
   return (
     <section className="panel hero" aria-label="Rover view">
@@ -17,7 +17,7 @@ export function RoverView({ state }: { state: MissionState }) {
       <div className="steps" role="listbox" aria-label="Decisions">
         {list.map((d) => (
           <div key={d.step} className="step" role="option" aria-selected={shown?.step === d.step} onClick={() => setPicked(d.step === state.decisions.length ? null : d.step)}>
-            <span>{d.step}/{DECISION_CAP}</span><strong>{d.action}</strong>
+            <span>{d.step}/{maxSteps}</span><strong>{d.action}</strong>
             <span className="mono dim" title={d.chatID}>{short(d.chatID, 4)} <button className="chip" onClick={(e) => { e.stopPropagation(); void navigator.clipboard?.writeText(d.chatID) }}>copy</button></span>
           </div>
         ))}

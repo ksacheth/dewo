@@ -6,6 +6,7 @@ import { costEstimate, price, type PricingInput } from "../src/worker/pricing";
 const careful: PricingInput = {
   costPerDecision: 0.05,
   expectedDecisions: 15,
+  maxSteps: 60,
   txFees: 0.05,
   reliability: 0.9,
   stake: 0.5,
@@ -23,6 +24,11 @@ describe("pricing", () => {
 
   it("a perfectly reliable Worker expects to lose no stake", () => {
     expect(costEstimate({ ...careful, reliability: 1 })).toBeCloseTo(0.8, 10);
+  });
+
+  it("never prices more Decisions than the Mission's maxSteps allow", () => {
+    expect(costEstimate({ ...careful, maxSteps: 10 })).toBeCloseTo(0.5 + 0.05 + 0.05, 10);
+    expect(costEstimate({ ...careful, maxSteps: 15 })).toBeCloseTo(costEstimate(careful), 10);
   });
 
   it("does not include Replay fees (the Requester pays those)", () => {
