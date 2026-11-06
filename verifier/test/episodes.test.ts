@@ -12,7 +12,7 @@ function world(over: { submission?: null; seeds?: boolean; award?: null; unstake
   const ep = honestEpisode();
   const downloads: Hex[] = [];
   const asked: { releaseFor?: string; revealFor?: string } = {};
-  const award = over.award === null ? undefined : () => ({ worker: WORKER, awardedAt: 990, stakeWindow: 30, stakedAt: over.unstaked ? null : 1_000 });
+  const award = over.award === null ? undefined : () => ({ worker: WORKER, price: 5_000_000n, stake: 1n, awardedAt: 990, stakeWindow: 30, stakedAt: over.unstaked ? null : 1_000 });
   const source = createEpisodeSource({
     board: fakeBoard({ prices: { [OTHER_WORKER]: 1n, [WORKER]: 5_000_000n } }),
     chain: fakeChain({ award }),
@@ -63,7 +63,9 @@ describe("createEpisodeSource", () => {
     await expect(world({ unstaked: true }).source.load(MISSION)).rejects.toBeInstanceOf(PendingError);
   });
 
-  it("rejects when the Mission has no Award yet", async () => {
-    await expect(world({ award: null }).source.load(MISSION)).rejects.toThrow(/no award/i);
+  it("is pending when the Mission has no Award yet", async () => {
+    const load = world({ award: null }).source.load(MISSION);
+    await expect(load).rejects.toBeInstanceOf(PendingError);
+    await expect(load).rejects.toThrow(/no award/i);
   });
 });

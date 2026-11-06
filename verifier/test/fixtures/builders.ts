@@ -12,6 +12,8 @@ export const MISSION = ("0x" + "11".repeat(32)) as Hex;
 export const WORKER = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" as const;
 export const REQUESTER = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC" as const;
 export const OTHER_WORKER = "0x90F79bf6EB2c4f870365E785982E1f101E93b906" as const;
+/** The spec section 3 defaults: Seed Release within 30 s of stake, Episode Submission within 5 min of Seed Release. */
+export const DEADLINES = { seedReleaseWindow: 30, episodeWindow: 300 };
 export const PROVIDER ="0x90F79bf6EB2c4f870365E785982E1f101E93b906" as const;
 
 export const POLICY: Policy = {
@@ -68,7 +70,7 @@ export function honestEpisode(actions: Action[] = ["FORWARD", "FORWARD", "FORWAR
     decisions,
   };
   return {
-    mission: { missionId: MISSION, seedCommitment: log.header.seedCommitment, difficultyClass: "medium", riskWeight: 0.5, maxBounty: 10_000_000n },
+    mission: { missionId: MISSION, seedCommitment: log.header.seedCommitment, difficultyClass: "medium", riskWeight: 0.5, maxBounty: 10_000_000n, deadlines: DEADLINES },
     bid: { key: bidKey(WORKER), worker: WORKER, policyHash: policyHash(POLICY) },
     reveal: { seed: SEED, salt: SALT },
     policy: POLICY,
@@ -101,7 +103,7 @@ export function fakeChain(opts: { award?: () => EscrowAward | null; lapsed?: str
   return {
     getMission: async () => ({
       requester: REQUESTER,
-      mission: { missionId: MISSION, difficultyClass: "medium", riskWeight: opts.riskWeight ?? 0.5, maxBounty: opts.maxBounty ?? 10_000_000n, seedCommitment: seedCommitment(SEED, SALT) },
+      mission: { missionId: MISSION, difficultyClass: "medium", riskWeight: opts.riskWeight ?? 0.5, maxBounty: opts.maxBounty ?? 10_000_000n, seedCommitment: seedCommitment(SEED, SALT), deadlines: DEADLINES },
       award: opts.award ? opts.award() : null,
     }),
     isLapsed: async (_mission, worker) => (opts.lapsed ?? []).includes(worker),

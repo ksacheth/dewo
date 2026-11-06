@@ -13,11 +13,13 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && corepack enable
 
 WORKDIR /app
-COPY pnpm-workspace.yaml package.json ./
+# The root lockfile pins every workspace package; web/package.json is copied only so the lockfile's importers all resolve.
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY agents/package.json agents/
 COPY board/package.json board/
+COPY web/package.json web/
 COPY verifier/package.json verifier/
-RUN pnpm install --filter verifier... --prod=false
+RUN pnpm install --frozen-lockfile --filter verifier... --prod=false
 COPY agents agents
 COPY board board
 COPY verifier verifier

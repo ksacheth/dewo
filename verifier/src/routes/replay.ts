@@ -4,7 +4,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { verifyEpisode } from "../checks/index.js";
 import { classifyTimeline } from "../deadlines.js";
 import { PendingError } from "../errors.js";
-import type { EpisodeSource, EventSink, SimPort, VerdictSink, ZeroGPort } from "../ports.js";
+import type { EpisodeSource, EventSink, SimPort, VerdictEntity, VerdictSink, ZeroGPort } from "../ports.js";
 import { Outcome, outcomeName, signVerdict, type OUTCOME_NAMES } from "../sign.js";
 
 export interface ReplayDeps {
@@ -14,13 +14,15 @@ export interface ReplayDeps {
 }
 /** `verdict` is the Outcome's name ("Pass", "Fail", ...), as the Requester agent and the web UI expect. */
 export interface ReplayResponse { verdict: (typeof OUTCOME_NAMES)[number]; signature: Hex; evidenceHash: Hex }
+/** A signed Verdict that has not left this process yet: nothing is written to Arkiv or the event feed until `publishVerdict`. */
+export interface DecidedVerdict { response: ReplayResponse; entity: VerdictEntity }
 
 const NO_EPISODE: Hex = `0x${"00".repeat(32)}`;
 
-/** Decide the Outcome (by deadlines or by Replay), sign the Verdict, record it on Arkiv, and return it. */
-export async function handleReplay(deps: ReplayDeps, missionId: Hex): Promise<ReplayResponse> {
+/** Decide the Outcome (by deadlines or by Replay) and sign the Verdict, without publishing it anywhere. */
+export async function decideVerdict(deps: ReplayDeps, missionId: Hex): Promise<DecidedVerdict> {
   const loaded = await deps.source.load(missionId);
-  const byDeadline = classifyTimeline({ ...loaded.timeline, now: deps.now() });
+  const byDeadline = classifyTimeline({ ...loaded.timeline, ...loaded.mission.deadlines, now: deps.now() });
 
   let outcome: Outcome;
   let evidenceHash: Hex;
@@ -40,11 +42,24 @@ export async function handleReplay(deps: ReplayDeps, missionId: Hex): Promise<Re
   }
 
   const signature = await signVerdict(deps.key, deps.escrow, { missionId, outcome, evidenceHash });
-  const { entityKey } = await deps.verdicts.writeVerdict({
-    missionId, worker: loaded.worker, outcome, difficultyClass: loaded.mission.difficultyClass, ...metrics, signature, evidenceHash, episodeLogRoot,
+  return {
+    response: { verdict: outcomeName(outcome), signature, evidenceHash },
+    entity: { missionId, worker: loaded.worker, outcome, difficultyClass: loaded.mission.difficultyClass, ...metrics, signature, evidenceHash, episodeLogRoot },
+  };
+}
+
+/** Record a decided Verdict on Arkiv and announce it on the I8 feed. */
+export async function publishVerdict(deps: ReplayDeps, decided: DecidedVerdict): Promise<void> {
+  const { entity } = decided;
+  const { entityKey } = await deps.verdicts.writeVerdict(entity);
+  await deps.events.emit(entity.missionId, "verdict.signed", {
+    verifier: privateKeyToAccount(deps.key).address, outcome: outcomeName(entity.outcome), evidenceHash: entity.evidenceHash, arkivKey: entityKey,
   });
-  await deps.events.emit(missionId, "verdict.signed", {
-    verifier: privateKeyToAccount(deps.key).address, outcome: outcomeName(outcome), evidenceHash, arkivKey: entityKey,
-  });
-  return { verdict: outcomeName(outcome), signature, evidenceHash };
+}
+
+/** Decide, sign and publish in one go (no payment step in between). */
+export async function handleReplay(deps: ReplayDeps, missionId: Hex): Promise<ReplayResponse> {
+  const decided = await decideVerdict(deps, missionId);
+  await publishVerdict(deps, decided);
+  return decided.response;
 }

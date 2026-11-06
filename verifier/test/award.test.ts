@@ -60,7 +60,7 @@ describe("award (spec 4.2, ranked with the board's scoring)", () => {
 describe("award fallback after a lapsed stake window", () => {
   const prices = { [ROOKIE]: 5n * USDC, [VETERAN]: 5n * USDC };
   const firstWinner = async () => (await awarder(fakeBoard({ prices }))(MISSION)).worker;
-  const unstaked = (worker: string, awardedAt = 5_000) => () => ({ worker: worker as typeof ROOKIE, awardedAt, stakeWindow: 30, stakedAt: null });
+  const unstaked = (worker: string, awardedAt = 5_000) => () => ({ worker: worker as typeof ROOKIE, price: 5n * USDC, stake: 1n, awardedAt, stakeWindow: 30, stakedAt: null });
 
   it("keeps returning the same Award while the winner still has time to stake", async () => {
     const first = await firstWinner();
@@ -84,10 +84,19 @@ describe("award fallback after a lapsed stake window", () => {
   it("never skips a winner who staked, even long after the window", async () => {
     const first = await firstWinner();
     let now = 5_000;
-    const ask = awarder(fakeBoard({ prices }), fakeChain({ award: () => ({ worker: first as typeof ROOKIE, awardedAt: 5_000, stakeWindow: 30, stakedAt: 5_010 }) }), () => now);
+    const ask = awarder(fakeBoard({ prices }), fakeChain({ award: () => ({ worker: first as typeof ROOKIE, price: 5n * USDC, stake: 1n, awardedAt: 5_000, stakeWindow: 30, stakedAt: 5_010 }) }), () => now);
     await ask(MISSION);
     now = 9_000;
     expect((await ask(MISSION)).worker).toBe(first);
+  });
+
+  it("re-signs the on-chain Award terms after a restart, even if Reliability has moved since", async () => {
+    const first = await firstWinner();
+    const other = first === ROOKIE ? VETERAN : ROOKIE;
+    // A fresh instance whose Reliability view now favours the other Worker; the escrow already holds `first`'s Award.
+    const onChain = { worker: first as typeof ROOKIE, price: 5n * USDC, stake: 123n, awardedAt: 5_000, stakeWindow: 30, stakedAt: 5_010 };
+    const ask = awarder(fakeBoard({ prices, reliability: { [other]: 0.99, [first]: 0.1 } }), fakeChain({ award: () => onChain }), () => 9_000);
+    expect(await ask(MISSION)).toMatchObject({ worker: first, price: 5n * USDC, stake: 123n });
   });
 
   it("reads earlier lapses from the chain, so a restarted Verifier still excludes them", async () => {

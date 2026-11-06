@@ -33,10 +33,19 @@ function deployedAddress(envName: string, file: string): Address {
   }
 }
 
+/** PORT (default 7101) and the instance name. The quorum runs on 7101-7103 as verifier-1..3; any other port needs VERIFIER_NAME. */
+function listenerIdentity(): { port: number; name: string } {
+  const port = Number(process.env.PORT ?? 7101);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`PORT must be an integer in 1..65535, got ${process.env.PORT}`);
+  if (process.env.VERIFIER_NAME) return { port, name: process.env.VERIFIER_NAME };
+  const slot = port - 7100;
+  if (slot < 1 || slot > 3) throw new Error(`set VERIFIER_NAME when PORT (${port}) is outside the quorum ports 7101-7103`);
+  return { port, name: `verifier-${slot}` };
+}
+
 async function main() {
   const key = env("VERIFIER_KEY") as Hex;
-  const port = Number(process.env.PORT ?? 7101);
-  const name = process.env.VERIFIER_NAME ?? `verifier-${port - 7100}`;
+  const { port, name } = listenerIdentity();
   const escrowAddress = deployedAddress("MISSION_ESCROW_ADDRESS", "hedera-testnet.json");
   const registryAddress = deployedAddress("EPISODE_REGISTRY_ADDRESS", "0g-galileo.json");
   const hederaRpc = process.env.HEDERA_RPC_URL ?? "https://testnet.hashio.io/api";

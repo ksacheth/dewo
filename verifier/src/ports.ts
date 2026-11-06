@@ -12,6 +12,8 @@ export interface MissionRecord {
   maxBounty: bigint; // USDC base units (6 decimals)
   seedCommitment: Hex;
   difficultyClass: Difficulty;
+  /** Per-Mission deadline windows in seconds, fixed at `createMission`; `settle()` enforces these, so the Verifier must too. */
+  deadlines: { seedReleaseWindow: number; episodeWindow: number };
 }
 
 /** A sealed Bid as the board returns it. `ciphertext` is the board's own row, handed back to `openBid` untouched. */
@@ -48,8 +50,11 @@ export interface ZeroGPort {
   verifyResponse(providerAddress: Address, chatID: string): Promise<boolean>;
 }
 
-/** The current Award on Hedera. `stakedAt` is null until the winner stakes; it lapses once `awardedAt + stakeWindow` passes without a stake. */
-export interface EscrowAward { worker: Address; awardedAt: number; stakeWindow: number; stakedAt: number | null }
+/**
+ * The current Award on Hedera. `stakedAt` is null until the winner stakes; it lapses once `awardedAt + stakeWindow` passes without a stake.
+ * `price` and `stake` are the terms the Quorum signed, as the escrow stored them.
+ */
+export interface EscrowAward { worker: Address; price: bigint; stake: bigint; awardedAt: number; stakeWindow: number; stakedAt: number | null }
 /** A Mission as MissionEscrow holds it. These terms are fixed at `createMission`, so the Requester cannot change them after Bids arrive. */
 export interface EscrowMission {
   mission: MissionRecord;

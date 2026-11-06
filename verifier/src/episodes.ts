@@ -16,7 +16,7 @@ export function createEpisodeSource(deps: EpisodeSourceDeps): EpisodeSource {
   return {
     async load(missionId: Hex): Promise<LoadedEpisode> {
       const { mission, requester, award } = await deps.chain.getMission(missionId);
-      if (!award) throw new Error(`no award for mission ${missionId}`);
+      if (!award) throw new PendingError(`no award for mission ${missionId} yet`);
       if (award.stakedAt === null) throw new PendingError(`mission ${missionId}: winner has not staked yet`);
 
       const [seedReleasedAt, submission, reveal, bids] = await Promise.all([

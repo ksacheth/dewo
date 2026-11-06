@@ -15,24 +15,31 @@ const VERIFIER = privateKeyToAccount(KEY).address;
 // A stand-in x402 gate: 402 with requirements until the X-PAYMENT header says "paid".
 let settleResult: { transaction?: string; error?: string } = { transaction: "0.0.1234@1700000000.000000000" };
 let settleCalls = 0;
-const gate: PaymentGate = async (req) =>
-  req.headers.get("x-payment") === "paid"
-    ? { amount: "50000", settle: async () => { settleCalls++; return settleResult; } }
+let settleImpl: () => Promise<{ transaction?: string; error?: string }> = async () => settleResult;
+let gateThrows = false;
+const gate: PaymentGate = async (req) => {
+  if (gateThrows) throw new Error("facilitator down");
+  return req.headers.get("x-payment") === "paid"
+    ? { id: "payment-1", amount: "50000", settle: async () => { settleCalls++; return settleImpl(); } }
     : { status: 402, body: { x402Version: 2, accepts: [{ scheme: "exact", network: "hedera:testnet" }] } };
+};
 
 // The board's `emit` writes under RUNS_DIR.
 let runs = "";
-beforeEach(() => { runs = mkdtempSync(join(tmpdir(), "runs-")); process.env.RUNS_DIR = runs; });
+beforeEach(() => {
+  runs = mkdtempSync(join(tmpdir(), "runs-")); process.env.RUNS_DIR = runs;
+  settleResult = { transaction: "0.0.1234@1700000000.000000000" }; settleImpl = async () => settleResult; gateThrows = false;
+});
 afterEach(() => { delete process.env.RUNS_DIR; });
 
-function app(opts: { award?: () => EscrowAward | null; bidders?: Record<string, bigint>; now?: () => number } = {}) {
+function app(opts: { award?: () => EscrowAward | null; bidders?: Record<string, bigint>; now?: () => number; arkivDown?: boolean } = {}) {
   const { mission, ...episode } = honestEpisode();
   const written: unknown[] = [];
   const deps = {
     key: KEY, escrow: ESCROW, gate, events: boardEvents("verifier-1"), sim: new FakeSim(), zeroG: zeroG(), now: opts.now ?? (() => 5_000),
     board: fakeBoard({ prices: opts.bidders ?? { [WORKER]: 5_000_000n } }), chain: fakeChain({ award: opts.award }),
     source: { load: async () => ({ mission, worker: WORKER, timeline: { stakedAt: 1_000, seedReleasedAt: 1_010, episodeSubmittedAt: 1_100 }, episode }) },
-    verdicts: { writeVerdict: async (v: unknown) => { written.push(v); return { entityKey: ("0x" + "ab".repeat(32)) as `0x${string}` }; } },
+    verdicts: { writeVerdict: async (v: unknown) => { if (opts.arkivDown) throw new Error("arkiv down"); written.push(v); return { entityKey: ("0x" + "ab".repeat(32)) as `0x${string}` }; } },
   };
   return { a: createApp(deps), written };
 }
@@ -70,7 +77,7 @@ describe("Verifier HTTP API (I6)", () => {
     let now = 5_000;
     const bidders = { [WORKER]: 5_000_000n, [OTHER_WORKER]: 5_000_000n };
     const first = await (await post(app({ bidders, now: () => now }).a, "/award")).json();
-    const { a } = app({ bidders, now: () => now, award: () => ({ worker: first.worker, awardedAt: 5_000, stakeWindow: 30, stakedAt: null }) });
+    const { a } = app({ bidders, now: () => now, award: () => ({ worker: first.worker, price: BigInt(first.price), stake: BigInt(first.stake), awardedAt: 5_000, stakeWindow: 30, stakedAt: null }) });
     expect((await (await post(a, "/award")).json()).worker).toBe(first.worker);
     now = 5_031;
     expect((await (await post(a, "/award")).json()).worker).not.toBe(first.worker);
@@ -112,13 +119,50 @@ describe("Verifier HTTP API (I6)", () => {
     expect(settleCalls).toBe(1);
   });
 
-  it("withholds the Verdict and answers 402 if settlement fails", async () => {
+  it("withholds the Verdict and answers 402 if settlement fails, publishing nothing to Arkiv or the feed", async () => {
     settleResult = { error: "insufficient funds" };
-    const { a } = app();
+    const { a, written } = app();
     const res = await post(a, "/replay", { "x-payment": "paid" });
-    settleResult = { transaction: "0.0.1234@1700000000.000000000" };
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: "insufficient funds" });
+    expect(written).toHaveLength(0);
+    expect(() => eventsOf()).toThrow(); // no event file was ever written
+  });
+
+  it("answers 502 and publishes nothing when the facilitator throws during settlement", async () => {
+    settleImpl = async () => { throw new Error("socket hang up"); };
+    const { a, written } = app();
+    const res = await post(a, "/replay", { "x-payment": "paid" });
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toMatch(/socket hang up/);
+    expect(written).toHaveLength(0);
+  });
+
+  it("answers 502 with a JSON error when the facilitator throws while verifying", async () => {
+    gateThrows = true;
+    const res = await post(app().a, "/replay", { "x-payment": "paid" });
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toMatch(/facilitator down/);
+  });
+
+  it("refuses a second request spending the same payment while the first is still running", async () => {
+    let release!: () => void;
+    settleImpl = () => new Promise((resolve) => { release = () => resolve(settleResult); });
+    const { a, written } = app();
+    const first = post(a, "/replay", { "x-payment": "paid" });
+    await new Promise((r) => setTimeout(r, 10)); // let the first request reach settlement
+    const second = await post(a, "/replay", { "x-payment": "paid" });
+    expect(second.status).toBe(409);
+    release();
+    expect((await first).status).toBe(200);
+    expect(written).toHaveLength(1);
+  });
+
+  it("still returns the paid Verdict when Arkiv is down after settlement", async () => {
+    const { a } = app({ arkivDown: true });
+    const res = await post(a, "/replay", { "x-payment": "paid" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).verdict).toBe("Pass");
   });
 
   it("returns 400 for a malformed missionId", async () => {

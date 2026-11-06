@@ -1,3 +1,4 @@
+import { canonicalJson } from "@dewo/agents/formats";
 import { x402ResourceServer } from "@x402/core/server";
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader } from "@x402/core/http";
 import type { FacilitatorClient } from "@x402/core/server";
@@ -45,6 +46,8 @@ export async function createX402Gate(opts: X402Options): Promise<PaymentGate> {
     const verified = await server.verifyPayment(payload, match);
     if (!verified.isValid) return challenge(req, [verified.invalidReason ?? "payment invalid", verified.invalidMessage].filter(Boolean).join(": "));
     return {
+      // Canonical JSON of the decoded payload: re-encoding the same payment (whitespace, key order) gives the same id.
+      id: canonicalJson(payload),
       amount: String(match.amount),
       // Charged by the caller only after the work succeeded.
       async settle() {

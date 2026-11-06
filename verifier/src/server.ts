@@ -1,14 +1,17 @@
 import { Hono } from "hono";
 import { isHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { NoValidBidsError, PendingError } from "./errors.js";
+import { EvidenceExpiredError, NoValidBidsError, PendingError } from "./errors.js";
 import { createAwarder } from "./routes/award.js";
-import { handleReplay } from "./routes/replay.js";
+import { decideVerdict, publishVerdict, type DecidedVerdict } from "./routes/replay.js";
 import type { BoardPort, EpisodeSource, EscrowPort, EventSink, SimPort, VerdictSink, ZeroGPort } from "./ports.js";
 
 export interface GateChallenge { status: number; body: unknown; headers?: Record<string, string> }
-/** A payment that verified but has not been charged yet. `amount` is in the asset's base units. */
-export interface GatePaid { amount: string; settle(): Promise<{ transaction?: string; error?: string }> }
+/**
+ * A payment that verified but has not been charged yet. `amount` is in the asset's base units.
+ * `id` identifies the payment itself (not its encoding), so one payment cannot fund two Replays running at once.
+ */
+export interface GatePaid { id: string; amount: string; settle(): Promise<{ transaction?: string; error?: string }> }
 /** Either an x402 402 challenge to send back, or a verified payment to settle once the work is done. x402.ts supplies the real one. */
 export type PaymentGate = (req: Request) => Promise<GateChallenge | GatePaid>;
 
@@ -19,6 +22,14 @@ export interface AppDeps {
   board: BoardPort; chain: EscrowPort; source: EpisodeSource; sim: SimPort; zeroG: ZeroGPort;
   verdicts: VerdictSink; events: EventSink;
 }
+
+const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** Pending: retry later. Evidence expired: retrying cannot help. Anything else is our failure. */
+const replayErrorStatus = (e: unknown) => {
+  if (e instanceof PendingError) return 409;
+  if (e instanceof EvidenceExpiredError) return 410;
+  return 500;
+};
 
 const json = (v: unknown) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
 const respond = (body: unknown, status = 200) => new Response(json(body), { status, headers: { "content-type": "application/json" } });
@@ -49,23 +60,55 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+  /** The payer has bought the signed Verdict once settlement succeeds: an Arkiv or event-feed failure is logged, never withheld. */
+  async function announcePaid(missionId: Hex, decided: DecidedVerdict, amount: string, transaction: string) {
+    try {
+      await publishVerdict(deps, decided);
+      await deps.events.emit(missionId, "replay.paid", { verifier, status: "paid", amount }, HASHSCAN_TX + transaction);
+    } catch (e) {
+      console.error(`replay ${missionId}: paid Verdict not fully published: ${errorMessage(e)}`);
+    }
+  }
+
+  async function paidReplay(missionId: Hex, payment: GatePaid): Promise<Response> {
+    let decided: DecidedVerdict;
+    try {
+      decided = await decideVerdict(deps, missionId);
+    } catch (e) {
+      return respond({ error: errorMessage(e) }, replayErrorStatus(e));
+    }
+    // Charge before the Verdict leaves this process: if settlement fails, nothing is written to Arkiv and no signature is returned.
+    let settled: { transaction?: string; error?: string };
+    try {
+      settled = await payment.settle();
+    } catch (e) {
+      return respond({ error: `payment facilitator unavailable: ${errorMessage(e)}` }, 502);
+    }
+    if (settled.error !== undefined || !settled.transaction) return respond({ error: settled.error ?? "settlement failed" }, 402);
+    await announcePaid(missionId, decided, payment.amount, settled.transaction);
+    return respond(decided.response);
+  }
+
+  const paymentsInFlight = new Set<string>();
   app.post("/replay", async (c) => {
-    const gated = await deps.gate(c.req.raw.clone());
+    let gated: GateChallenge | GatePaid;
+    try {
+      gated = await deps.gate(c.req.raw.clone());
+    } catch (e) {
+      return respond({ error: `payment facilitator unavailable: ${errorMessage(e)}` }, 502);
+    }
     if ("status" in gated) return new Response(json(gated.body), { status: gated.status, headers: { "content-type": "application/json", ...gated.headers } });
     const missionId = await readMissionId(c.req.raw);
     if (!missionId) return respond({ error: "missionId must be a 32-byte hex string" }, 400);
 
-    // Do the work first; the payer is charged only if a Verdict was produced.
-    let result;
+    // Only one request may spend a given payment at a time; the others would do the Replay work and then fail to settle.
+    if (paymentsInFlight.has(gated.id)) return respond({ error: "this payment is already funding another Replay" }, 409);
+    paymentsInFlight.add(gated.id);
     try {
-      result = await handleReplay(deps, missionId);
-    } catch (e) {
-      return respond({ error: (e as Error).message }, e instanceof PendingError ? 409 : 500);
+      return await paidReplay(missionId, gated);
+    } finally {
+      paymentsInFlight.delete(gated.id);
     }
-    const settled = await gated.settle();
-    if (settled.error !== undefined || !settled.transaction) return respond({ error: settled.error ?? "settlement failed" }, 402);
-    await deps.events.emit(missionId, "replay.paid", { verifier, status: "paid", amount: gated.amount }, HASHSCAN_TX + settled.transaction);
-    return respond(result);
   });
 
   return app;

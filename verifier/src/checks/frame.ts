@@ -55,13 +55,24 @@ function decodeRgbPng(png: Buffer): { width: number; height: number; pixels: Buf
       const left = x >= 3 ? pixels[y * stride + x - 3]! : 0;
       const up = y > 0 ? pixels[(y - 1) * stride + x]! : 0;
       const upLeft = y > 0 && x >= 3 ? pixels[(y - 1) * stride + x - 3]! : 0;
-      const predictor =
-        filter === 0 ? 0 : filter === 1 ? left : filter === 2 ? up : filter === 3 ? (left + up) >> 1 : filter === 4 ? paeth(left, up, upLeft) : -1;
-      if (predictor < 0) return null;
+      const predictor = predict(filter, left, up, upLeft);
+      if (predictor === null) return null;
       pixels[y * stride + x] = (line[x]! + predictor) & 0xff;
     }
   }
   return { width: header.width, height: header.height, pixels };
+}
+
+/** PNG filter predictor for one byte (filter types 0-4), or null for an unknown filter type. */
+function predict(filter: number, left: number, up: number, upLeft: number): number | null {
+  switch (filter) {
+    case 0: return 0;
+    case 1: return left;
+    case 2: return up;
+    case 3: return (left + up) >> 1;
+    case 4: return paeth(left, up, upLeft);
+    default: return null;
+  }
 }
 
 function paeth(a: number, b: number, c: number): number {
