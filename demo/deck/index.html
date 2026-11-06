@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dewo Deck</title>
+<script src="config.js"></script>
+<style>
+@font-face { font-family:"Geist Sans"; src:url(../../web/public/fonts/GeistSans-Variable.woff2) format("woff2"); font-weight:100 900; }
+@font-face { font-family:"Geist Mono"; src:url(../../web/public/fonts/GeistMono-Regular.woff2) format("woff2"); }
+@font-face { font-family:"Geist Serif"; src:url(../../web/public/fonts/GeistSerif-Regular.woff2) format("woff2"); }
+
+:root {
+  --bg:#090c0f; --card:#0e151a; --line:#ffffff17; --line2:#ffffff33;
+  --fg:#f2f3ef; --dim:#9aa3a6; --faint:#5f6c70; --accent:#cceddd; --peach:#f0a48a;
+  --ak:#9ad8a8; --ag:#7cc4e6; --zg:#b9a2f2; --hd:#f0a48a;
+  --sans:"Geist Sans", system-ui, sans-serif; --serif:"Geist Serif", Georgia, serif; --mono:"Geist Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing:border-box; }
+html, body { margin:0; height:100%; background:#040607; overflow:hidden; color:var(--fg); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+a { color:var(--accent); text-decoration:none; }
+
+/* Fixed 1920x1080 slide, scaled to fit the window like a presentation. */
+.stage { position:absolute; left:50%; top:50%; width:1920px; height:1080px; transform:translate(-50%,-50%) scale(var(--s,1)); background:var(--bg); overflow:hidden; }
+.slide { position:absolute; inset:0; padding:104px 128px 120px; display:none; flex-direction:column; }
+.slide.on { display:flex; }
+.slide.dia { padding:72px 96px 104px; }
+
+.chrome { position:absolute; left:96px; right:96px; bottom:44px; display:flex; justify-content:space-between; font:16px var(--mono); letter-spacing:2px; text-transform:uppercase; color:var(--faint); pointer-events:none; }
+.chrome.hide { visibility:hidden; }
+.bar { position:absolute; left:0; bottom:0; height:3px; background:var(--accent); opacity:.6; transition:width .3s; }
+
+.eyebrow { font:18px var(--mono); letter-spacing:3px; text-transform:uppercase; color:#8fa59d; margin-bottom:36px; }
+.eyebrow b { font-weight:400; color:var(--faint); margin-right:18px; }
+.dia .eyebrow { margin-bottom:18px; }
+h1 { font:400 220px/0.95 var(--serif); letter-spacing:-9px; margin:0; }
+h2 { font:400 84px/1.06 var(--serif); letter-spacing:-3px; margin:0; max-width:1500px; text-wrap:balance; }
+.dia h2 { font-size:54px; letter-spacing:-1.5px; }
+p { margin:0; }
+.lead { font-size:34px; line-height:1.5; color:#c9d1d3; max-width:1250px; margin-top:44px; }
+.note { font-size:24px; line-height:1.5; color:var(--dim); margin-top:20px; }
+.dim { color:var(--dim); } .mono { font-family:var(--mono); }
+.fill { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; margin-top:28px; }
+.fill > svg { width:100%; height:100%; }
+.split { display:flex; align-items:center; gap:72px; }
+.split > svg { flex:1.6; height:100%; min-width:0; }
+
+table { border-collapse:collapse; width:100%; font-size:25px; }
+th { font:15px var(--mono); letter-spacing:2px; text-transform:uppercase; color:var(--faint); font-weight:400; text-align:left; padding:0 18px 18px 0; }
+td { padding:20px 18px 20px 0; border-top:1px solid var(--line); vertical-align:top; }
+td.mono { font-size:20px; }
+.split table { flex:1; font-size:23px; }
+
+/* SVG diagrams */
+svg { display:block; overflow:visible; }
+svg .n { fill:var(--card); stroke:var(--line2); stroke-width:1.5; }
+svg .n.hi { stroke:var(--accent); }
+svg .n.bad { stroke:var(--peach); }
+svg .n.dash { fill:none; stroke-dasharray:6 8; }
+svg .n.ak { stroke:var(--ak); } svg .n.ag { stroke:var(--ag); } svg .n.zg { stroke:var(--zg); } svg .n.hd { stroke:var(--hd); }
+svg .g { stroke-width:1.5; }
+svg .g.ak { fill:#9ad8a80c; stroke:#9ad8a866; } svg .g.ag { fill:#7cc4e60c; stroke:#7cc4e666; }
+svg .g.zg { fill:#b9a2f20c; stroke:#b9a2f266; } svg .g.hd { fill:#f0a48a0c; stroke:#f0a48a66; }
+svg .ic { color:var(--dim); fill:none; stroke:currentColor; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
+svg .ic.ak { color:var(--ak); } svg .ic.ag { color:var(--ag); } svg .ic.zg { color:var(--zg); } svg .ic.hd { color:var(--hd); }
+svg .t2 { fill:var(--fg); font:500 28px var(--sans); }
+svg .s2 { fill:var(--dim); font:22px var(--sans); }
+svg .lb2 { fill:#c4cccf; font:22px var(--sans); paint-order:stroke; stroke:var(--bg); stroke-width:8px; stroke-linejoin:round; }
+svg .gh { font:600 30px var(--sans); }
+svg .gh.ak { fill:var(--ak); } svg .gh.ag { fill:var(--ag); } svg .gh.zg { fill:var(--zg); } svg .gh.hd { fill:var(--hd); }
+svg .ln { fill:none; stroke:#ffffff66; stroke-width:2; }
+svg .ln.hi { stroke:var(--accent); }
+svg .ln.dash { stroke-dasharray:6 8; }
+svg .lane, svg .sep { stroke:var(--line); stroke-width:1; }
+svg .life { stroke:#ffffff26; stroke-width:1.5; stroke-dasharray:4 7; }
+svg .t { fill:var(--fg); font:24px var(--sans); }
+svg .m { fill:var(--dim); font:15px var(--mono); letter-spacing:1.5px; text-transform:uppercase; }
+svg .s { fill:var(--dim); font:20px var(--sans); }
+svg .lb { fill:#c4cccf; font:20px var(--sans); paint-order:stroke; stroke:var(--bg); stroke-width:8px; stroke-linejoin:round; }
+svg .f { fill:var(--faint); font:15px var(--mono); letter-spacing:1.5px; }
+
+/* Hover: the box springs up in size and nudges its neighbours away; arrows turn mint. */
+svg text, svg use { pointer-events:none; }
+svg .box { transform-box:fill-box; transform-origin:center; transform:translate(var(--px,0px), var(--py,0px)) scale(var(--k,1)); transition:transform .45s cubic-bezier(.34,1.56,.64,1); }
+svg .box:hover { --k:1.08; }
+/* Cursor spotlight, as on dewo.vercel.app's cards. */
+svg .spot { stroke:none; opacity:0; transition:opacity .25s; pointer-events:none; }
+svg .box:hover .spot { opacity:1; }
+svg .ln { transition:stroke .15s, stroke-width .15s; }
+svg .ln.on { stroke:var(--accent); stroke-width:3.5; }
+/* Sequence playback */
+.play { position:absolute; top:72px; right:96px; display:flex; align-items:center; gap:18px; font:16px var(--mono); letter-spacing:2px; text-transform:uppercase; color:var(--faint); }
+.playing .ln, .playing .lb { opacity:.07; transition:opacity .35s; }
+.playing .ln.shown, .playing .lb.shown { opacity:1; }
+.playing .ln.now { stroke:var(--accent); stroke-width:3.5; }
+.playing .lb.now { fill:var(--fg); }
+.playing .box.act .n { stroke-width:3.5; }
+svg .hit { fill:none; stroke:transparent; stroke-width:22; pointer-events:stroke; }
+
+/* Title and close */
+.cover { justify-content:flex-end; }
+.cover::before { content:""; position:absolute; inset:0; z-index:-1; background:linear-gradient(180deg, #090c0f00 0%, #090c0fcc 55%, #090c0f 85%), url(../../web/public/hero-clouds.jpg) center 30%/cover; opacity:.55; }
+.cover .logo { position:absolute; top:104px; left:128px; width:180px; }
+.cover .sub { font:400 56px/1.2 var(--serif); letter-spacing:-1.5px; color:#d4dcd8; margin-top:36px; max-width:1300px; }
+.team { display:flex; gap:64px; margin-top:88px; padding-top:30px; border-top:1px solid var(--line2); }
+.team div { font-size:26px; }
+.team span { display:block; font:16px var(--mono); letter-spacing:1.5px; color:var(--faint); margin-top:8px; }
+.links { display:flex; gap:48px; font:22px var(--mono); }
+
+@media print {
+  @page { size:1920px 1080px; margin:0; }
+  html, body { overflow:visible; height:auto; background:var(--bg); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .stage { position:static; transform:none; height:auto; overflow:visible; }
+  .slide { display:flex !important; position:relative; width:1920px; height:1080px; break-after:page; overflow:hidden; }
+  .chrome, .bar { display:none; }
+}
+</style>
+</head>
+<body>
+<main class="stage" id="stage">
+<svg width="0" height="0" style="position:absolute"><defs>
+  <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#ffffffaa"/></marker>
+  <symbol id="i-laptop" viewBox="0 0 40 40"><rect x="6" y="9" width="28" height="18" rx="2"/><path d="M2 31h36"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 40 40"><path d="M20 5L36 13L20 21L4 13Z"/><path d="M4 20L20 28L36 20"/><path d="M4 27L20 35L36 27"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 40 40"><rect x="9" y="7" width="22" height="29" rx="3"/><rect x="15" y="4" width="10" height="6" rx="1"/><path d="M14 18h12M14 24h12M14 30h8"/></symbol>
+  <symbol id="i-robot" viewBox="0 0 40 40"><rect x="7" y="13" width="26" height="20" rx="5"/><circle cx="15" cy="23" r="2"/><circle cx="25" cy="23" r="2"/><path d="M20 13V8M4 20v7M36 20v7"/><circle cx="20" cy="6" r="2"/></symbol>
+  <symbol id="i-user" viewBox="0 0 40 40"><circle cx="20" cy="13" r="7"/><path d="M6 36c0-8 6-12 14-12s14 4 14 12"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 40 40"><circle cx="20" cy="20" r="5"/><circle cx="20" cy="20" r="12"/><path d="M20 3v5M20 32v5M3 20h5M32 20h5M8 8l3.5 3.5M28.5 28.5L32 32M32 8l-3.5 3.5M8 32l3.5-3.5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 40 40"><path d="M20 4L34 9V19C34 28 28 33 20 36C12 33 6 28 6 19V9Z"/><path d="M14 20l5 5 8-9"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 40 40"><rect x="10" y="10" width="20" height="20" rx="2"/><rect x="16" y="16" width="8" height="8"/><path d="M15 4v6M20 4v6M25 4v6M15 30v6M20 30v6M25 30v6M4 15h6M4 20h6M4 25h6M30 15h6M30 20h6M30 25h6"/></symbol>
+  <symbol id="i-db" viewBox="0 0 40 40"><ellipse cx="20" cy="9" rx="13" ry="5"/><path d="M7 9v22c0 3 6 5 13 5s13-2 13-5V9M7 20c0 3 6 5 13 5s13-2 13-5"/></symbol>
+  <symbol id="i-code" viewBox="0 0 40 40"><rect x="4" y="6" width="32" height="28" rx="4"/><path d="M16 15l-5 5 5 5M24 15l5 5-5 5"/></symbol>
+  <symbol id="i-coins" viewBox="0 0 40 40"><ellipse cx="15" cy="24" rx="10" ry="4"/><path d="M5 24v7c0 2 4 4 10 4s10-2 10-4v-7"/><ellipse cx="25" cy="10" rx="10" ry="4"/><path d="M15 10v7c0 2 4 4 10 4s10-2 10-4v-7"/></symbol>
+  <symbol id="i-card" viewBox="0 0 40 40"><rect x="3" y="9" width="34" height="22" rx="3"/><path d="M3 16h34M9 25h8"/></symbol>
+  <symbol id="i-h" viewBox="0 0 40 40"><circle cx="20" cy="20" r="17"/><path d="M14 12v16M26 12v16M14 20h12"/></symbol>
+</defs></svg>
+
+<!-- 1. Title -->
+<section class="slide cover plain">
+  <img class="logo" src="../../web/public/dewo-logo.svg" alt="Dewo">
+  <div class="eyebrow" data-deck="event"></div>
+  <h1 data-deck="project"></h1>
+  <p class="sub" data-deck="tagline"></p>
+  <div class="team"></div>
+</section>
+
+<!-- 2. Problem -->
+<section class="slide">
+  <div class="eyebrow"><b>01</b>The problem</div>
+  <div style="flex:1; display:flex; flex-direction:column; justify-content:center">
+    <h2>Agents are starting to hire agents. Nobody can check the work.</h2>
+    <p class="lead">Dewo pays a Worker agent only when independent Verifiers replay its run and two of three agree it passed.</p>
+  </div>
+</section>
+
+<!-- 3. Architecture -->
+<section class="slide dia">
+  <div class="eyebrow"><b>02</b>Architecture</div>
+  <div class="fill" style="margin-top:8px">
+    <svg viewBox="0 0 1900 1140" aria-label="System architecture">
+      <!-- Web UI -->
+      <rect class="n" x="20" y="20" width="520" height="150" rx="14"/>
+      <use href="#i-laptop" x="52" y="66" width="56" height="56" class="ic"/>
+      <text class="t2" x="140" y="76">Web UI</text><text class="s2" x="140" y="112">board, live robot,</text><text class="s2" x="140" y="142">leaderboard</text>
+
+      <!-- Arkiv -->
+      <rect class="g ak" x="1150" y="10" width="640" height="190" rx="16"/>
+      <use href="#i-layers" x="1180" y="28" width="44" height="44" class="ic ak"/><text class="gh ak" x="1240" y="62">Arkiv: Mission Board</text>
+      <rect class="n" x="1180" y="90" width="580" height="90" rx="12"/>
+      <use href="#i-clip" x="1206" y="112" width="44" height="44" class="ic"/>
+      <text class="s2" x="1272" y="128">mission (Course Seed, limits)</text><text class="s2" x="1272" y="162">bid (sealed price) · verdict</text>
+
+      <!-- Agents -->
+      <rect class="g ag" x="10" y="380" width="1780" height="280" rx="16"/>
+      <use href="#i-robot" x="40" y="398" width="48" height="48" class="ic ag"/><text class="gh ag" x="104" y="434">Agents (our code, off-chain)</text>
+      <rect class="n" x="40" y="470" width="520" height="150" rx="14"/>
+      <use href="#i-user" x="80" y="517" width="56" height="56" class="ic"/><text class="t2" x="166" y="555">Requester agent</text>
+      <rect class="n" x="640" y="470" width="600" height="150" rx="14"/>
+      <use href="#i-gear" x="676" y="517" width="56" height="56" class="ic"/>
+      <text class="t2" x="760" y="526">Worker agents</text><text class="s2" x="760" y="564">each with a Policy</text><text class="s2" x="760" y="596">+ rover / drone sim</text>
+      <rect class="n" x="1290" y="470" width="480" height="150" rx="14"/>
+      <use href="#i-shield" x="1318" y="517" width="56" height="56" class="ic"/>
+      <text class="t2" x="1392" y="540">Verifier Quorum, 2 of 3</text><text class="s2" x="1392" y="578">x402 /replay + pinned sim</text>
+
+      <!-- 0G -->
+      <rect class="g zg" x="720" y="740" width="1060" height="170" rx="16"/>
+      <use href="#i-db" x="750" y="756" width="40" height="40" class="ic zg"/><text class="gh zg" x="806" y="788">0G</text>
+      <rect class="n" x="750" y="812" width="320" height="80" rx="12"/><use href="#i-chip" x="772" y="830" width="44" height="44" class="ic"/><text class="t2" x="834" y="846">Compute</text><text class="s2" x="834" y="876">vision model, TEE</text>
+      <rect class="n" x="1100" y="812" width="320" height="80" rx="12"/><use href="#i-db" x="1122" y="830" width="44" height="44" class="ic"/><text class="t2" x="1184" y="846">Storage</text><text class="s2" x="1184" y="876">Episode Log</text>
+      <rect class="n" x="1450" y="812" width="310" height="80" rx="12"/><use href="#i-code" x="1470" y="830" width="44" height="44" class="ic"/><text class="t2" x="1530" y="846">EpisodeRegistry</text><text class="s2" x="1530" y="876">contract</text>
+
+      <!-- Hedera -->
+      <rect class="g hd" x="180" y="950" width="1600" height="180" rx="16"/>
+      <use href="#i-h" x="208" y="962" width="44" height="44" class="ic hd"/><text class="gh hd" x="266" y="996">Hedera</text>
+      <rect class="n" x="380" y="1012" width="560" height="80" rx="12"/><use href="#i-coins" x="404" y="1030" width="44" height="44" class="ic"/><text class="t2" x="470" y="1046">MissionEscrow</text><text class="s2" x="470" y="1076">USDC + stake</text>
+      <rect class="n" x="1250" y="1012" width="500" height="80" rx="12"/><use href="#i-card" x="1276" y="1030" width="44" height="44" class="ic"/><text class="t2" x="1340" y="1062">x402 facilitator</text>
+
+      <!-- Arrows -->
+      <g marker-end="url(#ar)">
+        <path class="ln dash" d="M540 95H1144"/>
+        <path class="ln" d="M200 170V374"/>
+        <path class="ln" d="M520 470V300H1360V206"/>
+        <path class="ln" d="M960 470V350H1490V206"/>
+        <path class="ln" d="M1600 470V206"/>
+        <path class="ln" d="M800 620L878 806"/>
+        <path class="ln" d="M1180 620V806"/>
+        <path class="ln" d="M1220 620L1556 806"/>
+        <path class="ln" d="M1680 620V806"/>
+        <path class="ln" d="M420 620V1006"/>
+        <path class="ln" d="M680 620V1006"/>
+        <path class="ln" d="M100 620V1112H1500V1098"/>
+        <path class="ln" d="M1750 1052H1830V545H1776"/>
+      </g>
+      <text class="lb2" x="842" y="80" text-anchor="middle">reads</text>
+      <text class="lb2" x="700" y="288">post Mission + limits</text>
+      <text class="lb2" x="1010" y="340">read Missions, sealed Bids</text>
+      <text class="lb2" x="1616" y="276">read Bids,</text><text class="lb2" x="1616" y="306">write Verdicts</text>
+      <text class="lb2" x="852" y="694">1 call per Decision</text>
+      <text class="lb2" x="1194" y="738">Episode Log</text>
+      <text class="lb2" x="1312" y="664">submitEpisode</text>
+      <text class="lb2" x="1668" y="738" text-anchor="end">find, fetch, verify</text>
+      <text class="lb2" x="434" y="800">lock bounty,</text><text class="lb2" x="434" y="830">award, settle()</text>
+      <text class="lb2" x="668" y="900" text-anchor="end">stake</text>
+      <text class="lb2" x="1095" y="1104" text-anchor="middle">pay per Replay</text>
+      <text class="lb2" x="1844" y="800">USDC</text>
+    </svg>
+  </div>
+</section>
+
+<!-- 4. Mission overview -->
+<section class="slide dia">
+  <div class="eyebrow"><b>03</b>How it works</div>
+  <h2>One Mission, eight steps.</h2>
+  <div class="fill">
+    <svg viewBox="0 0 1780 640" aria-label="Mission steps across Requester, Workers and Verifiers">
+      <line class="lane" x1="0" y1="110" x2="1780" y2="110"/><line class="lane" x1="0" y1="320" x2="1780" y2="320"/><line class="lane" x1="0" y1="530" x2="1780" y2="530"/>
+      <text class="m" x="0" y="96">Requester</text><text class="m" x="0" y="306">Workers</text><text class="m" x="0" y="516">Verifiers</text>
+      <g marker-end="url(#ar)">
+        <path class="ln" d="M336 110H352V320H366"/><path class="ln" d="M540 320H556V530H570"/><path class="ln" d="M744 530H760V320H774"/>
+        <path class="ln" d="M948 320H978"/><path class="ln" d="M1152 320H1182"/><path class="ln" d="M1356 320H1372V530H1386"/><path class="ln" d="M1560 530H1576V110H1590"/>
+      </g>
+      <rect class="n" x="164" y="60" width="172" height="100" rx="8"/><text class="f" x="176" y="44">01</text><text class="t" x="180" y="104">Post Mission</text><text class="m" x="180" y="136">bounty, limits</text>
+      <rect class="n" x="368" y="270" width="172" height="100" rx="8"/><text class="f" x="380" y="254">02</text><text class="t" x="384" y="314">Sealed Bids</text><text class="m" x="384" y="346">price hidden</text><text class="m" x="384" y="364">course public</text>
+      <rect class="n" x="572" y="480" width="172" height="100" rx="8"/><text class="f" x="584" y="464">03</text><text class="t" x="588" y="524">Sign Award</text><text class="m" x="588" y="556">public formula</text>
+      <rect class="n" x="776" y="270" width="172" height="100" rx="8"/><text class="f" x="788" y="254">04</text><text class="t" x="792" y="314">Stake</text><text class="m" x="792" y="346">lost on Fail</text>
+      <rect class="n hi" x="980" y="270" width="172" height="100" rx="8"/><text class="f" x="992" y="254">05</text><text class="t" x="996" y="314">Drive / fly</text><text class="m" x="996" y="346">1 model call</text><text class="m" x="996" y="364">per move</text>
+      <rect class="n" x="1184" y="270" width="172" height="100" rx="8"/><text class="f" x="1196" y="254">06</text><text class="t" x="1200" y="314">Submit log</text><text class="m" x="1200" y="346">every decision</text>
+      <rect class="n" x="1388" y="480" width="172" height="100" rx="8"/><text class="f" x="1400" y="464">07</text><text class="t" x="1404" y="524">Paid Replay</text><text class="m" x="1404" y="556">per request</text>
+      <rect class="n hi" x="1592" y="60" width="172" height="100" rx="8"/><text class="f" x="1604" y="44">08</text><text class="t" x="1608" y="104">Settle</text><text class="m" x="1608" y="136">pay or slash</text>
+    </svg>
+  </div>
+</section>
+
+<!-- 5. Sequence -->
+<section class="slide dia">
+  <div class="eyebrow"><b>04</b>Sequence</div>
+  <h2>Who calls whom.</h2>
+  <div class="play"><span id="seq-step">Space: next · Shift+Space: back</span></div>
+  <div class="fill">
+    <svg viewBox="0 0 1700 920" aria-label="Mission sequence">
+    <defs><marker id="sq" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#ffffffaa"/></marker></defs>
+    <rect class="n ag" x="40" y="20" width="220" height="56" rx="8"/><text class="t" x="150" y="56" text-anchor="middle">Requester</text><line class="life" x1="150" y1="76" x2="150" y2="910"/>
+    <rect class="n ak" x="315" y="20" width="220" height="56" rx="8"/><text class="t" x="425" y="56" text-anchor="middle">Arkiv</text><line class="life" x1="425" y1="76" x2="425" y2="910"/>
+    <rect class="n hd" x="590" y="20" width="220" height="56" rx="8"/><text class="t" x="700" y="56" text-anchor="middle">Escrow · Hedera</text><line class="life" x1="700" y1="76" x2="700" y2="910"/>
+    <rect class="n ag" x="865" y="20" width="220" height="56" rx="8"/><text class="t" x="975" y="56" text-anchor="middle">Workers</text><line class="life" x1="975" y1="76" x2="975" y2="910"/>
+    <rect class="n ag" x="1140" y="20" width="220" height="56" rx="8"/><text class="t" x="1250" y="56" text-anchor="middle">Verifiers</text><line class="life" x1="1250" y1="76" x2="1250" y2="910"/>
+    <rect class="n zg" x="1415" y="20" width="220" height="56" rx="8"/><text class="t" x="1525" y="56" text-anchor="middle">0G</text><line class="life" x1="1525" y1="76" x2="1525" y2="910"/>
+    <line class="sep" x1="0" y1="92" x2="1680" y2="92"/><text class="f" x="0" y="110">POST</text>
+    <path class="ln" d="M150 148H694" marker-end="url(#sq)"/><text class="lb" x="425.0" y="139" text-anchor="middle">createMission(seed, limits), lock USDC</text>
+    <path class="ln" d="M150 184H419" marker-end="url(#sq)"/><text class="lb" x="287.5" y="175" text-anchor="middle">mission entity: Course Seed, limits</text>
+    <line class="sep" x1="0" y1="206" x2="1680" y2="206"/><text class="f" x="0" y="224">BID</text>
+    <path class="ln" d="M975 262H706" marker-end="url(#sq)"/><text class="lb" x="837.5" y="253" text-anchor="middle">read seed + limits, plan the Course</text>
+    <path class="ln" d="M975 298H431" marker-end="url(#sq)"/><text class="lb" x="700.0" y="289" text-anchor="middle">sealed Bids, price encrypted</text>
+    <path class="ln" d="M1250 334H431" marker-end="url(#sq)"/><text class="lb" x="837.5" y="325" text-anchor="middle">read Bids + Verdict history</text>
+    <path class="ln" d="M1250 370H156" marker-end="url(#sq)"/><text class="lb" x="700.0" y="361" text-anchor="middle">signed Award</text>
+    <path class="ln" d="M150 406H694" marker-end="url(#sq)"/><text class="lb" x="425.0" y="397" text-anchor="middle">award(2 sigs)</text>
+    <path class="ln" d="M975 442H706" marker-end="url(#sq)"/><text class="lb" x="837.5" y="433" text-anchor="middle">stake()</text>
+    <line class="sep" x1="0" y1="464" x2="1680" y2="464"/><text class="f" x="0" y="482">RUN</text>
+    <path class="ln" d="M975 520H1519" marker-end="url(#sq)"/><text class="lb" x="1250.0" y="511" text-anchor="middle">frame → vision model, ≤ maxSteps times</text>
+    <path class="ln" d="M1525 556H981" marker-end="url(#sq)"/><text class="lb" x="1250.0" y="547" text-anchor="middle">signed Action + chat ID</text>
+    <path class="ln" d="M975 592H1519" marker-end="url(#sq)"/><text class="lb" x="1250.0" y="583" text-anchor="middle">Episode Log + submitEpisode</text>
+    <line class="sep" x1="0" y1="614" x2="1680" y2="614"/><text class="f" x="0" y="632">VERIFY</text>
+    <path class="ln hi" d="M150 670H1244" marker-end="url(#sq)"/><text class="lb" x="700.0" y="661" text-anchor="middle">POST /replay → 402 → pay x402</text>
+    <path class="ln" d="M1250 706H706" marker-end="url(#sq)"/><text class="lb" x="975.0" y="697" text-anchor="middle">read limits + trusted Verifier set</text>
+    <path class="ln" d="M1250 742H1519" marker-end="url(#sq)"/><text class="lb" x="1387.5" y="733" text-anchor="middle">fetch log, check every call</text>
+    <path class="ln" d="M1250 778H431" marker-end="url(#sq)"/><text class="lb" x="837.5" y="769" text-anchor="middle">Verdict entities</text>
+    <path class="ln" d="M1250 814H156" marker-end="url(#sq)"/><text class="lb" x="700.0" y="805" text-anchor="middle">2 signed Verdicts</text>
+    <line class="sep" x1="0" y1="836" x2="1680" y2="836"/><text class="f" x="0" y="854">SETTLE</text>
+    <path class="ln hi" d="M150 892H694" marker-end="url(#sq)"/><text class="lb" x="425.0" y="883" text-anchor="middle">settle(2 sigs) → pay or slash</text>
+    </svg>
+  </div>
+</section>
+
+<!-- 6. Decision loop -->
+<section class="slide dia">
+  <div class="eyebrow"><b>05</b>The run</div>
+  <h2>Every move is a verifiable model call.</h2>
+  <div class="fill">
+    <svg viewBox="0 0 1700 520" aria-label="Decision loop">
+      <g marker-end="url(#ar)">
+        <path class="ln" d="M300 160H376"/><path class="ln" d="M680 160H756"/><path class="ln" d="M1060 160H1136"/>
+        <path class="ln dash" d="M1290 216V300H150V220"/>
+        <path class="ln dash" d="M530 216V384"/>
+      </g>
+      <rect class="n" x="0" y="104" width="300" height="112" rx="10"/><text class="t" x="28" y="152">Camera frame</text><text class="m" x="28" y="186">rendered in the sim</text>
+      <rect class="n zg" x="380" y="104" width="300" height="112" rx="10"/><text class="t" x="408" y="152">Vision model on 0G</text><text class="m" x="408" y="186">TEE · signed answer</text>
+      <rect class="n" x="760" y="104" width="300" height="112" rx="10"/><text class="t" x="788" y="152">One Action</text><text class="m" x="788" y="186">forward · turn · climb · stop</text>
+      <rect class="n" x="1140" y="104" width="300" height="112" rx="10"/><text class="t" x="1168" y="152">Robot moves</text><text class="m" x="1168" y="186">rover or drone</text>
+      <text class="lb" x="720" y="292" text-anchor="middle">next frame · at most maxSteps Decisions</text>
+      <rect class="n bad" x="380" y="388" width="300" height="96" rx="10"/><text class="t" x="408" y="430">Safe-stop</text><text class="m" x="408" y="462">no answer → halt → Fail</text>
+      <text class="lb" x="546" y="352">0G unreachable</text>
+      <rect class="n" x="1140" y="388" width="560" height="96" rx="10"/><text class="t" x="1168" y="430">Episode Log, per Decision</text><text class="m" x="1168" y="462">frame hash · chat ID · response · Action</text>
+      <path class="ln dash" d="M1440 160H1600V384" marker-end="url(#ar)"/>
+    </svg>
+  </div>
+</section>
+
+<!-- 7. Verification pipeline -->
+<section class="slide dia">
+  <div class="eyebrow"><b>06</b>Verification</div>
+  <h2>Each Verifier replays the run. Two must agree.</h2>
+  <div class="fill">
+    <svg viewBox="0 0 1720 400" aria-label="Verification checks">
+      <g marker-end="url(#ar)">
+        <path class="ln" d="M240 130H286"/><path class="ln" d="M530 130H576"/><path class="ln" d="M820 130H866"/><path class="ln" d="M1110 130H1156"/><path class="ln hi" d="M1400 130H1446"/>
+        <path class="ln dash" d="M120 190V286"/><path class="ln dash" d="M410 190V286"/><path class="ln dash" d="M700 190V286"/><path class="ln dash" d="M990 190V286"/><path class="ln dash" d="M1280 190V286"/>
+      </g>
+      <text class="f" x="0" y="56">01</text><rect class="n" x="0" y="70" width="240" height="120" rx="10"/><text class="t" x="22" y="120">Log on 0G</text><text class="s" x="22" y="154">uploaded, this Mission</text>
+      <text class="f" x="290" y="56">02</text><rect class="n" x="290" y="70" width="240" height="120" rx="10"/><text class="t" x="312" y="120">Policy matches</text><text class="s" x="312" y="154">hash in the Bid</text>
+      <text class="f" x="580" y="56">03</text><rect class="n" x="580" y="70" width="240" height="120" rx="10"/><text class="t" x="602" y="120">Within maxSteps</text><text class="s" x="602" y="154">before any Replay</text>
+      <text class="f" x="870" y="56">04</text><rect class="n zg" x="870" y="70" width="240" height="120" rx="10"/><text class="t" x="892" y="120">Every Decision</text><text class="s" x="892" y="154">frame · 0G sig · Action</text>
+      <text class="f" x="1160" y="56">05</text><rect class="n" x="1160" y="70" width="240" height="120" rx="10"/><text class="t" x="1182" y="120">Replay passes</text><text class="s" x="1182" y="154">goal, ≤ maxCollisions</text>
+      <rect class="n hi" x="1450" y="70" width="250" height="120" rx="10"/><text class="t" x="1474" y="120">Pass</text><text class="s" x="1474" y="154">signed Verdict</text>
+      <rect class="n bad" x="0" y="290" width="1400" height="64" rx="10"/><text class="t" x="700" y="330" text-anchor="middle">Fail · stake slashed</text>
+    </svg>
+  </div>
+  <p class="note">The Requester sets the limits in createMission (maxSteps up to 200, maxCollisions), fixed on-chain before any Bid. Any failed check is a Fail.</p>
+</section>
+
+<!-- 8. Lifecycle -->
+<section class="slide dia">
+  <div class="eyebrow"><b>07</b>Lifecycle</div>
+  <h2>Every Mission ends settled or refunded.</h2>
+  <div class="fill">
+    <svg viewBox="0 0 1680 470" aria-label="Mission lifecycle">
+      <rect class="n dash" x="0" y="20" width="1670" height="60" rx="10"/>
+      <text class="lb" x="835" y="58" text-anchor="middle">any unsettled state at the deadline → Rescued: bounty and stake refunded</text>
+      <g marker-end="url(#ar)">
+        <path class="ln" d="M200 222H241"/>
+        <path class="ln" d="M445 222H486"/>
+        <path class="ln" d="M690 222H731"/>
+        <path class="ln" d="M935 222H976"/>
+        <path class="ln" d="M1180 222H1221"/>
+        <path class="ln hi" d="M1425 222H1466"/>
+        <path class="ln dash" d="M835 264V326"/>
+        <path class="ln dash" d="M835 414V440H1570V268"/>
+      </g>
+      <rect class="n" x="0" y="180" width="200" height="84" rx="10"/><text class="t" x="18" y="216">Posted</text><text class="m" x="18" y="246">bounty locked</text>
+      <rect class="n" x="245" y="180" width="200" height="84" rx="10"/><text class="t" x="263" y="216">Bidding</text><text class="m" x="263" y="246">sealed prices</text>
+      <rect class="n" x="490" y="180" width="200" height="84" rx="10"/><text class="t" x="508" y="216">Awarded</text><text class="m" x="508" y="246">quorum signs</text>
+      <rect class="n" x="735" y="180" width="200" height="84" rx="10"/><text class="t" x="753" y="216">Staked</text><text class="m" x="753" y="246">winner stakes</text>
+      <rect class="n" x="980" y="180" width="200" height="84" rx="10"/><text class="t" x="998" y="216">Submitted</text><text class="m" x="998" y="246">log on 0G</text>
+      <rect class="n" x="1225" y="180" width="200" height="84" rx="10"/><text class="t" x="1243" y="216">Verified</text><text class="m" x="1243" y="246">2 of 3 agree</text>
+      <rect class="n hi" x="1470" y="180" width="200" height="84" rx="10"/><text class="t" x="1488" y="216">Settled</text><text class="m" x="1488" y="246">pay or slash</text>
+      <rect class="n bad" x="735" y="330" width="200" height="84" rx="10"/><text class="t" x="753" y="366">No-show</text><text class="m" x="753" y="396">stake slashed</text>
+    </svg>
+  </div>
+</section>
+
+<!-- 9. Trust -->
+<section class="slide dia">
+  <div class="eyebrow"><b>08</b>Trust model</div>
+  <h2>The escrow trusts only the Verifier Quorum.</h2>
+  <div class="fill">
+    <svg viewBox="0 0 1600 560" aria-label="Who can move money in the escrow">
+      <g marker-end="url(#ar)">
+        <path class="ln hi" d="M440 95H700V216"/><path class="ln" d="M1160 95H900V216"/><path class="ln" d="M440 465H700V344"/><path class="ln" d="M1160 465H900V344"/>
+      </g>
+      <rect class="n hi" x="650" y="220" width="300" height="120" rx="10"/><text class="t" x="800" y="274" text-anchor="middle">MissionEscrow</text><text class="m" x="800" y="306" text-anchor="middle">holds the USDC</text>
+      <rect class="n hi" x="80" y="40" width="360" height="110" rx="10"/><text class="t" x="104" y="88">Verifier Quorum</text><text class="m" x="104" y="120">2 of 3 signatures</text>
+      <rect class="n" x="1160" y="40" width="360" height="110" rx="10"/><text class="t" x="1184" y="88">Requester</text><text class="m" x="1184" y="120">funds the bounty</text>
+      <rect class="n" x="80" y="410" width="360" height="110" rx="10"/><text class="t" x="104" y="458">Worker</text><text class="m" x="104" y="490">deposits a stake</text>
+      <rect class="n" x="1160" y="410" width="360" height="110" rx="10"/><text class="t" x="1184" y="458">Anyone</text><text class="m" x="1184" y="490">after the deadline</text>
+      <text class="lb" x="460" y="80" style="fill:var(--accent)">signs Award and Outcome</text>
+      <text class="lb" x="1140" y="80" text-anchor="end">relays signatures</text>
+      <text class="lb" x="460" y="450">stakes, nothing else</text>
+      <text class="lb" x="1140" y="450" text-anchor="end">rescue() refunds</text>
+    </svg>
+  </div>
+  <p class="note">Workers stake, and Verifiers sign, only for Missions on the pinned Verifier set. Course Seed, Episode Log and Policy are public, so anyone can re-run the Replay.</p>
+</section>
+
+<!-- 10. Money -->
+<section class="slide dia">
+  <div class="eyebrow"><b>09</b>Settlement</div>
+  <h2>Where the money goes.</h2>
+  <div class="fill split">
+    <svg viewBox="0 0 1100 560" aria-label="Money flow">
+      <g marker-end="url(#ar)">
+        <path class="ln" d="M300 88H560V226"/><path class="ln" d="M800 88H640V226"/><path class="ln dash" d="M170 136V426"/>
+        <path class="ln" d="M300 478H466"/><path class="ln" d="M600 430V344"/>
+        <path class="ln hi" d="M730 300H930V140"/><path class="ln" d="M470 310H240V140"/>
+      </g>
+      <rect class="n" x="40" y="40" width="260" height="96" rx="8"/><text class="t" x="64" y="96">Requester</text>
+      <rect class="n" x="800" y="40" width="260" height="96" rx="8"/><text class="t" x="824" y="96">Worker</text>
+      <rect class="n hi" x="470" y="230" width="260" height="110" rx="8"/><text class="t" x="600" y="280" text-anchor="middle">Escrow</text><text class="m" x="600" y="310" text-anchor="middle">USDC</text>
+      <rect class="n" x="40" y="430" width="260" height="96" rx="8"/><text class="t" x="64" y="486">3 Verifiers</text>
+      <rect class="n" x="470" y="430" width="260" height="96" rx="8"/><text class="t" x="600" y="486" text-anchor="middle">settle()</text>
+      <text class="lb" x="320" y="72">max bounty</text><text class="lb" x="790" y="72" text-anchor="end">stake</text>
+      <text class="lb" x="186" y="230">x402, per Replay</text><text class="lb" x="316" y="462">2 matching Verdicts</text>
+      <text class="lb" x="746" y="288" style="fill:var(--accent)">price + stake</text><text class="lb" x="290" y="340">remainder</text>
+    </svg>
+    <table>
+      <tr><th>Outcome</th><th>Worker</th><th>Requester</th></tr>
+      <tr><td style="color:var(--accent)">Pass</td><td>price + stake</td><td>bounty − price</td></tr>
+      <tr><td style="color:var(--peach)">Fail</td><td>nothing</td><td>bounty + stake</td></tr>
+      <tr><td>No-show</td><td>nothing</td><td>bounty + stake</td></tr>
+      <tr><td>Rescue</td><td>its stake</td><td>bounty</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- 11. Evidence -->
+<section class="slide">
+  <div class="eyebrow"><b>10</b>Evidence</div>
+  <h2>On-chain, today.</h2>
+  <table style="margin-top:64px">
+    <thead><tr><th>What</th><th>Network</th><th>Reference</th></tr></thead>
+    <tbody id="evidence"></tbody>
+  </table>
+</section>
+
+<!-- 12. Close -->
+<section class="slide cover plain">
+  <img class="logo" src="../../web/public/dewo-logo.svg" alt="Dewo">
+  <h1 data-deck="project"></h1>
+  <p class="sub" data-deck="tagline"></p>
+  <div class="team"></div>
+  <div class="links" style="margin-top:40px"></div>
+</section>
+
+<div class="chrome" id="chrome"><span data-deck="project"></span><span id="count"></span></div>
+<div class="bar" id="bar"></div>
+</main>
+
+<script>
+const D = window.DECK || {};
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+
+document.querySelectorAll("[data-deck]").forEach((el) => { el.textContent = D[el.dataset.deck] ?? ""; });
+document.querySelectorAll(".team").forEach((el) => {
+  el.innerHTML = (D.team || []).map((m) => `<div>${esc(m.name)}<span>${[m.role, m.handle].filter(Boolean).map(esc).join(" · ")}</span></div>`).join("");
+});
+document.querySelectorAll(".links").forEach((el) => {
+  el.innerHTML = (D.links || []).map((l) => `<a href="${esc(l.href)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`).join("");
+});
+document.getElementById("evidence").innerHTML = (D.evidence || []).map((e) => `<tr>
+  <td>${esc(e.what)}</td><td class="dim">${esc(e.where)}</td>
+  <td class="mono">${e.href ? `<a href="${esc(e.href)}" target="_blank" rel="noopener">${esc(e.value)} ↗</a>` : `<span class="dim">${esc(e.value)}</span>`}</td></tr>`).join("");
+
+const stage = document.getElementById("stage");
+const slides = [...document.querySelectorAll(".slide")];
+const count = document.getElementById("count"), bar = document.getElementById("bar"), chrome = document.getElementById("chrome");
+let cur = 0;
+
+function go(n) {
+  cur = Math.max(0, Math.min(slides.length - 1, n));
+  slides.forEach((s, k) => s.classList.toggle("on", k === cur));
+  seq.reset();
+  count.textContent = String(cur + 1).padStart(2, "0") + " / " + String(slides.length).padStart(2, "0");
+  bar.style.width = ((cur + 1) / slides.length) * 100 + "%";
+  chrome.classList.toggle("hide", slides[cur].classList.contains("plain"));
+  history.replaceState(null, "", "#" + (cur + 1));
+}
+function fit() { stage.style.setProperty("--s", Math.min(innerWidth / 1920, innerHeight / 1080)); }
+
+addEventListener("keydown", (e) => {
+  if (seq.key(e)) return e.preventDefault();
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const next = ["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"], prev = ["ArrowLeft", "ArrowUp", "PageUp", "Backspace"];
+  if (e.key === " " && e.shiftKey) go(cur - 1);
+  else if (next.includes(e.key)) go(cur + 1);
+  else if (prev.includes(e.key)) go(cur - 1);
+  else if (e.key === "Home") go(0);
+  else if (e.key === "End") go(slides.length - 1);
+  else if (e.key === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  else return;
+  e.preventDefault();
+});
+stage.addEventListener("click", (e) => { if (!e.target.closest("a, button")) go(cur + 1); });
+// Group each box with the text and icons inside it, so the whole box scales as one.
+const NS = "http://www.w3.org/2000/svg";
+document.querySelectorAll("svg").forEach((svg, n) => {
+  const boxes = [];
+  const grad = document.createElementNS(NS, "radialGradient");
+  grad.id = "spot" + n;
+  grad.setAttribute("gradientUnits", "userSpaceOnUse");
+  grad.setAttribute("r", "280");
+  grad.innerHTML = '<stop offset="0" stop-color="#6fc7e8" stop-opacity=".18"/><stop offset="1" stop-color="#6fc7e8" stop-opacity="0"/>';
+  svg.prepend(grad);
+  svg.querySelectorAll("rect.n").forEach((r) => {
+    const [x, y, w, h] = ["x", "y", "width", "height"].map((k) => +r.getAttribute(k));
+    const g = document.createElementNS(NS, "g");
+    g.setAttribute("class", "box");
+    r.before(g);
+    g.append(r);
+    const spot = r.cloneNode();
+    spot.setAttribute("class", "spot");
+    spot.setAttribute("fill", `url(#${grad.id})`);
+    g.append(spot);
+    g.addEventListener("pointermove", (e) => {
+      const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(spot.getScreenCTM().inverse());
+      grad.setAttribute("cx", p.x);
+      grad.setAttribute("cy", p.y);
+    });
+    svg.querySelectorAll(":scope > text, :scope > use, :scope > g:not(.box) > text").forEach((el) => {
+      const ex = +el.getAttribute("x"), ey = +el.getAttribute("y");
+      if (ex > x && ex < x + w && ey > y && ey < y + h) g.append(el);
+    });
+    boxes.push({ g, w, h, cx: x + w / 2, cy: y + h / 2 });
+  });
+  boxes.forEach((b) => {
+    b.g.addEventListener("pointerenter", () => boxes.forEach((o) => {
+      if (o === b) return;
+      const dx = o.cx - b.cx, dy = o.cy - b.cy, d = Math.hypot(dx, dy) || 1;
+      // Push by edge-to-edge gap, so close neighbours move most and far ones stay put.
+      const gap = Math.max(Math.abs(dx) - (b.w + o.w) / 2, Math.abs(dy) - (b.h + o.h) / 2, 0);
+      const push = Math.max(0, 24 * (1 - gap / 240));
+      o.g.style.setProperty("--px", (dx / d) * push + "px");
+      o.g.style.setProperty("--py", (dy / d) * push + "px");
+    }));
+    b.g.addEventListener("pointerleave", () => boxes.forEach((o) => { o.g.style.removeProperty("--px"); o.g.style.removeProperty("--py"); }));
+  });
+});
+
+// Thin arrows are hard to hover, so each gets an invisible wide twin on top that lights it up.
+document.querySelectorAll("svg .ln").forEach((ln) => {
+  const hit = ln.cloneNode();
+  hit.setAttribute("class", "hit");
+  hit.removeAttribute("marker-end");
+  ln.ownerSVGElement.appendChild(hit);
+  hit.addEventListener("pointerenter", () => ln.classList.add("on"));
+  hit.addEventListener("pointerleave", () => ln.classList.remove("on"));
+});
+// Sequence playback: Space reveals the next message; after the last one it moves on as usual.
+const seq = (() => {
+  const svg = document.querySelector('svg[aria-label="Mission sequence"]');
+  const label = document.getElementById("seq-step"), slide = svg.closest(".slide");
+  const boxes = [...svg.querySelectorAll(".box")].map((g) => { const r = g.querySelector("rect"); return { g, cx: +r.getAttribute("x") + +r.getAttribute("width") / 2 }; });
+  const near = (x) => boxes.reduce((a, b) => (Math.abs(b.cx - x) < Math.abs(a.cx - x) ? b : a)).g;
+  const steps = [...svg.querySelectorAll("path.ln")].map((ln) => {
+    const [x1, x2] = ln.getAttribute("d").match(/[\d.]+/g).filter((_, k) => k !== 1).map(Number);
+    return { ln, lb: ln.nextElementSibling, ends: [near(x1), near(x2)], marker: ln.getAttribute("marker-end") };
+  });
+  let at = -1;
+  function show(n) {
+    at = n;
+    svg.classList.toggle("playing", at >= 0);
+    svg.querySelectorAll(".act").forEach((g) => g.classList.remove("act"));
+    steps.forEach((st, k) => {
+      const now = k === at;
+      st.ln.classList.toggle("shown", k <= at); st.lb.classList.toggle("shown", k <= at);
+      st.ln.classList.toggle("now", now); st.lb.classList.toggle("now", now);
+      st.ln.style.strokeDasharray = st.ln.style.strokeDashoffset = st.ln.style.transition = "";
+      st.ln.setAttribute("marker-end", st.marker);
+      if (!now) return;
+      st.ends.forEach((g) => g.classList.add("act"));
+      // Draw the arrow from its source; the head appears once the line arrives.
+      const len = st.ln.getTotalLength();
+      st.ln.removeAttribute("marker-end");
+      st.ln.style.strokeDasharray = len; st.ln.style.strokeDashoffset = len;
+      st.ln.getBoundingClientRect();
+      st.ln.style.transition = "stroke-dashoffset .6s ease-out";
+      st.ln.style.strokeDashoffset = 0;
+      setTimeout(() => { if (at === k) st.ln.setAttribute("marker-end", st.marker); }, 600);
+    });
+    label.textContent = at < 0 ? "Space: next · Shift+Space: back" : `Step ${at + 1} / ${steps.length}`;
+  }
+  return {
+    reset: () => show(-1),
+    key(e) {
+      if (e.key !== " " || !slide.classList.contains("on")) return false;
+      // Shift+Space steps back, down to the full diagram; then it falls through to "previous slide".
+      if (e.shiftKey ? at < 0 : at >= steps.length - 1) return false;
+      show(at + (e.shiftKey ? -1 : 1));
+      return true;
+    },
+  };
+})();
+
+const fromHash = () => go((parseInt(location.hash.slice(1), 10) || 1) - 1);
+addEventListener("resize", fit);
+addEventListener("hashchange", fromHash);
+fit();
+fromHash();
+</script>
+</body>
+</html>
