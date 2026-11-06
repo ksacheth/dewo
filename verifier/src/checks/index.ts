@@ -1,7 +1,7 @@
 import { keccak256, toBytes, type Hex } from "viem";
 import { canonicalJson, movingSteps, type EpisodeLog, type MissionLimits, type Policy } from "@dewo/agents/formats";
 import { SimInputError } from "../adapters/sim-cli.js";
-import type { MissionRecord, NotJson, SealedBid, SimPort, ZeroGPort } from "../ports.js";
+import type { Fetched, MissionRecord, SealedBid, SimPort, ZeroGPort } from "../ports.js";
 import { Outcome } from "../sign.js";
 import { checkEpisodeLog, checkPolicy } from "./content.js";
 import { checkDecisions } from "./decisions.js";
@@ -12,8 +12,8 @@ export interface EpisodeInput {
   mission: MissionRecord;
   bid: SealedBid;
   /** The Worker uploaded both documents, so neither is trusted to have the shape its type names until the checks validate it. */
-  policy: Policy | NotJson;
-  log: EpisodeLog | NotJson;
+  policy: Fetched<Policy>;
+  log: Fetched<EpisodeLog>;
   episodeLogRoot: Hex;
   /** decisionCount recorded by EpisodeRegistry.submitEpisode. */
   decisionCount: number;
@@ -27,7 +27,7 @@ export interface VerdictResult {
   steps: number;
   collisions: number;
   failedCheck?: CheckName;
-  /** Why a Worker document was invalid content (not JSON, or not in its format). Hashed into the evidence. */
+  /** Why a Worker document was invalid content (never uploaded, not JSON, or not in its format). Hashed into the evidence. */
   reason?: string;
 }
 

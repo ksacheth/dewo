@@ -18,3 +18,10 @@ export class BiddingOpenError extends Error {}
  * Worker's fault, so no Verdict is signed. The Requester can retry; if 0G stays down, the Mission ends in `MissionEscrow.rescue`.
  */
 export class StorageUnavailableError extends Error {}
+
+/**
+ * ADR 0005: the Mission's on-chain Verifiers are not this Verifier's trusted `VERIFIER_ADDRESSES` (or do not include this
+ * Verifier). Two keys the Requester or a Worker controls could settle such a Mission alone, so this Verifier signs nothing for it.
+ * Retrying cannot help: the Verifiers are fixed at `createMission`.
+ */
+export class UntrustedVerifiersError extends Error {}

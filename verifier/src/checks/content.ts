@@ -1,5 +1,5 @@
 import { ACTIONS, policyProblems, type EpisodeLog, type Policy } from "@dewo/agents/formats";
-import { NotJson } from "../ports.js";
+import { NotJson, NotUploaded, type Fetched } from "../ports.js";
 
 /**
  * A Worker-uploaded document after validation: the typed value, or why it is invalid content. The reasons are fixed strings,
@@ -29,9 +29,10 @@ const isPolicy = (p: unknown): p is Policy =>
   typeof p.temperature === "number" && policyProblems(p as unknown as Policy).length === 0;
 
 function checked<T>(doc: unknown, isValid: (v: unknown) => v is T, name: string, format: string): Checked<T> {
+  if (doc instanceof NotUploaded) return { ok: false, reason: `${name} was never uploaded to 0G Storage` };
   if (doc instanceof NotJson) return { ok: false, reason: `${name} is not valid JSON` };
   return isValid(doc) ? { ok: true, value: doc } : { ok: false, reason: `${name} does not match the ${format} format` };
 }
 
-export const checkEpisodeLog = (doc: EpisodeLog | NotJson): Checked<EpisodeLog> => checked(doc, isEpisodeLog, "episode log", "Episode Log");
-export const checkPolicy = (doc: Policy | NotJson): Checked<Policy> => checked(doc, isPolicy, "policy", "Policy");
+export const checkEpisodeLog = (doc: Fetched<EpisodeLog>): Checked<EpisodeLog> => checked(doc, isEpisodeLog, "episode log", "Episode Log");
+export const checkPolicy = (doc: Fetched<Policy>): Checked<Policy> => checked(doc, isPolicy, "policy", "Policy");

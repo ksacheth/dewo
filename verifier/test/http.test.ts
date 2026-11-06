@@ -6,8 +6,10 @@ import { privateKeyToAccount } from "viem/accounts";
 import { createApp, type PaymentGate } from "../src/server.js";
 import { boardEvents } from "../src/events.js";
 import { StorageUnavailableError } from "../src/errors.js";
-import type { EscrowAward } from "../src/ports.js";
-import { FakeSim, MISSION, OTHER_WORKER, WORKER, fakeBoard, fakeChain, honestEpisode, zeroG } from "./fixtures/builders.js";
+import { createEpisodeSource } from "../src/episodes.js";
+import { Outcome } from "../src/sign.js";
+import type { EpisodeSource, EscrowAward } from "../src/ports.js";
+import { FakeSim, MISSION, OTHER_WORKER, POLICY, SALT, SEED, VERIFIERS, WORKER, fakeBoard, fakeChain, honestEpisode, zeroG } from "./fixtures/builders.js";
 
 const KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
 const ESCROW = "0x5FbDB2315678afecb367f032d93F642f64180aa3" as const;
@@ -35,13 +37,13 @@ beforeEach(() => {
 });
 afterEach(() => { delete process.env.RUNS_DIR; });
 
-function app(opts: { award?: () => EscrowAward | null; bidders?: Record<string, bigint>; now?: () => number; arkivDown?: boolean; storageDown?: boolean } = {}) {
+function app(opts: { award?: () => EscrowAward | null; bidders?: Record<string, bigint>; now?: () => number; arkivDown?: boolean; storageDown?: boolean; source?: EpisodeSource; onChainVerifiers?: readonly `0x${string}`[]; escrowDown?: boolean } = {}) {
   const { mission, ...episode } = honestEpisode();
   const written: unknown[] = [];
   const deps = {
     key: KEY, escrow: ESCROW, gate, events: boardEvents("verifier-1"), sim: new FakeSim(), zeroG: zeroG(), now: opts.now ?? (() => 5_000),
-    board: fakeBoard({ prices: opts.bidders ?? { [WORKER]: 5_000_000n } }), chain: fakeChain({ award: opts.award }),
-    source: { load: async () => {
+    board: fakeBoard({ prices: opts.bidders ?? { [WORKER]: 5_000_000n } }), chain: fakeChain({ award: opts.award, verifiers: opts.onChainVerifiers, down: opts.escrowDown }), trustedVerifiers: VERIFIERS,
+    source: opts.source ?? { load: async () => {
       if (opts.storageDown) throw new StorageUnavailableError("0G Storage download timed out");
       return { mission, worker: WORKER, timeline: { stakedAt: 1_000, seedReleasedAt: 1_010, episodeSubmittedAt: 1_100 }, episode };
     } },
@@ -134,6 +136,44 @@ describe("Verifier HTTP API (I6)", () => {
     expect(JSON.parse(Buffer.from(res.headers.get("PAYMENT-RESPONSE")!, "base64").toString())).toMatchObject({ transaction: "0.0.1234@1700000000.000000000" });
   });
 
+  describe("ADR 0005: only Missions on the trusted Verifier set", () => {
+    const FOREIGN = "0x90F79bf6EB2c4f870365E785982E1f101E93b906" as const;
+    const shuffled = [VERIFIERS[2].toLowerCase(), VERIFIERS[0].toUpperCase().replace("0X", "0x"), VERIFIERS[1]] as `0x${string}`[];
+
+    it("serves a Mission naming the trusted Verifiers in another order and case", async () => {
+      expect((await post(app({ onChainVerifiers: shuffled }).a, "/award")).status).toBe(200);
+      expect((await post(app({ onChainVerifiers: shuffled }).a, "/replay", { "x-payment": "paid" })).status).toBe(200);
+    });
+
+    it("POST /award answers 403 and signs nothing when one on-chain Verifier is not trusted", async () => {
+      const res = await post(app({ onChainVerifiers: [VERIFIERS[0], VERIFIERS[1], FOREIGN] }).a, "/award");
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.error).toMatch(/untrusted Verifiers/);
+      expect(body.signature).toBeUndefined();
+    });
+
+    it("POST /replay answers 403, charges nothing and writes no Verdict when the Mission leaves this Verifier out", async () => {
+      settleCalls = 0;
+      const { a, written } = app({ onChainVerifiers: [FOREIGN, VERIFIERS[1], VERIFIERS[2]] });
+      const res = await post(a, "/replay", { "x-payment": "paid" });
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toMatch(/untrusted Verifiers/);
+      expect(settleCalls).toBe(0);
+      expect(written).toHaveLength(0);
+    });
+
+    it("answers a retryable 503, not a 4xx, when the escrow read behind the check fails", async () => {
+      settleCalls = 0;
+      const { a } = app({ escrowDown: true });
+      const award = await post(a, "/award");
+      expect(award.status).toBe(503);
+      expect((await award.json()).error).toMatch(/escrow unavailable/);
+      expect((await post(a, "/replay", { "x-payment": "paid" })).status).toBe(503);
+      expect(settleCalls).toBe(0);
+    });
+  });
+
   it("POST /award answers 409 while bidding is open, and does not sign", async () => {
     const res = await post(app({ now: () => 500 }).a, "/award");
     expect(res.status).toBe(409);
@@ -206,6 +246,43 @@ describe("Verifier HTTP API (I6)", () => {
     expect((await res.json()).error).toMatch(/0G Storage/);
     expect(settleCalls).toBe(0);
     expect(written).toEqual([]);
+  });
+
+  describe("an Episode Log 0G Storage cannot serve (issue #64), through the real Episode source", () => {
+    const LOG_ROOT = `0x${"33".repeat(32)}` as const;
+    const POLICY_ROOT = `0x${"22".repeat(32)}` as const;
+    /** The Episode Log download fails like a root the indexer cannot find; `submitted` is what the Flow contract says about it. */
+    const sourceWith = (submitted: boolean): EpisodeSource => createEpisodeSource({
+      board: fakeBoard({ prices: { [WORKER]: 5_000_000n } }),
+      chain: fakeChain({ award: () => ({ worker: WORKER, price: 5_000_000n, stake: 1n, awardedAt: 990, stakeWindow: 30, stakedAt: 1_000 }) }),
+      seeds: { seedReleasedAt: async () => 1_010, revealedSeed: async () => ({ seed: SEED, salt: SALT }) },
+      registry: { findSubmission: async () => ({ episodeLogRoot: LOG_ROOT, policyRoot: POLICY_ROOT, decisionCount: 3, timestamp: 1_100 }) },
+      storage: { downloadJson: async (root) => {
+        if (root === LOG_ROOT) throw new StorageUnavailableError(`0G Storage download of ${root} failed: file not found`);
+        return POLICY;
+      } },
+      uploads: { submittedBetween: async (roots) => roots.map((root) => root !== LOG_ROOT || submitted) },
+    });
+
+    it("signs a Fail Verdict for a root never submitted to the 0G Flow contract, and charges for the Replay", async () => {
+      settleCalls = 0;
+      const { a, written } = app({ source: sourceWith(false) });
+      const res = await post(a, "/replay", { "x-payment": "paid" });
+      expect(res.status).toBe(200);
+      expect((await res.json()).verdict).toBe("Fail");
+      expect(settleCalls).toBe(1);
+      expect(written).toMatchObject([{ outcome: Outcome.Fail, episodeLogRoot: LOG_ROOT }]);
+    });
+
+    it("answers 503 for a submitted root that cannot be downloaded yet, charging nothing and signing no Verdict", async () => {
+      settleCalls = 0;
+      const { a, written } = app({ source: sourceWith(true) });
+      const res = await post(a, "/replay", { "x-payment": "paid" });
+      expect(res.status).toBe(503);
+      expect((await res.json()).error).toMatch(/0G Storage/);
+      expect(settleCalls).toBe(0);
+      expect(written).toEqual([]);
+    });
   });
 
   it("returns 400 for a malformed missionId", async () => {

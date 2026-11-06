@@ -10,6 +10,7 @@ import { send, type EvmClients } from "./evm";
 /** The contract's Mission struct as viem decodes it. */
 export interface RawMission {
   worker: Hex;
+  verifiers: readonly Hex[];
   seedCommitment: Hex;
   maxBounty: bigint;
   difficultyClass: number;
@@ -41,6 +42,7 @@ export function toEscrowMission(raw: RawMission): EscrowMission {
         rescueAt: Number(deadlines.rescueAt),
       },
     },
+    verifiers: raw.verifiers,
     award:
       raw.worker === zeroAddress
         ? null
