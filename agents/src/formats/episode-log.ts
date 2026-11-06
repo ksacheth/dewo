@@ -2,7 +2,8 @@
 
 export type Hex = `0x${string}`;
 
-export const ACTIONS = ["FORWARD", "TURN_LEFT", "TURN_RIGHT", "STOP"] as const;
+/** Every Action of every task. A rover knows only the first three moves and STOP (task.ts, actionsFor). */
+export const ACTIONS = ["FORWARD", "TURN_LEFT", "TURN_RIGHT", "ASCEND", "DESCEND", "STOP"] as const;
 export type Action = (typeof ACTIONS)[number];
 
 export interface EpisodeHeader {

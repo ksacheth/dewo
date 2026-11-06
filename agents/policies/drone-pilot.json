@@ -1,0 +1,15 @@
+{
+  "name": "Drone Pilot",
+  "model": "0gm-1.0-35b-a3b",
+  "providerAddress": "0xf4FB8d2bD856e672b5f9848b0eD235A20079B250",
+  "promptTemplate": "You are flying a small quadcopter drone through a green hoop. Slate-grey towers reach the ceiling: fly around them. Coloured blocks are low: climb over them or go around. The hoop floats at its own height, so match its altitude. Camera view, looking forward and slightly down: {{frame}}. Your recent moves, oldest first: {{history}}. Reply with exactly one word: FORWARD, TURN_LEFT, TURN_RIGHT, ASCEND, DESCEND or STOP.",
+  "memoryWindow": 4,
+  "temperature": 0,
+  "requestOptions": {
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "task": "drone",
+  "version": "1"
+}

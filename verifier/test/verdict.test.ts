@@ -18,6 +18,17 @@ describe("verifyEpisode", () => {
     expect(sim.seeds).toEqual([SEED]);
   });
 
+  it("parses answers with the task of the on-chain Course Seed: ASCEND counts on a drone Mission only", async () => {
+    const drone = honestEpisode(["ASCEND", "FORWARD", "FORWARD", "FORWARD"]);
+    drone.mission = { ...drone.mission, courseSeed: `0x64726f6e${"5e".repeat(28)}` };
+    drone.log.header = { ...drone.log.header, courseSeed: drone.mission.courseSeed };
+    expect((await verifyEpisode(deps(), drone)).outcome).toBe(Outcome.Pass);
+    // The same log on a rover Mission: "I will go ASCEND." parses to STOP, not the logged ASCEND.
+    const rover = honestEpisode(["ASCEND", "FORWARD", "FORWARD", "FORWARD"]);
+    const v = await verifyEpisode(deps(), rover);
+    expect(v.outcome).toBe(Outcome.Fail);
+  });
+
   describe("Mission Limits (spec 4.6, ADR 0006)", () => {
     const turns = (n: number) => Array<"TURN_RIGHT">(n).fill("TURN_RIGHT");
     const limited = (actions: Parameters<typeof honestEpisode>[0], limits: { maxSteps?: number; maxCollisions?: number }) => {

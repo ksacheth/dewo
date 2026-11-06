@@ -1,5 +1,6 @@
 import { keccak256, toBytes } from "viem";
 import type { Hex } from "./episode-log";
+import { TASKS, type Task } from "./task";
 import { FRAME_PLACEHOLDER, HISTORY_PLACEHOLDER, RESERVED_REQUEST_FIELDS } from "./request";
 
 // I2: a Worker's fixed recipe for piloting, committed by hash in its Bid.
@@ -20,7 +21,14 @@ export interface Policy {
    * the fields buildRequest sets itself (RESERVED_REQUEST_FIELDS). Routing headers are not part of the body.
    */
   requestOptions?: Readonly<Record<string, unknown>>;
+  /** The robot this Policy pilots; absent means "rover" (Policies from before the drone). A Worker bids only on Missions of its task. */
+  task?: Task;
   version: string;
+}
+
+/** The task a Policy pilots: its `task`, or "rover" when it predates the field. */
+export function policyTask(policy: Policy): Task {
+  return policy.task ?? "rover";
 }
 
 /** Everything wrong with a Policy that would make a Worker unable to fly with it, as readable sentences. */
@@ -37,6 +45,9 @@ export function policyProblems(policy: Policy): string[] {
   }
   if (typeof policy.model !== "string" || policy.model.trim() === "" || /^tbd\b/i.test(policy.model.trim())) {
     problems.push(`${at}: model is a placeholder (${JSON.stringify(policy.model)}); set a model id the provider serves (ADR 0004: 0gm-1.0-35b-a3b)`);
+  }
+  if (policy.task !== undefined && !(TASKS as readonly unknown[]).includes(policy.task)) {
+    problems.push(`${at}: task must be one of ${TASKS.join(", ")}, not ${JSON.stringify(policy.task)}`);
   }
   problems.push(...requestOptionsProblems(policy, at));
   return problems;

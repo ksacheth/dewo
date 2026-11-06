@@ -6,7 +6,7 @@ From `agents/`, with a `.env` copied from `.env.example`:
 
 ```bash
 pnpm requester   # the Requester and its API (POST /missions on REQUESTER_PORT, used by the web UI)
-pnpm worker      # one Worker; run one process per Policy (WORKER_POLICY, own WORKER_PRIVATE_KEY)
+pnpm worker      # one Worker; run one process per Policy (WORKER_POLICY, own WORKER_PRIVATE_KEY); policies/drone-pilot.json flies drone Missions
 ```
 
 Both read the escrow and registry addresses, and the escrow's deploy block, from `../chain/deployments/*.json`, and use

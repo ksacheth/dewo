@@ -9,7 +9,7 @@ import { workerProcess } from "../shared/events";
 import { FileEvents } from "../shared/events-file";
 import { CHAINS, evmClients } from "../shared/evm";
 import { RegistryContract } from "../shared/registry";
-import { runsDir, simCommand, statePath, stopSignal, systemClock } from "../shared/runtime";
+import { overviewOptions, runsDir, simCommand, statePath, stopSignal, systemClock } from "../shared/runtime";
 import { SimCli } from "../shared/sim-cli";
 import { connectInference, inferenceConfig } from "../shared/zg-inference";
 import { ZeroGStorage, ZG_TESTNET } from "../shared/zg-storage";
@@ -34,15 +34,17 @@ async function main(): Promise<void> {
   const { inference, balance } = await connectInference(inferenceConfig(env));
   const { wallet } = board.makeClients({ privateKey });
 
+  const events = new FileEvents(runsDir(env), name);
+  const overview = overviewOptions(env, (missionId, data) => events.emit(missionId, "rover.moved", data));
   const worker = new Worker(config, {
     board: new WorkerArkivBoard(board, wallet!, { verifierPubKeys: config.verifierPubKeys }),
     escrow,
     registry,
     storage,
     inference,
-    sim: new SimCli(simCommand(env), runsDir(env)),
+    sim: new SimCli(simCommand(env), runsDir(env), overview),
     balances: { wallet: () => escrow.assetBalance(config.address), zeroG: balance },
-    events: new FileEvents(runsDir(env), name),
+    events,
     clock: systemClock,
     records: new FileRecordStore(statePath(env, name)),
   });

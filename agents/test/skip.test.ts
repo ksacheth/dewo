@@ -12,6 +12,8 @@ const FOREIGN: Hex = "0x90F79bf6EB2c4f870365E785982E1f101E93b906";
 const ok: SkipContext = {
   missionVerifiers: TRUSTED,
   trustedVerifiers: TRUSTED,
+  missionTask: "rover",
+  policyTask: "rover",
   price: 1.36,
   maxBounty: 10,
   secondsLeftToBid: 45,
@@ -34,6 +36,8 @@ describe("shouldSkip", () => {
     ["one on-chain Verifier is not trusted", { missionVerifiers: [TRUSTED[0]!, TRUSTED[1]!, FOREIGN] }, "UNTRUSTED_VERIFIERS"],
     ["two on-chain Verifiers are not trusted", { missionVerifiers: [TRUSTED[0]!, FOREIGN, FOREIGN] }, "UNTRUSTED_VERIFIERS"],
     ["the Mission names only 2 Verifiers", { missionVerifiers: TRUSTED.slice(0, 2) }, "UNTRUSTED_VERIFIERS"],
+    ["the Mission is a drone Course and the Policy flies a rover", { missionTask: "drone" }, "WRONG_TASK"],
+    ["the Mission is a rover Course and the Policy flies a drone", { policyTask: "drone" }, "WRONG_TASK"],
     ["the public Course has no path within maxSteps, or the plan could not run", { limitsReachable: false }, "LIMITS_UNREACHABLE"],
     ["price is zero", { price: 0 }, "PRICE_NOT_POSITIVE"],
     ["price rounds to zero base units", { price: 0.0000004 }, "PRICE_NOT_POSITIVE"],
