@@ -86,7 +86,7 @@ export class CliSession implements SimSession {
 
   async act(action: Action): Promise<ActResult> {
     const reply = (await this.send({ cmd: "act", action })) as ActResult & { pose?: Pose };
-    if (reply.pose) this.view?.show(reply.pose, reply.collision, reply.atGoal);
+    if (reply.pose) this.view?.show(reply.pose, reply.collision, reply.atGoal, action);
     return { collision: reply.collision, atGoal: reply.atGoal };
   }
 

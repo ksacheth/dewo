@@ -8,7 +8,7 @@
 type Addr = string;
 
 export interface EventData {
-  "mission.posted": { difficultyClass: string; maxBounty: string; riskWeight: number; maxSteps: number; maxCollisions: number; biddingClosesAt: number; arkivKey: string };
+  "mission.posted": { difficultyClass: string; task: string; maxBounty: string; riskWeight: number; maxSteps: number; maxCollisions: number; biddingClosesAt: number; arkivKey: string };
   "bid.sealed": { worker: Addr; workerName: string; policyHash: string; arkivKey: string };
   /** Emitted by the Verifiers (M5), not by M4. */
   "bids.revealed": { bids: { worker: Addr; workerName: string; price: string; R: number; score: number }[]; winner: Addr };

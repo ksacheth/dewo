@@ -45,10 +45,12 @@ export function RoverView({ state }: { state: MissionState }) {
   const pickedMove = picked !== null ? state.moves.find((m) => m.step === picked) : undefined
   const arena = pickedMove ? pickedMove.images[pickedMove.images.length - 1] : live
   const last = state.moves[state.moves.length - 1]
+  const drone = state.posted?.task === "drone"
+  const robot = drone ? "Drone" : "Rover"
   const failed = Object.values(state.verifiers).some((v) => v.outcome && v.outcome !== "Pass") || (state.settled && state.settled.outcome !== "Pass")
   return (
-    <section className="panel hero" aria-label="Rover view">
-      <h2><span className="num">03</span>Rover · every Decision is a 0G model call</h2>
+    <section className="panel hero" aria-label={`${robot} view`}>
+      <h2><span className="num">03</span>{robot} · every Decision is a 0G model call</h2>
       {arena ? (
         <div className="arena">
           <img className="frame" src={`/runs/${arena}`} alt="Whole arena, rendered in MuJoCo" />
@@ -65,7 +67,7 @@ export function RoverView({ state }: { state: MissionState }) {
         </div>
       ) : shown ? <img className="frame" src={`/runs/${shown.frame}`} alt={`Camera frame, step ${shown.step}`} /> : <div className="frame" />}
       {last?.collision && <div className="banner bad">Collision: the move was blocked</div>}
-      {last?.atGoal && <div className="banner good">Reached the charger</div>}
+      {last?.atGoal && <div className="banner good">{drone ? "Flew through the hoop" : "Reached the charger"}</div>}
       {state.decisions.some((d) => d.action === "STOP") && <div className="banner bad">Episode ended by STOP</div>}
       {failed && <div className="banner bad">Outcome: {state.settled?.outcome ?? "Fail"}</div>}
       <div className="steps" role="listbox" aria-label="Decisions">

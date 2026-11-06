@@ -1,12 +1,14 @@
 // When a Worker should not bid on a Mission. All amounts in USDC.
 import type { Hex } from "../formats/episode-log";
 import { toBaseUnits } from "../formats/usdc";
+import type { Task } from "../formats/task";
 import { sameVerifierSet } from "../formats/verifier-set";
 
 export const MIN_SECONDS_LEFT_TO_BID = 10;
 
 export type SkipReason =
   | "UNTRUSTED_VERIFIERS"
+  | "WRONG_TASK"
   | "LIMITS_UNREACHABLE"
   | "PRICE_NOT_POSITIVE"
   | "PRICE_ABOVE_MAX_BOUNTY"
@@ -20,6 +22,9 @@ export interface SkipContext {
   missionVerifiers: readonly Hex[];
   /** This Worker's trusted Verifiers (VERIFIER_PUBKEYS / VERIFIER_ADDRESSES). */
   trustedVerifiers: readonly Hex[];
+  /** The robot the Mission's Course is for (taskOf its Course Seed) and the one this Worker's Policy pilots. */
+  missionTask: Task;
+  policyTask: Task;
   price: number;
   maxBounty: number;
   secondsLeftToBid: number;
@@ -43,6 +48,8 @@ export interface SkipContext {
 export function shouldSkip(context: SkipContext): SkipReason | null {
   // ADR 0005: Verifiers the Requester picked could sign a Fail after the stake and take it, so only the trusted set is safe.
   if (!sameVerifierSet(context.missionVerifiers, context.trustedVerifiers)) return "UNTRUSTED_VERIFIERS";
+  // A rover Policy cannot fly a drone (it never answers ASCEND or DESCEND), and the other way round.
+  if (context.missionTask !== context.policyTask) return "WRONG_TASK";
   // A collision-free path satisfies any maxCollisions, so only maxSteps can make the Course unreachable.
   if (!context.limitsReachable) return "LIMITS_UNREACHABLE";
   // A Bid must be at least 1 base unit once converted; never bid 0, NaN or a negative price.

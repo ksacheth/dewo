@@ -30,7 +30,7 @@ describe("I8 payloads", () => {
     const stake = award!.award.stake.toString();
 
     expect(of("mission.posted")).toEqual([
-      { difficultyClass: "easy", maxBounty: "10000000", riskWeight: 0.5, maxSteps: 60, maxCollisions: 0, biddingClosesAt: 1_075, arkivKey: "arkiv-mission-1" },
+      { difficultyClass: "easy", task: "rover", maxBounty: "10000000", riskWeight: 0.5, maxSteps: 60, maxCollisions: 0, biddingClosesAt: 1_075, arkivKey: "arkiv-mission-1" },
     ]);
     expect(of("bid.sealed")).toEqual([{ worker: RIVAL, workerName: "Careful", policyHash: policyHash(policy), arkivKey: "arkiv-bid-1" }]);
     expect(of("award.signed")).toEqual([

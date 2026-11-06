@@ -5,7 +5,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 
-export type Pose = { x: number; y: number; yaw: number };
+/** A rover pose has no z; a drone pose does. */
+export type Pose = { x: number; y: number; z?: number; yaw: number };
 export type RoverMoved = { step: number; images: string[]; collision: boolean; atGoal: boolean };
 export type OverviewOptions = {
   command: readonly [string, ...string[]];
@@ -42,13 +43,13 @@ export class OverviewView {
     }
   }
 
-  /** Call with each pose the sim reports. The first call draws the start position. */
-  show(pose: Pose, collision = false, atGoal = false): void {
+  /** Call with each pose the sim reports, and the Action that led to it. The first call draws the start position. */
+  show(pose: Pose, collision = false, atGoal = false, action?: string): void {
     if (this.dead || !this.child) return;
     const seq = this.seq++;
     this.moves.set(seq, { step: seq, collision, atGoal });
     try {
-      this.child.stdin.write(`${JSON.stringify({ seq, from: this.last, to: pose, collision })}\n`);
+      this.child.stdin.write(`${JSON.stringify({ seq, from: this.last, to: pose, collision, action })}\n`);
     } catch (error) {
       this.die(String(error));
     }
