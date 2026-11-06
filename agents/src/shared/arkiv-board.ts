@@ -49,6 +49,9 @@ const verifierList = (pubKeys: Trio): string => pubKeys.map((key) => publicKeyTo
 
 const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
+/** A comma-joined address list in a comparable form: trimmed, lowercased, order kept. */
+const normalizedList = (list: string): string => list.split(",").map((address) => address.trim().toLowerCase()).join(",");
+
 /** The Worker's side of the board: discovery, Reliability, its sealed Bid and its Seed Release. */
 export class WorkerArkivBoard implements BoardPort {
   private readonly verifierPubKeys: Trio;
@@ -66,8 +69,13 @@ export class WorkerArkivBoard implements BoardPort {
     }
   }
 
+  /**
+   * Only Missions listing this Worker's Verifiers in its order: its sealed prices are encrypted to them (D7), so any
+   * other Verifier set could not open its Bid. Anyone can post a Mission entity; the escrow terms are checked later.
+   */
   async listOpenMissionIds(): Promise<string[]> {
-    return (await this.lib.listOpenMissions()).map((mission) => mission.missionId);
+    const mine = normalizedList(this.verifierAddresses.join(","));
+    return (await this.lib.listOpenMissions()).filter((mission) => normalizedList(mission.verifiers) === mine).map((mission) => mission.missionId);
   }
 
   /** From Verdicts written by this Worker's 3 Verifiers only, the set the Verifiers themselves score with. */

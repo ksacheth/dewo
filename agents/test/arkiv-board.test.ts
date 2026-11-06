@@ -150,6 +150,18 @@ describe("WorkerArkivBoard", () => {
     for (const v of verifiers) expect(lib.openBid(row!, v.privateKey)).toBe(4_200_000n);
   });
 
+  it("only lists Missions judged by its own Verifiers, in its order (D7), whatever the address case", async () => {
+    const post = (n: number, verifiers: string) =>
+      lib.postMission(requester.wallet, {
+        missionId: missionId(n), difficultyClass: "easy", bounty: 1n, biddingClosesAt: nowSec() + 600, seedCommitment: "0xcc", riskWeight: 0.5, verifiers,
+      });
+    const addresses = verifiers.map((v) => v.account.address);
+    await post(1, addresses.join(",").toLowerCase());
+    await post(2, [addresses[1], addresses[0], addresses[2]].join(","));
+    await post(3, [actor().account.address, addresses[1], addresses[2]].join(","));
+    expect(await board().listOpenMissionIds()).toEqual([missionId(1)]);
+  });
+
   it("refuses to seal for Verifier keys other than its own list, or to bid as another Worker", async () => {
     await expect(board().sealBid(1n, [...verifierPubKeys].reverse())).rejects.toThrow(/Verifier/);
     const sealedPrice = await board().sealBid(1n, verifierPubKeys);
