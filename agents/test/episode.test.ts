@@ -11,6 +11,13 @@ async function fly(answers: string[], goalAt = 3, limits: MissionLimits = { maxS
 }
 
 describe("runEpisode", () => {
+  it("parses altitude moves on a drone Mission and reads them as STOP on a rover one", async () => {
+    const drone = await runEpisode({ policy, session: new CorridorSession(3), inference: new ScriptedInference(["ASCEND", "STOP"]), limits: { maxSteps: 60, maxCollisions: 1 }, task: "drone" });
+    expect(drone.decisions.map((d) => d.action)).toEqual(["ASCEND", "STOP"]);
+    const rover = await fly(["ASCEND"]);
+    expect(rover.decisions.map((d) => d.action)).toEqual(["STOP"]);
+  });
+
   it("ends at the goal", async () => {
     const { endReason, decisions } = await fly(["FORWARD", "FORWARD", "FORWARD"]);
     expect(endReason).toBe("GOAL");

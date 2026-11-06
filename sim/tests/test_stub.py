@@ -27,7 +27,8 @@ def make_course(tmp_path, difficulty="easy"):
 
 def test_course_has_i1_fields(tmp_path):
     course = json.loads(make_course(tmp_path).read_text())
-    assert set(course) == {"seed", "difficulty", "start", "goal", "obstacles", "version"}
+    assert set(course) == {"seed", "difficulty", "task", "start", "goal", "obstacles", "version"}
+    assert course["task"] == "rover"
     assert set(course["start"]) == {"x", "y", "yaw"}
     assert set(course["goal"]) == {"x", "y", "r"}
 
@@ -139,4 +140,18 @@ def test_session_bad_input_gets_error_reply(tmp_path):
 
 
 def test_version_never_passes_for_a_real_sim():
-    assert run("--version").strip() == "0.2.0-stub"
+    assert run("--version").strip() == "0.3.0-stub"
+
+
+def test_drone_seed_gives_a_drone_course_that_flies_straight_to_the_hoop(tmp_path):
+    path = tmp_path / "drone.json"
+    run("course", "--seed", "0x64726f6e" + "00" * 28, "--difficulty", "easy", "--out", path)
+    course = json.loads(path.read_text())
+    assert course["task"] == "drone" and course["start"]["z"] == course["goal"]["z"] == 0.5
+    actions = tmp_path / "actions.json"
+    actions.write_text(json.dumps(["ASCEND", "DESCEND"] + ["FORWARD"] * 4))
+    result = json.loads(run("replay", "--course", path, "--actions", actions))
+    assert result["atGoal"] is True and result["steps"] == 6
+    rover = make_course(tmp_path)
+    out = subprocess.run([sys.executable, str(STUB), "replay", "--course", str(rover), "--actions", str(actions)], capture_output=True, text=True)
+    assert out.returncode != 0 and "error" in json.loads(out.stdout)

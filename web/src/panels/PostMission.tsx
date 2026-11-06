@@ -21,6 +21,7 @@ const limitsValid = (maxSteps: number, maxCollisions: number) =>
   Number.isInteger(maxSteps) && maxSteps >= 1 && maxSteps <= MAX_STEPS && Number.isInteger(maxCollisions) && maxCollisions >= 0
 
 export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: boolean) => void }) {
+  const [task, setTask] = useState("rover")
   const [difficultyClass, setDifficulty] = useState("medium")
   const [maxBounty, setBounty] = useState(10)
   const [riskWeight, setRisk] = useState(0.5)
@@ -33,7 +34,7 @@ export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: 
 
   async function submit() {
     setBusy(true); setError(null); setPending(null)
-    const body = JSON.stringify({ difficultyClass, difficulty: difficultyClass, maxBounty, riskWeight, maxSteps, maxCollisions })
+    const body = JSON.stringify({ difficultyClass, difficulty: difficultyClass, maxBounty, riskWeight, maxSteps, maxCollisions, task })
     const headers = { "content-type": "application/json", "idempotency-key": idempotency.keyFor(body) }
     const post = (url: string) => fetch(url, { method: "POST", headers, body })
     try {
@@ -50,6 +51,11 @@ export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: 
 
   return (
     <form className="row" onSubmit={(e) => { e.preventDefault(); void submit() }} aria-label="Post Mission">
+      <label>Robot
+        <select value={task} onChange={(e) => setTask(e.target.value)}>
+          <option value="rover">rover</option><option value="drone">drone</option>
+        </select>
+      </label>
       <label>Difficulty Class
         <select value={difficultyClass} onChange={(e) => setDifficulty(e.target.value)}>
           <option>easy</option><option>medium</option><option>hard</option>

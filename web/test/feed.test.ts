@@ -26,7 +26,7 @@ it("plays a full recorded Mission to its final state", async () => {
   expect(s.sealedBids.map((b) => b.workerName)).toEqual(["Careful", "Cheap and Blind", "Gambler"])
   expect(s.revealed?.winner).toBe(s.award?.worker)
   expect(s.decisions).toHaveLength(15)
-  expect(s.decisions.map((d) => d.step)).toEqual(Array.from({ length: 15 }, (_, i) => i + 1))
+  expect(s.decisions.map((d) => d.step)).toEqual(Array.from({ length: 15 }, (_, i) => i))
   const verdicts = Object.values(s.verifiers).filter((v) => v.outcome === "Pass")
   expect(verdicts).toHaveLength(2)
   expect(agreement(s)).toMatchObject({ count: 2 })
