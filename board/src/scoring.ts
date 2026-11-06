@@ -17,25 +17,39 @@ const qualityOf = (v: VerdictRow) => pathQuality(v.optimalPathCost, v.pathCost)
 
 export type MissionResult = { missionId: Hex; outcome: Outcome; at: number; verdict: VerdictRow }
 
-/** One result per Mission: the Outcome at least 2 of the 3 Verifiers agree on (D4). Missions without a Quorum are dropped. */
-export function quorumResults(verdicts: VerdictRow[]): MissionResult[] {
+/**
+ * One result per Mission: the Outcome at least 2 of the 3 Verifiers agree on (D4).
+ * Only Verdicts owned by one of `verifiers` count (addresses compare case-insensitively), and each Verifier
+ * counts once per Mission, by its earliest Verdict ($createdAt, then $key). Arkiv is public, so anyone can
+ * write rows; this stops duplicates or outsiders from forming a fake Quorum. Missions without a Quorum are dropped.
+ */
+export function quorumResults(verdicts: VerdictRow[], verifiers: readonly Hex[]): MissionResult[] {
+  const allowed = new Set(verifiers.map((a) => a.toLowerCase()))
+  const earliest = new Map<string, VerdictRow>() // missionId + owner -> that Verifier's Verdict
+  for (const v of verdicts) {
+    const owner = v.$owner.toLowerCase()
+    if (!allowed.has(owner)) continue
+    const k = `${v.missionId}:${owner}`
+    const prev = earliest.get(k)
+    if (!prev || v.$createdAt < prev.$createdAt || (v.$createdAt === prev.$createdAt && v.$key < prev.$key)) earliest.set(k, v)
+  }
   const byMission = new Map<Hex, VerdictRow[]>()
-  for (const v of verdicts) byMission.set(v.missionId, [...(byMission.get(v.missionId) ?? []), v])
+  for (const v of earliest.values()) byMission.set(v.missionId, [...(byMission.get(v.missionId) ?? []), v])
   const results: MissionResult[] = []
   for (const [missionId, vs] of byMission) {
     const counts = new Map<Outcome, number>()
     for (const v of vs) counts.set(v.outcome, (counts.get(v.outcome) ?? 0) + 1)
     const agreed = [...counts].find(([, n]) => n >= 2)?.[0]
     if (!agreed) continue
-    const matching = vs.filter((v) => v.outcome === agreed)
+    const matching = vs.filter((v) => v.outcome === agreed).sort((x, y) => x.$createdAt - y.$createdAt || (x.$key < y.$key ? -1 : 1))
     results.push({ missionId, outcome: agreed, at: Math.max(...matching.map((v) => v.$createdAt)), verdict: matching[0] })
   }
   return results.sort((a, b) => b.at - a.at)
 }
 
 /** R = (2 + sum 0.9^i pass_i) / (3 + sum 0.9^i), most recent Mission first. A Pass counts 0.5 + 0.5 q; Fail and NoShow count 0. */
-export function reliability(verdicts: VerdictRow[]): number {
-  const counted = quorumResults(verdicts).filter((r) => r.outcome !== "InvalidCourse" && r.outcome !== "NoSeedRelease")
+export function reliability(verdicts: VerdictRow[], verifiers: readonly Hex[]): number {
+  const counted = quorumResults(verdicts, verifiers).filter((r) => r.outcome !== "InvalidCourse" && r.outcome !== "NoSeedRelease")
   let passes = 0
   let weights = 0
   counted.forEach((r, i) => {
@@ -51,11 +65,12 @@ export function awardScore(R: number, price: number, riskWeight: number): number
   return R ** riskWeight / price ** (1 - riskWeight)
 }
 
-/** Highest S wins; ties go to the lower price, then the lower Bid key (D8). All Verifiers must pick the same winner. */
+/** Highest S wins; ties go to the lower price, then the lower Bid key (D8). All Verifiers must pick the same winner. Bids with a price <= 0 are ignored. */
 export function pickWinner<B extends { key: string; price: bigint; R: number }>(bids: B[], riskWeight: number): B {
-  if (bids.length === 0) throw new Error("pickWinner: no bids")
+  const valid = bids.filter((b) => b.price > 0n)
+  if (valid.length === 0) throw new Error("pickWinner: no bids")
   const score = (b: B) => awardScore(b.R, Number(b.price), riskWeight)
-  return [...bids].sort(
+  return valid.sort(
     (a, b) => score(b) - score(a) || (a.price < b.price ? -1 : a.price > b.price ? 1 : 0) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
   )[0]
 }
@@ -73,8 +88,8 @@ export function xp(v: VerdictRow): number {
 }
 
 /** Total XP over Missions that reached a Quorum, each counted once. */
-export function totalXp(verdicts: VerdictRow[]): number {
-  return quorumResults(verdicts).reduce((sum, r) => sum + xp(r.verdict), 0)
+export function totalXp(verdicts: VerdictRow[], verifiers: readonly Hex[]): number {
+  return quorumResults(verdicts, verifiers).reduce((sum, r) => sum + xp(r.verdict), 0)
 }
 
 export function level(totalXpPoints: number): number {

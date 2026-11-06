@@ -184,7 +184,7 @@ describe("Verdicts and leaderboard", () => {
     expect(row.xp).toBeCloseTo(2 * 100 * 1.5 * (1 + 8 / 10)) // q = optimal 8 / cost 10
     expect(row.level).toBe(board.level(row.xp))
     const verdicts = (await board.listVerdicts({ worker: w })) as VerdictRow[]
-    expect(row.reliability).toBeCloseTo(board.reliability(verdicts))
+    expect(row.reliability).toBeCloseTo(board.reliability(verdicts, board.trustedVerifiers()))
   })
 
   it("outcomeIndex follows the I5 enum order", () => {

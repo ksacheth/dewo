@@ -49,6 +49,12 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
 - **Why:** each of the 3 Verifiers writes its own Verdict; counting them all would weight every Mission 3×.
 - **Integration impact:** M5 and the UI get identical Reliability from the same function.
 - **Symptom if violated:** Reliability moves 3× too fast; Verifiers disagree on the Award.
+- **Update 2026-11-06:** a Quorum is 2 of the Mission's 3 *distinct* Verifiers. `quorumResults`, `reliability`,
+  `totalXp` and `leaderboardFrom` now take the Verifier addresses as an explicit argument
+  (`trustedVerifiers()` / `VERIFIER_ADDRESSES`). Verdicts from other owners are ignored, and a Verifier that wrote
+  several Verdicts for one Mission counts once, by its earliest (`$createdAt`, then `$key`). Arkiv is public, so
+  without this duplicates or outsiders could forge a Quorum. `openBid` also now rejects any price that is not a
+  positive integer, and `pickWinner` ignores prices <= 0.
 
 ## D5: Every read filters by the trusted writer
 

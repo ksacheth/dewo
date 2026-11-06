@@ -149,5 +149,5 @@ export async function listVerdicts(filter: VerdictFilter = {}): Promise<VerdictR
 }
 
 export async function leaderboard(): Promise<LeaderboardRow[]> {
-  return leaderboardFrom(await listVerdicts())
+  return leaderboardFrom(await listVerdicts(), trustedVerifiers())
 }

@@ -28,17 +28,17 @@ export type LeaderboardRow = {
 }
 
 /** Groups trusted Verdicts per Worker; sorted by Level, then XP. Shared by the web UI, the query script and the mock. */
-export function leaderboardFrom(verdicts: VerdictRow[]): LeaderboardRow[] {
+export function leaderboardFrom(verdicts: VerdictRow[], verifiers: readonly Hex[]): LeaderboardRow[] {
   const byWorker = new Map<Hex, VerdictRow[]>()
   for (const v of verdicts) byWorker.set(v.worker, [...(byWorker.get(v.worker) ?? []), v])
   return [...byWorker].map(([worker, vs]) => {
-    const xp = totalXp(vs)
+    const xp = totalXp(vs, verifiers)
     return {
       worker,
-      reliability: reliability(vs),
+      reliability: reliability(vs, verifiers),
       xp,
       level: level(xp),
-      missions: quorumResults(vs).map(({ verdict: v }) => ({
+      missions: quorumResults(vs, verifiers).map(({ verdict: v }) => ({
         missionId: v.missionId, outcome: v.outcome, pathCost: v.pathCost, optimalPathCost: v.optimalPathCost, pathQuality: pathQuality(v.optimalPathCost, v.pathCost), collisions: v.collisions, difficultyClass: v.difficultyClass, entityKey: v.$key,
       })),
     }
@@ -67,5 +67,5 @@ export async function listVerdicts(filter: VerdictFilter = {}): Promise<VerdictR
 }
 
 export async function leaderboard(): Promise<LeaderboardRow[]> {
-  return leaderboardFrom(await listVerdicts())
+  return leaderboardFrom(await listVerdicts(), trustedVerifiers())
 }
