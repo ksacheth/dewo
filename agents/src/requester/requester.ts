@@ -70,6 +70,13 @@ export interface MissionRequest {
 
 export interface Windows {
   biddingSeconds: number;
+  /**
+   * Extra seconds added to the bidding window to cover createMission's confirmation time. The
+   * deadline is fixed inside createMission's terms, so it cannot be measured from the confirmation:
+   * the real window is measured from the createMission call (now), and Bidders see about
+   * biddingSeconds from the time the Mission is listed.
+   */
+  biddingSlackSeconds: number;
   stakeWindow: number;
   seedReleaseWindow: number;
   episodeWindow: number;
@@ -80,6 +87,7 @@ export interface Windows {
 /** docs/spec.md section 3 (tunable). */
 export const DEFAULT_WINDOWS: Windows = {
   biddingSeconds: 60,
+  biddingSlackSeconds: 15,
   stakeWindow: 30,
   seedReleaseWindow: 30,
   episodeWindow: 300,
@@ -179,13 +187,13 @@ export class Requester {
   private async createOnChain(creating: RequesterRecord): Promise<string> {
     const { request, seed, salt } = creating;
     const now = this.deps.clock.now();
-    const { biddingSeconds, rescueSeconds, ...windows } = this.config.windows;
+    const { biddingSeconds, biddingSlackSeconds, rescueSeconds, ...windows } = this.config.windows;
     const terms: MissionTerms = {
       maxBounty: toBaseUnits(request!.maxBounty),
       difficultyClass: request!.difficulty,
       riskWeightBps: Math.round(request!.riskWeight * 10_000),
       seedCommitment: seedCommitment(seed, salt),
-      deadlines: { biddingClosesAt: now + biddingSeconds, rescueAt: now + rescueSeconds, ...windows },
+      deadlines: { biddingClosesAt: now + biddingSeconds + biddingSlackSeconds, rescueAt: now + rescueSeconds, ...windows },
     };
     this.deps.records.put({ ...creating, attemptedAt: now });
     this.creating.add(creating.missionId);

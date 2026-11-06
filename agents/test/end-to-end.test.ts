@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ME, RIVAL, requesterIn, workerIn, world } from "./fakes";
+import { BIDDING_CLOSES_AFTER, ME, RIVAL, requesterIn, workerIn, world } from "./fakes";
 
 describe("a full Mission against mocks, no human input", () => {
   it("goes from POST /missions to settle()", async () => {
@@ -15,7 +15,7 @@ describe("a full Mission against mocks, no human input", () => {
     await everyone(); // both Workers bid
     expect(w.board.bids).toHaveLength(2);
 
-    w.clock.t += 61; // bidding closes
+    w.clock.t += BIDDING_CLOSES_AFTER; // bidding closes
     await everyone(); // Quorum Award; the winner stakes
     await everyone(); // Seed Release; the winner flies and submits; the loser sees the stake
     await everyone(); // seed revealed, three paid Replays, settle(); the winner sees it

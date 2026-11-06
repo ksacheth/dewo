@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { seedCommitment, toBaseUnits, type Hex } from "../src/formats";
 import type { AuditPort, PaymentRecord } from "../src/requester/audit";
 import { CREATE_RETRY_SECONDS } from "../src/requester/requester";
-import { RIVAL, ME, SALT, SEED, VERIFIER_URLS, requesterIn, world } from "./fakes";
+import { BIDDING_CLOSES_AFTER, RIVAL, ME, SALT, SEED, VERIFIER_URLS, requesterIn, world } from "./fakes";
 
 const randoms = (): (() => Hex) => {
   const values: Hex[] = [SEED, SALT];
@@ -15,7 +15,7 @@ function setupRequester() {
   const bid = (worker: Hex, price: number) =>
     w.board.bids.push({ missionId: "m1", worker, policyHash: "0x00", workerPubKey: `${worker}ff`, sealedPrice: [`enc(${toBaseUnits(price)})@k`] });
   const post = () => r.requester.post({ difficulty: "medium", maxBounty: 10, riskWeight: 0.5 });
-  const closeBidding = () => (w.clock.t += 61);
+  const closeBidding = () => (w.clock.t += BIDDING_CLOSES_AFTER);
   return { ...w, ...r, bid, post, closeBidding };
 }
 
@@ -39,7 +39,7 @@ describe("Requester: posting", () => {
     const { terms } = await s.escrow.getMission(missionId);
     expect(terms).toMatchObject({ maxBounty: 10_000_000n, difficultyClass: "medium", riskWeightBps: 5000 });
     expect(terms.seedCommitment).toBe(seedCommitment(SEED, SALT));
-    expect(terms.deadlines).toMatchObject({ biddingClosesAt: s.clock.t + 60, rescueAt: s.clock.t + 3600 });
+    expect(terms.deadlines).toMatchObject({ biddingClosesAt: s.clock.t + 75, rescueAt: s.clock.t + 3600 });
     expect(JSON.stringify(s.board.listings, (_k, v) => (typeof v === "bigint" ? String(v) : v))).not.toContain(SEED.slice(2));
     expect(s.stage()).toBe("BIDDING");
   });
@@ -157,7 +157,7 @@ describe("Requester: HCS spending log", () => {
     const r = requesterIn(w, { audit });
     const missionId = await r.requester.post({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5 });
     w.board.bids.push({ missionId, worker: ME, policyHash: "0x00", workerPubKey: "0x04", sealedPrice: ["enc(2000000)@k"] });
-    w.clock.t += 61;
+    w.clock.t += BIDDING_CLOSES_AFTER;
     await r.requester.tick();
     await w.escrow.stake(missionId, 500_000n);
     await r.requester.tick();
@@ -343,7 +343,7 @@ describe("Requester: isolation", () => {
     await requester.post(request);
     await requester.post(request);
     w.board.bids.push({ missionId: "m2", worker: ME, policyHash: "0x00", workerPubKey: "0x04", sealedPrice: ["enc(2000000)@k"] });
-    w.clock.t += 61;
+    w.clock.t += BIDDING_CLOSES_AFTER;
 
     const real = w.escrow.getMission.bind(w.escrow);
     w.escrow.getMission = async (id) => (id === "m1" ? Promise.reject(new Error("rpc")) : real(id));

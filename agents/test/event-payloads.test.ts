@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { policyHash } from "../src/formats";
 import { payouts } from "../src/requester/payouts";
 import { OUTCOMES } from "../src/requester/ports";
-import { REPLAY_PRICE, RIVAL, VERIFIER_ADDRESSES, policy, requesterIn, workerIn, world } from "./fakes";
+import { BIDDING_CLOSES_AFTER, REPLAY_PRICE, RIVAL, VERIFIER_ADDRESSES, policy, requesterIn, workerIn, world } from "./fakes";
 
 async function fullMission() {
   const w = world();
@@ -14,7 +14,7 @@ async function fullMission() {
   };
   const missionId = await requester.requester.post({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5 });
   await everyone();
-  w.clock.t += 61;
+  w.clock.t += BIDDING_CLOSES_AFTER;
   for (let i = 0; i < 3; i++) await everyone();
   const of = (type: string) => w.events.filter((e) => e.type === type).map((e) => e.data);
   return { w, missionId, of };
@@ -28,7 +28,7 @@ describe("I8 payloads", () => {
     const stake = award!.award.stake.toString();
 
     expect(of("mission.posted")).toEqual([
-      { difficultyClass: "easy", maxBounty: "10000000", riskWeight: 0.5, biddingClosesAt: 1_060, arkivKey: "arkiv-mission-1" },
+      { difficultyClass: "easy", maxBounty: "10000000", riskWeight: 0.5, biddingClosesAt: 1_075, arkivKey: "arkiv-mission-1" },
     ]);
     expect(of("bid.sealed")).toEqual([{ worker: RIVAL, workerName: "Careful", policyHash: policyHash(policy), arkivKey: "arkiv-bid-1" }]);
     expect(of("award.signed")).toEqual([

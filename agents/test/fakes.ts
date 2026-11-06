@@ -308,6 +308,8 @@ const sign = (url: string, missionId: string): Hex => keccak256(toBytes(`${url}:
 export const VERIFIER_URLS = ["http://v1", "http://v2", "http://v3"];
 export const VERIFIER_ADDRESSES: Hex[] = VERIFIER_URLS.map((_, i) => toHex(i + 1, { size: 20 }));
 export const REPLAY_PRICE = 100_000n;
+/** Seconds after posting at which the Requester's bidding window (with slack) has closed. */
+export const BIDDING_CLOSES_AFTER = DEFAULT_WINDOWS.biddingSeconds + DEFAULT_WINDOWS.biddingSlackSeconds + 1;
 
 /** The shared fakes that a Requester and Workers meet in. */
 export function world() {
