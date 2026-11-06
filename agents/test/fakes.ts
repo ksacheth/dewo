@@ -163,6 +163,10 @@ export class FakeBoard implements BoardPort, RequesterBoardPort {
     this.bids.push(bid);
     return { key: `arkiv-bid-${this.bids.length}` };
   }
+  async myBid(missionId: string, worker: Hex): Promise<{ key: string } | null> {
+    const index = this.bids.findIndex((b) => b.missionId === missionId && b.worker === worker);
+    return index < 0 ? null : { key: `arkiv-bid-${index + 1}` };
+  }
   async readSeedRelease(missionId: string): Promise<SeedRelease | null> {
     return this.releases.get(missionId) ?? null;
   }

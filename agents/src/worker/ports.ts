@@ -69,6 +69,8 @@ export interface BoardPort {
   sealBid(price: bigint, verifierPubKeys: readonly Hex[]): Promise<readonly string[]>;
   /** Returns the Arkiv entity key of the Bid. */
   placeBid(bid: BidEntity): Promise<{ key: string }>;
+  /** This Worker's existing Bid on the Mission, or null. The protocol allows one Bid per Worker per Mission. */
+  myBid(missionId: string, worker: Hex): Promise<{ key: string } | null>;
   /** The Seed Release for this Worker, decrypted, or null if not released yet. */
   readSeedRelease(missionId: string): Promise<SeedRelease | null>;
 }

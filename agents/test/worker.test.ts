@@ -202,3 +202,23 @@ describe("Worker: one bad Mission does not stop the others", () => {
     errors.mockRestore();
   });
 });
+
+describe("Worker: restart after a crash while bidding", () => {
+  it("does not bid twice when the Bid is on Arkiv but the record was never written", async () => {
+    const w = setup();
+    w.post();
+    const crashing = vi.spyOn(w.records, "put").mockImplementationOnce(() => {
+      throw new Error("disk full");
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await w.worker.tick();
+    crashing.mockRestore();
+    errors.mockRestore();
+    expect(w.board.bids).toHaveLength(1);
+    expect(w.records.get("m1")).toBeUndefined();
+
+    await w.worker.tick(); // restart: no record, but the Bid exists
+    expect(w.board.bids).toHaveLength(1);
+    expect(w.stage()).toBe("BID_PLACED");
+  });
+});

@@ -116,6 +116,8 @@ export class Worker {
 
   private async consider(missionId: string): Promise<void> {
     const { board, escrow, balances, clock } = this.deps;
+    // A Bid on Arkiv without a record means a crash between placeBid and the record write.
+    if (await board.myBid(missionId, this.config.address)) return this.put({ missionId, stage: "BID_PLACED" });
     const { terms } = await escrow.getMission(missionId);
     const reliability = await board.reliabilityOf(this.config.address);
     const maxBounty = fromBaseUnits(terms.maxBounty);
