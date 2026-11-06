@@ -91,7 +91,12 @@ def at_goal(course, state):
 
 
 class Rover:
-    """One Episode's rover. `done` after STOP, a collision or reaching the goal."""
+    """One Episode's rover. `done` after STOP or reaching the goal.
+
+    A FORWARD that would collide is blocked: the rover bumps, stays where it was and
+    counts one collision, and the Episode goes on. Whether that is still a Pass is
+    the Mission's `maxCollisions` limit, which the Verifier checks, not the sim.
+    """
 
     def __init__(self, course):
         self.course = course
@@ -107,7 +112,7 @@ class Rover:
         return at_goal(self.course, self.state)
 
     def act(self, action):
-        """Apply one Action. Returns True if it collided. STOP uses no step."""
+        """Apply one Action. Returns True if it collided (the move was blocked). STOP uses no step."""
         if action not in ACTIONS:
             raise ValueError(f"unknown action {action!r}")
         if self.done:
@@ -116,10 +121,12 @@ class Rover:
             self.done = True
             return False
         before = self.state
-        self.state = transition(before, action)
+        after = transition(before, action)
         self.step += 1
-        hit = move_collides(self.course, before, self.state)
+        hit = move_collides(self.course, before, after)
         if hit:
             self.collisions += 1
-        self.done = hit or self.at_goal()
+        else:
+            self.state = after
+        self.done = self.at_goal()
         return hit

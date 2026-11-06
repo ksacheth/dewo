@@ -11,12 +11,12 @@ pixels ("dewo-frame-v1" + width + height + RGB bytes, sha256) of a MuJoCo
 render, while the stub hashes the bytes of its own flat-colour PNG, whose
 colour is derived from seed, step and pose. Same shape ("0x" + 64 hex), same
 rule (one hash per Decision, the view before the Action), different values.
-Episode semantics match the real sim: it ends at STOP, on a collision or at
-the goal (the stub never collides); later Actions are an error in `session`
-and ignored in `replay`.
+Episode semantics match the real sim: it ends at STOP or at the goal (a
+collision blocks the move and the Episode goes on; the stub never collides);
+later Actions are an error in `session` and ignored in `replay`.
 
     python3 sim/stub/sim_stub.py course --seed 0xabc --difficulty medium --out course.json
-    python3 sim/stub/sim_stub.py plan --course course.json [--max-cost 29]
+    python3 sim/stub/sim_stub.py plan --course course.json [--max-cost 60]
     python3 sim/stub/sim_stub.py session --course course.json --frames-dir frames/
     python3 sim/stub/sim_stub.py replay --course course.json --actions actions.json
 """
@@ -36,7 +36,7 @@ TURN_RAD = math.pi / 6  # 30 degrees
 ACTIONS = ("FORWARD", "TURN_LEFT", "TURN_RIGHT", "STOP")
 GOAL_DISTANCE = {"easy": 2.0, "medium": 3.5, "hard": 5.0}
 GOAL_RADIUS = 0.3
-MAX_OPTIMAL_PATH_COST = 29  # Path Allowance 2 * 29 + 2 = 60 = Decision Cap
+DEFAULT_MAX_COST = 60  # plan's search bound, as in the real sim
 FRAME_SIZE = 224
 
 
@@ -201,10 +201,9 @@ def cmd_replay(args):
     hashes = []
     for action in actions:
         if rover.done:
-            break  # goal reached, collided or STOPped: later Actions are never executed
+            break  # goal reached or STOPped: later Actions are never executed
         hashes.append(rover.frame()[1])  # the view this Decision was made from (STOP too)
-        if act(rover, action)["collision"]:
-            break
+        act(rover, action)
     print(
         json.dumps(
             {
@@ -229,7 +228,7 @@ def main(argv=None):
 
     pl = sub.add_parser("plan")
     pl.add_argument("--course", required=True)
-    pl.add_argument("--max-cost", type=int, default=MAX_OPTIMAL_PATH_COST)
+    pl.add_argument("--max-cost", type=int, default=DEFAULT_MAX_COST)
     pl.set_defaults(fn=cmd_plan)
 
     s = sub.add_parser("session")
