@@ -47,6 +47,18 @@ describe("runEpisode", () => {
     expect(session.actions).toEqual(["FORWARD"]);
   });
 
+  it("safe-stops before a new Decision once the clock reaches stopAt, keeping the Decisions made so far", async () => {
+    const session = new CorridorSession(10);
+    const inference = new ScriptedInference(Array(10).fill("FORWARD"));
+    let t = 1_000;
+    // Each Decision takes 20 s; nothing may start at or after 1_050.
+    const now = () => t;
+    const timed = { complete: async (provider: `0x${string}`, request: unknown) => { t += 20; return inference.complete(provider, request); } };
+    const { endReason, decisions } = await runEpisode({ policy, session, inference: timed, limits: { maxSteps: 60, maxCollisions: 0 }, stopAt: 1_050, now });
+    expect(endReason).toBe("SAFE_STOP");
+    expect(decisions).toHaveLength(3); // started at 1000, 1020, 1040; the next would start at 1060
+  });
+
   it("stops at the Mission's maxSteps", async () => {
     const { endReason, decisions } = await fly(Array(30).fill("FORWARD"), 1_000, { maxSteps: 12, maxCollisions: 0 });
     expect(endReason).toBe("MAX_STEPS");

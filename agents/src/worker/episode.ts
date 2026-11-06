@@ -16,6 +16,13 @@ export interface EpisodeInput {
   inference: InferencePort;
   /** The Mission's limits from the escrow: the loop bound and the point past which the Episode cannot pass. */
   limits: MissionLimits;
+  /**
+   * Unix seconds after which no new Decision starts: the Episode Submission deadline less the time the upload and
+   * submitEpisode need. Reaching it safe-stops, so the honest partial log is still submitted on time.
+   */
+  stopAt?: number;
+  /** Unix seconds; required with stopAt. */
+  now?: () => number;
   /** Called after each Decision, with where its frame file lives (relative to runs/). */
   onDecision?: (decision: Decision, framePath: string) => void;
 }
@@ -26,6 +33,7 @@ export async function runEpisode(input: EpisodeInput): Promise<EpisodeResult> {
   let collisions = 0;
 
   while (decisions.length < input.limits.maxSteps) {
+    if (pastStop(input)) return end("SAFE_STOP");
     const decided = await decide(input, decisions.length, decisions.map((d) => d.action));
     // 0G unreachable: the rover halts. Never fake a Decision.
     if (!decided) return end("SAFE_STOP");
@@ -41,6 +49,8 @@ export async function runEpisode(input: EpisodeInput): Promise<EpisodeResult> {
   }
   return end("MAX_STEPS");
 }
+
+const pastStop = ({ stopAt, now }: EpisodeInput): boolean => stopAt !== undefined && now !== undefined && now() >= stopAt;
 
 /** One Decision (with its frame path), or null if 0G could not be reached. */
 async function decide(input: EpisodeInput, step: number, history: Action[]): Promise<{ decision: Decision; framePath: string } | null> {
