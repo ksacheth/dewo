@@ -56,6 +56,8 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
   constructor(
     private readonly clients: EvmClients,
     private readonly address: Hex,
+    /** First block to scan for MissionCreated events (the deployment block keeps RPC ranges small). */
+    private readonly fromBlock: bigint | "earliest" = "earliest",
   ) {}
 
   async getMission(missionId: string): Promise<EscrowMission> {
@@ -67,6 +69,30 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
     })) as RawMission;
     if (ESCROW_STATES[raw.state] === "None") throw new Error(`no Mission ${missionId} in the escrow`);
     return toEscrowMission(raw);
+  }
+
+  async findMission(seedCommitment: Hex): Promise<string | null> {
+    const logs = await this.clients.public.getContractEvents({
+      address: this.address,
+      abi: missionEscrowAbi,
+      eventName: "MissionCreated",
+      args: { requester: this.clients.wallet.account.address },
+      fromBlock: this.fromBlock,
+    });
+    for (const { args } of logs) {
+      const raw = (await this.clients.public.readContract({
+        address: this.address,
+        abi: missionEscrowAbi,
+        functionName: "getMission",
+        args: [args.missionId!],
+      })) as RawMission;
+      if (raw.seedCommitment.toLowerCase() === seedCommitment.toLowerCase()) return args.missionId!;
+    }
+    return null;
+  }
+
+  async rescue(missionId: string): Promise<void> {
+    await send(this.clients, { address: this.address, abi: missionEscrowAbi, functionName: "rescue", args: [missionId as Hex] });
   }
 
   async createMission(terms: MissionTerms, verifiers: readonly Hex[]): Promise<string> {
@@ -140,6 +166,10 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
       .then((asset) => {
         if (asset === zeroAddress) throw new Error("native-HBAR escrow deployments are not supported by this adapter");
         return asset;
+      })
+      .catch((error) => {
+        this.asset = null; // a failed lookup must not stick; the next call asks again
+        throw error;
       });
     return this.asset;
   }

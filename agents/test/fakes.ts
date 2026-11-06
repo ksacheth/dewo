@@ -88,6 +88,18 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
     return missionId;
   }
 
+  rescues: string[] = [];
+
+  async findMission(commitment: Hex): Promise<string | null> {
+    return [...this.missions].find(([, m]) => m.terms.seedCommitment === commitment)?.[0] ?? null;
+  }
+
+  async rescue(missionId: string): Promise<void> {
+    if (this.clock.now() < this.mission(missionId).terms.deadlines.rescueAt) throw new Error("InvalidTime");
+    this.rescues.push(missionId);
+    this.patch(missionId, { settled: true });
+  }
+
   async award(missionId: string, award: AwardTerms, signatures: readonly Hex[]): Promise<void> {
     this.awards.push({ missionId, award, signatures });
     this.grant(missionId, award);
@@ -141,6 +153,9 @@ export class FakeBoard implements BoardPort, RequesterBoardPort {
   }
   async workerPubKey(missionId: string, worker: Hex): Promise<Hex | null> {
     return this.bids.find((b) => b.missionId === missionId && b.worker === worker)?.workerPubKey ?? null;
+  }
+  async hasSeedRelease(missionId: string): Promise<boolean> {
+    return this.releases.has(missionId);
   }
   async releaseSeed(missionId: string, seed: Hex, salt: Hex): Promise<{ key: string }> {
     this.releases.set(missionId, { seed, salt, releasedAt: this.clock.now() });
