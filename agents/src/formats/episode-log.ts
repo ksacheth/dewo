@@ -16,7 +16,7 @@ export interface EpisodeHeader {
 
 export interface Decision {
   step: number;
-  /** sha256 of the camera frame PNG, as reported by the simulator. */
+  /** The dewo-frame-v1 hash of the camera frame's raw RGB pixels (not of the PNG file), as reported by the simulator. */
   frameHash: Hex;
   /** 0G receipt for this call (the ZG-Res-Key response header). */
   chatID: string;

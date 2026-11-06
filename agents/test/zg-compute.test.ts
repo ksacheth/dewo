@@ -40,6 +40,35 @@ describe("ZeroGInference", () => {
     expect(calls).toBe(2);
   });
 
+  it("keeps the Decision, without a receipt, when the receipt fetch fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.endsWith("/chat/completions")
+          ? new Response(JSON.stringify({ id: "c1", choices: [{ message: { content: "FORWARD" } }] }))
+          : new Response("nope", { status: 500 }),
+      ),
+    );
+    const inference = new ZeroGInference(brokerWith(async () => ({ endpoint: "http://provider" })));
+
+    const reply = await inference.complete(PROVIDER, request);
+    expect(reply).toEqual({ chatID: "c1", rawResponse: "FORWARD" });
+    expect("receipt" in reply).toBe(false);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("still throws when processResponse says the signature is invalid", async () => {
+    const broker = brokerWith(async () => ({ endpoint: "http://provider" }));
+    (broker.inference as unknown as { processResponse: () => Promise<boolean> }).processResponse = async () => false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ id: "c1", choices: [] }))),
+    );
+    await expect(new ZeroGInference(broker).complete(PROVIDER, request)).rejects.toThrow(/did not verify/);
+  });
+
   it("times out an unreachable provider so the Episode can safe-stop", async () => {
     vi.stubGlobal(
       "fetch",

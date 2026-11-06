@@ -2,10 +2,20 @@
 // so anyone can audit what the Requester agent spent, in order, without trusting its own logs.
 import { Client, PrivateKey, TopicCreateTransaction, TopicMessageSubmitTransaction } from "@hiero-ledger/sdk";
 
+/** One line of the spending log, as posted to HCS (R7). */
 export interface PaymentRecord {
   missionId: string;
+  /** The Verifier's EVM address and the URL that was paid. */
   verifier: string;
+  verifierUrl: string;
   outcome: string;
+  /** USDC base units, as a string. */
+  amount: string;
+  payTo?: string;
+  network?: string;
+  asset?: string;
+  /** Settlement transaction id from the x402 PAYMENT-RESPONSE header, when the Verifier sent one. */
+  paymentTx?: string;
   /** ISO timestamp from the Requester's clock; HCS adds its own consensus timestamp. */
   at: string;
 }

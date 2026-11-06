@@ -3,6 +3,7 @@
 // Every tick re-reads the chain before acting (check-then-act) and writes the local
 // record only after the action is confirmed. One attempt per Mission.
 import {
+  assertUsablePolicy,
   canonicalJson,
   fromBaseUnits,
   policyHash,
@@ -13,6 +14,8 @@ import {
   type Policy,
 } from "../formats";
 import type { EventData } from "../shared/events";
+import { PayoutClaimer } from "../shared/payout-claim";
+import { hederaTxUrl, zeroGTxUrl } from "../shared/tx-links";
 import { runEpisode } from "./episode";
 import type {
   BalancesPort,
@@ -61,11 +64,22 @@ export interface WorkerDeps {
   records: RecordStore;
 }
 
+/** An Episode Submission: the event payload and the 0G transaction that recorded it. */
+interface Submission {
+  payload: EventData["episode.submitted"];
+  txHash: Hex;
+}
+
 export class Worker {
+  private readonly payouts: PayoutClaimer;
+
   constructor(
     private readonly config: WorkerConfig,
     private readonly deps: WorkerDeps,
-  ) {}
+  ) {
+    assertUsablePolicy(config.policy);
+    this.payouts = new PayoutClaimer(deps.escrow, config.address, `worker ${config.policy.name}`);
+  }
 
   /** On startup: an Episode cut short by a crash is not retried (one attempt per Mission). */
   async reconcile(): Promise<void> {
@@ -85,6 +99,7 @@ export class Worker {
     for (const { missionId } of this.deps.records.all()) {
       await this.isolated(missionId, () => this.advanceUntilWaiting(missionId));
     }
+    await this.payouts.claim();
   }
 
   /** One bad Mission (a bogus Arkiv listing, an RPC hiccup) must not stop the others from being staked in time. */
@@ -109,6 +124,7 @@ export class Worker {
 
   private async advance(record: MissionRecord): Promise<void> {
     const mission = await this.deps.escrow.getMission(record.missionId);
+    if (mission.settled) this.payouts.markDue(); // settled or rescued: a payout may be parked in owed
     if (record.stage === "BID_PLACED") return this.watchAward(record, mission);
     if (record.stage === "WON") return this.stake(record, mission);
     if (record.stage === "STAKED") return this.fly(record, mission);
@@ -167,14 +183,15 @@ export class Worker {
     const { award } = mission;
     if (!award || !this.isAwardedToMe(mission)) return this.move(record, "BID_PLACED");
     if (mission.stakedAt !== null) return this.move(record, "STAKED");
-    if (this.deps.clock.now() > award.awardedAt + mission.terms.deadlines.stakeWindow) {
+    // R4: stake() works while now < awardedAt + stakeWindow; from then on the Award may be replaced.
+    if (this.deps.clock.now() >= award.awardedAt + mission.terms.deadlines.stakeWindow) {
       return this.move(record, "LOST", "missed the stake window");
     }
     if (this.isBusy(record.missionId)) return this.move(record, "LOST", "busy with another Mission; let the Award lapse");
 
-    await this.deps.escrow.stake(record.missionId, award.stake);
+    const { txHash } = await this.deps.escrow.stake(record.missionId, award.stake);
     this.move(record, "STAKED");
-    this.deps.events.emit(record.missionId, "stake.deposited", { worker: this.config.address, stake: award.stake.toString() });
+    this.deps.events.emit(record.missionId, "stake.deposited", { worker: this.config.address, stake: award.stake.toString() }, hederaTxUrl(txHash));
   }
 
   private async fly(record: MissionRecord, mission: EscrowMission): Promise<void> {
@@ -211,14 +228,14 @@ export class Worker {
     if (!episode) return this.move(record, "GAVE_UP", "finished Episode was not kept");
     if (await this.deps.registry.isSubmitted(record.missionId, this.config.address)) return this.submitted(record);
     if (this.deps.clock.now() > episode.deadline) return this.move(record, "GAVE_UP", "Episode Submission deadline passed");
-    let payload: EventData["episode.submitted"];
+    let submission: Submission;
     try {
-      payload = await this.submit(record.missionId, episode);
+      submission = await this.submit(record.missionId, episode);
     } catch (error) {
       return console.error(`worker: submitting the Episode of ${record.missionId} failed, will retry:`, error);
     }
     this.submitted(record);
-    this.deps.events.emit(record.missionId, "episode.submitted", payload);
+    this.deps.events.emit(record.missionId, "episode.submitted", submission.payload, zeroGTxUrl(submission.txHash));
   }
 
   private submitted(record: MissionRecord): void {
@@ -242,7 +259,7 @@ export class Worker {
     }
   }
 
-  private async submit(missionId: string, episode: Omit<EpisodeLog, "header">): Promise<EventData["episode.submitted"]> {
+  private async submit(missionId: string, episode: Omit<EpisodeLog, "header">): Promise<Submission> {
     const { storage, registry, escrow } = this.deps;
     const { terms } = await escrow.getMission(missionId);
     const encode = (text: string) => new TextEncoder().encode(text);
@@ -253,8 +270,8 @@ export class Worker {
       decisions: episode.decisions,
     };
     const episodeLogRoot = await storage.upload(encode(JSON.stringify(log)));
-    await registry.submitEpisode(missionId, episodeLogRoot, policyRoot, log.decisions.length);
-    return { episodeLogRoot, policyRoot, decisionCount: log.decisions.length };
+    const { txHash } = await registry.submitEpisode(missionId, episodeLogRoot, policyRoot, log.decisions.length);
+    return { payload: { episodeLogRoot, policyRoot, decisionCount: log.decisions.length }, txHash };
   }
 
   private isAwardedToMe(mission: EscrowMission): boolean {

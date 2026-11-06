@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { policyHash, type EpisodeLog } from "../src/formats";
-import { ME, RIVAL, policy, setup, terms } from "./fakes";
+import { ME, RIVAL, policy, setup, terms, workerIn, world } from "./fakes";
 
 describe("Worker: bidding", () => {
   it("seals its own price and commits to its Policy", async () => {
@@ -29,6 +29,35 @@ describe("Worker: bidding", () => {
     await w.worker.tick();
     expect(w.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "PRICE_ABOVE_MAX_BOUNTY" });
     expect(w.board.bids).toHaveLength(0);
+  });
+
+  it("skips instead of bidding 0 when its strategy prices the Mission at zero", async () => {
+    const w = world();
+    const me = workerIn(w, { margin: 0 });
+    w.escrow.open("m1");
+    w.board.open.push("m1");
+    await me.worker.tick();
+    expect(me.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "PRICE_NOT_POSITIVE" });
+    expect(w.board.bids).toHaveLength(0);
+  });
+
+  it("stakes one second before the stake window ends and gives up at the boundary (R4)", async () => {
+    const early = setup();
+    early.post();
+    await early.worker.tick();
+    early.escrow.grant("m1");
+    early.clock.t += 29;
+    await early.worker.tick();
+    expect(early.escrow.stakes).toHaveLength(1);
+
+    const late = setup();
+    late.post();
+    await late.worker.tick();
+    late.escrow.grant("m1");
+    late.clock.t += 30;
+    await late.worker.tick();
+    expect(late.escrow.stakes).toHaveLength(0);
+    expect(late.records.get("m1")).toMatchObject({ stage: "LOST", note: "missed the stake window" });
   });
 
   it("does not bid while busy with a won Mission", async () => {
@@ -233,6 +262,34 @@ describe("Worker: retrying a flown Episode", () => {
     w.release();
     return w;
   }
+
+  it("withdraws a deferred payout once its Mission settles, retrying while delivery fails", async () => {
+    const w = await flown();
+    await w.worker.tick();
+    expect(w.stage()).toBe("SUBMITTED");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    w.escrow.owedBy.set(ME, 7_700_000n);
+    w.escrow.withdrawFails = true;
+    w.escrow.patch("m1", { settled: true });
+
+    await w.worker.tick();
+    expect(w.stage()).toBe("DONE");
+    expect(w.escrow.withdrawals).toHaveLength(0);
+
+    w.escrow.withdrawFails = false;
+    await w.worker.tick();
+    expect(w.escrow.withdrawals).toEqual([{ account: ME, amount: 7_700_000n }]);
+    errors.mockRestore();
+  });
+
+  it("does not withdraw before any Mission has settled", async () => {
+    const w = await flown();
+    await w.worker.tick();
+    w.escrow.owedBy.set(ME, 1n);
+    await w.worker.tick();
+    // The startup check ran before the amount was parked; only a settled Mission makes it check again.
+    expect(w.escrow.withdrawals).toHaveLength(0);
+  });
 
   it("keeps the Episode when the upload fails and submits it on the next tick without re-flying", async () => {
     const w = await flown();

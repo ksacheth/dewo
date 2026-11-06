@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,8 +48,47 @@ describe("SimCli (I1 over JSON lines)", () => {
   it("turns an {error} reply into an exception instead of reading it as no collision", async () => {
     const session = await sim.openSession(SEED, "easy", MISSION);
     await session.act("TURN_LEFT");
-    await expect(session.act("FORWARD")).rejects.toThrow(/episode already ended/);
+    await expect(session.act("FORWARD")).rejects.toThrow(/episode is over/);
     await session.close();
+  });
+
+  it("lets STOP end the Episode without using a step, and reports the pose on observe", async () => {
+    const session = await sim.openSession(SEED, "easy", MISSION);
+    await session.act("FORWARD");
+    expect(await session.act("STOP")).toEqual({ collision: false, atGoal: false });
+    const frame = (await session.observe()).framePath;
+    expect(frame).toBe(`${MISSION}/frames/frame_0001.png`); // STOP did not advance the step counter
+    await expect(session.act("FORWARD")).rejects.toThrow(/episode is over/);
+    await session.close();
+  });
+
+  it("answers an unknown Action with an {error}, like the real sim", async () => {
+    const session = await sim.openSession(SEED, "easy", MISSION);
+    await expect(session.act("JUMP" as never)).rejects.toThrow(/unknown action "JUMP"/);
+    expect(await session.act("FORWARD")).toEqual({ collision: false, atGoal: false }); // the session carries on
+    await session.close();
+  });
+
+  it("speaks the real sim's JSON lines: pose on observe, {error} for invalid JSON, unknown cmd and unknown Action", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dewo-course-"));
+    const course = join(dir, "course.json");
+    writeFileSync(course, JSON.stringify({ goalAt: 3 }));
+    const child = spawn("node", [fakeSim, "session", "--course", course, "--frames-dir", join(dir, "frames")]);
+    const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+    const ask = async (text: string) => {
+      child.stdin.write(`${text}\n`);
+      return JSON.parse((await lines.next()).value as string);
+    };
+    try {
+      expect(await ask(JSON.stringify({ cmd: "observe" }))).toMatchObject({ step: 0, pose: { x: 0, y: 0, yaw: 0 }, atGoal: false });
+      expect(await ask("{not json")).toHaveProperty("error");
+      expect(await ask(JSON.stringify({ cmd: "dance" }))).toHaveProperty("error");
+      expect(await ask(JSON.stringify({ cmd: "act", action: "JUMP" }))).toHaveProperty("error");
+      expect(await ask(JSON.stringify({ cmd: "act", action: "STOP" }))).toMatchObject({ step: 0, pose: { x: 0 } });
+    } finally {
+      child.kill();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("fails loudly when the sim CLI fails", async () => {

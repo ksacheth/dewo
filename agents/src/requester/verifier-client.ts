@@ -1,16 +1,21 @@
 // I6 client: POST /award (free) and POST /replay (behind x402, paid on Hedera in USDC).
+//
+// Wire format (R9; M5's Verifiers must implement exactly this, and this client rejects anything else):
+//   POST /award  { missionId }
+//     -> 200 { worker: address, price: string, stake: string, signature: 0x hex }
+//        price and stake are decimal strings of USDC base units; signature is the EIP-712 Award.
+//     -> 200 null when no valid Bid exists. Free.
+//   POST /replay { missionId }
+//     -> 402 with x402 requirements (USDC on hedera:testnet); once paid:
+//     -> 200 { verdict: "Pass" | "Fail" | "NoShow" | "InvalidCourse" | "NoSeedRelease",
+//              signature: 0x hex (EIP-712 Verdict), evidenceHash: 0x bytes32,
+//              pathCost: int, optimalPathCost: int, collisions: int }
+//        The x402 settlement may be reported in a PAYMENT-RESPONSE header (base64 JSON with "transaction").
 import { PrivateKey } from "@hiero-ledger/sdk";
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { ExactHederaScheme, createClientHederaSigner } from "@x402/hedera";
 import type { Hex } from "../formats";
-import type { ReplayPayment, ReplayResult, SignedAward, SignedVerdict, VerifiersPort } from "./ports";
-
-interface WireAward {
-  worker: Hex;
-  price: string;
-  stake: string;
-  signature: Hex;
-}
+import { OUTCOMES, type ReplayPayment, type ReplayResult, type SignedAward, type SignedVerdict, type VerifiersPort } from "./ports";
 
 export interface PayerConfig {
   /** Hedera account id of the Requester, e.g. 0.0.12345. */
@@ -85,18 +90,58 @@ export class HttpVerifiers implements VerifiersPort {
 
   /** A `null` body means there is no valid Bid to award. */
   async requestAward(verifierUrl: string, missionId: string): Promise<SignedAward | null> {
-    const body = (await post(fetch, `${verifierUrl}/award`, missionId, this.timeoutMs)) as WireAward | null;
-    if (!body) return null;
-    // Amounts travel as decimal strings of USDC base units (JSON has no bigint).
-    return { worker: body.worker, price: BigInt(body.price), stake: BigInt(body.stake), signature: body.signature };
+    const body = await post(fetch, `${verifierUrl}/award`, missionId, this.timeoutMs);
+    return parseAward(body, `${verifierUrl}/award`);
   }
 
   async requestReplay(verifierUrl: string, missionId: string): Promise<ReplayResult> {
     const payment: ReplayPayment = { challenged: false, amount: 0n };
-    const body = (await post(this.payFetch(recordingFetch(payment)), `${verifierUrl}/replay`, missionId, this.timeoutMs)) as { verdict: SignedVerdict["outcome"] } & SignedVerdict;
-    const verdict = { outcome: body.verdict ?? body.outcome, evidenceHash: body.evidenceHash, signature: body.signature };
-    return { verdict, payment };
+    const body = await post(this.payFetch(recordingFetch(payment)), `${verifierUrl}/replay`, missionId, this.timeoutMs);
+    return { verdict: parseVerdict(body, `${verifierUrl}/replay`), payment };
   }
+}
+
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const BASE_UNITS = /^(0|[1-9][0-9]*)$/;
+const HEX = /^0x([0-9a-fA-F]{2})+$/;
+const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
+
+/** A POST /award body: null (no valid Bid) or a well-formed signed Award. Throws a clear error otherwise. */
+export function parseAward(body: unknown, source = "/award"): SignedAward | null {
+  if (body === null) return null;
+  const fields = objectBody(body, source);
+  // Amounts travel as decimal strings of USDC base units (JSON has no bigint).
+  return {
+    worker: matching(fields, "worker", ADDRESS, "an EVM address", source) as Hex,
+    price: BigInt(matching(fields, "price", BASE_UNITS, "a decimal string of base units", source)),
+    stake: BigInt(matching(fields, "stake", BASE_UNITS, "a decimal string of base units", source)),
+    signature: matching(fields, "signature", HEX, "a 0x hex string", source) as Hex,
+  };
+}
+
+/** A paid POST /replay body: only the fields the Requester needs to settle are kept. */
+export function parseVerdict(body: unknown, source = "/replay"): SignedVerdict {
+  const fields = objectBody(body, source);
+  const { verdict } = fields;
+  if (typeof verdict !== "string" || !(OUTCOMES as readonly string[]).includes(verdict)) {
+    throw new Error(`${source}: verdict must be one of ${OUTCOMES.join(", ")}, got ${JSON.stringify(verdict)}`);
+  }
+  return {
+    outcome: verdict as SignedVerdict["outcome"],
+    evidenceHash: matching(fields, "evidenceHash", BYTES32, "a 0x-prefixed 32-byte hex string", source) as Hex,
+    signature: matching(fields, "signature", HEX, "a 0x hex string", source) as Hex,
+  };
+}
+
+function objectBody(body: unknown, source: string): Record<string, unknown> {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) throw new Error(`${source}: expected a JSON object, got ${JSON.stringify(body)}`);
+  return body as Record<string, unknown>;
+}
+
+function matching(fields: Record<string, unknown>, name: string, pattern: RegExp, expected: string, source: string): string {
+  const value = fields[name];
+  if (typeof value !== "string" || !pattern.test(value)) throw new Error(`${source}: ${name} must be ${expected}, got ${JSON.stringify(value)}`);
+  return value;
 }
 
 async function post(doFetch: typeof fetch, url: string, missionId: string, timeoutMs: number): Promise<unknown> {
@@ -110,30 +155,58 @@ async function post(doFetch: typeof fetch, url: string, missionId: string, timeo
   return response.json();
 }
 
-/** Passes calls through to fetch and notes the 402 challenge and the amount of the payment that answers it. */
+/** Passes calls through to fetch and notes the 402 challenge, the payment that answers it and its settlement. */
 function recordingFetch(payment: ReplayPayment): typeof fetch {
-  let quoted = 0n;
+  let quoted: Partial<PaymentTerms> = {};
   return async (input, init) => {
     const signature = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined)).get("PAYMENT-SIGNATURE");
     const response = await fetch(input, init);
     if (response.status === 402) {
       payment.challenged = true;
-      quoted = decodedAmount(response.headers.get("PAYMENT-REQUIRED"), "accepts") ?? quoted;
+      quoted = paymentTerms(decodedHeader(response.headers.get("PAYMENT-REQUIRED"))?.accepts) ?? quoted;
     }
-    if (signature) payment.amount = decodedAmount(signature, "accepted") ?? quoted;
+    if (signature) {
+      const chosen = { ...quoted, ...paymentTerms(decodedHeader(signature)?.accepted) };
+      payment.amount = chosen.amount ?? payment.amount;
+      Object.assign(payment, { payTo: chosen.payTo, network: chosen.network, asset: chosen.asset });
+    }
+    const settled = decodedHeader(response.headers.get("PAYMENT-RESPONSE"));
+    if (typeof settled?.transaction === "string" && settled.transaction) payment.paymentTx = settled.transaction;
     return response;
   };
 }
 
-/** The `amount` in a base64 JSON x402 header: of the first option under "accepts", or of the "accepted" one. */
-function decodedAmount(header: string | null, field: "accepts" | "accepted"): bigint | undefined {
+interface PaymentTerms {
+  amount: bigint;
+  payTo: string;
+  network: string;
+  asset: string;
+}
+
+/** A base64 JSON x402 header (PAYMENT-REQUIRED, PAYMENT-SIGNATURE or PAYMENT-RESPONSE), or undefined if absent or malformed. */
+function decodedHeader(header: string | null): Record<string, unknown> | undefined {
   if (!header) return undefined;
   try {
-    const body = JSON.parse(Buffer.from(header, "base64").toString()) as Record<string, { amount?: string } | { amount?: string }[]>;
-    const chosen = body[field];
-    const amount = (Array.isArray(chosen) ? chosen[0] : chosen)?.amount;
-    return amount === undefined ? undefined : BigInt(amount);
+    const body: unknown = JSON.parse(Buffer.from(header, "base64").toString());
+    return typeof body === "object" && body !== null ? (body as Record<string, unknown>) : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** The terms of one payment option: the first of a PAYMENT-REQUIRED "accepts" list, or the "accepted" one of a signature. */
+function paymentTerms(option: unknown): Partial<PaymentTerms> | undefined {
+  const chosen = Array.isArray(option) ? option[0] : option;
+  if (typeof chosen !== "object" || chosen === null) return undefined;
+  const { amount, payTo, network, asset } = chosen as Record<string, unknown>;
+  const terms: Partial<PaymentTerms> = {};
+  try {
+    if (typeof amount === "string") terms.amount = BigInt(amount);
+  } catch {
+    // an unparsable amount is treated as missing
+  }
+  if (typeof payTo === "string") terms.payTo = payTo;
+  if (typeof network === "string") terms.network = network;
+  if (typeof asset === "string") terms.asset = asset;
+  return terms;
 }

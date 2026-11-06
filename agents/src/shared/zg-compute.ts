@@ -1,7 +1,8 @@
 // 0G Compute adapter: one verifiable chat call per Decision (spike #3).
 // Flow per the SDK: getServiceMetadata -> getRequestHeaders -> POST {endpoint}/chat/completions
 // -> chat ID from the ZG-Res-Key header -> processResponse (fee cache + signature check)
-// -> fetch the signed receipt so Verifiers can check it offline.
+// -> fetch the signed receipt so Verifiers can check it offline (best effort: a missing receipt is
+// omitted, never fatal).
 import { createZGComputeNetworkBroker, type ZGComputeNetworkBroker } from "@0gfoundation/0g-compute-ts-sdk";
 import type { Wallet } from "ethers";
 import type { ChatReceipt, ChatRequest, Hex } from "../formats";
@@ -32,11 +33,15 @@ export class ZeroGInference implements InferencePort {
     const valid = await this.broker.inference.processResponse(providerAddress, chatID, usage);
     if (valid === false) throw new Error(`0G signature for chat ${chatID} did not verify`);
 
-    return {
-      chatID,
-      rawResponse: completion.choices?.[0]?.message?.content ?? "",
-      receipt: await this.receipt(providerAddress, chatID),
-    };
+    const reply: InferenceReply = { chatID, rawResponse: completion.choices?.[0]?.message?.content ?? "" };
+    // The receipt is optional evidence: failing to fetch it must not end the Episode (only the
+    // completion and processResponse above do), so the Decision is kept without it.
+    try {
+      reply.receipt = await this.receipt(providerAddress, chatID);
+    } catch (error) {
+      console.warn(`0G receipt for chat ${chatID} not fetched, recording the Decision without it:`, error);
+    }
+    return reply;
   }
 
   /** One billed chat completion and its chat ID. */
