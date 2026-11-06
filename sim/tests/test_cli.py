@@ -39,3 +39,17 @@ def test_session_hand_fed_actions_drive_start_to_goal(tmp_path):
     assert set(replies[0]) == {"step", "frame", "frameHash", "pose", "atGoal", "collisions"}
     assert set(replies[1]) == {"step", "collision", "atGoal", "pose"}
     assert replies[-2]["atGoal"] is True and replies[-1]["atGoal"] is True and replies[-1]["step"] == len(actions)
+
+
+def test_replay_bad_actions_file_reports_error_and_exits_nonzero(tmp_path):
+    for bad in ('{"a": 1}', '["FORWARD", "JUMP"]', "[1]", "not json"):
+        actions = tmp_path / "actions.json"
+        actions.write_text(bad)
+        out = subprocess.run(
+            [sys.executable, "-m", "sim.cli", "replay", "--course", str(FIX / "course_medium.json"),
+             "--actions", str(actions)],
+            capture_output=True, text=True,
+        )
+        assert out.returncode != 0
+        assert "Traceback" not in out.stderr
+        assert "error" in json.loads(out.stdout)
