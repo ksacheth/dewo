@@ -3,6 +3,7 @@ import { Link } from "react-router-dom"
 import { API } from "../api"
 import { DEFAULT_MAX_COLLISIONS, DEFAULT_MAX_STEPS, MAX_STEPS } from "../constants"
 import { useOperator } from "../operator"
+import { Panel, Segmented } from "../ui"
 import { isUnreachable } from "../unreachable"
 
 /** A fresh Idempotency-Key; randomUUID needs a secure context, which a LAN address over http is not. */
@@ -53,39 +54,38 @@ export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: 
   }
 
   return (
-    <section className="panel" aria-label="Post Mission">
-      <h2>Post a Mission</h2>
+    <Panel title="Post a Mission" meta="Requester">
       <form className="form" onSubmit={(e) => { e.preventDefault(); void submit() }}>
-        <label>Robot
-          <select value={task} onChange={(e) => setTask(e.target.value)}>
-            <option value="rover">rover</option><option value="drone">drone</option>
-          </select>
-        </label>
-        <label>Difficulty Class
-          <select value={difficultyClass} onChange={(e) => setDifficulty(e.target.value)}>
-            <option>easy</option><option>medium</option><option>hard</option>
-          </select>
-        </label>
-        <label>Max bounty (USDC)
+        <div className="field"><span>Robot</span>
+          <Segmented label="Robot" value={task as "rover" | "drone"} options={["rover", "drone"] as const} onChange={setTask} />
+        </div>
+        <div className="field"><span>Difficulty Class</span>
+          <Segmented label="Difficulty Class" value={difficultyClass as "easy" | "medium" | "hard"} options={["easy", "medium", "hard"] as const} onChange={setDifficulty} />
+        </div>
+        <label><span className="lbl">Max bounty <span className="hint">USDC, locked in escrow</span></span>
           <input type="number" min={1} step={1} value={maxBounty} onChange={(e) => setBounty(Number(e.target.value))} />
         </label>
-        <label>Risk Weight {riskWeight.toFixed(2)} <span>(0 cheapest, 1 most reliable)</span>
-          <input type="range" min={0} max={1} step={0.05} value={riskWeight} onChange={(e) => setRisk(Number(e.target.value))} />
+        <label><span className="lbl">Risk Weight <span className="mono">{riskWeight.toFixed(2)}</span></span>
+          <input type="range" min={0} max={1} step={0.05} value={riskWeight} onChange={(e) => setRisk(Number(e.target.value))} aria-valuetext={`${riskWeight.toFixed(2)}, 0 cheapest, 1 most reliable`} />
+          <span className="lbl hint"><span>Cheapest</span><span>Most reliable</span></span>
         </label>
-        <label>Max steps <span>(Decisions; also bounds the Worker's 0G bill)</span>
-          <input type="number" min={1} max={MAX_STEPS} step={1} value={maxSteps} onChange={(e) => setMaxSteps(Number(e.target.value))} />
-        </label>
-        <label>Max collisions
-          <input type="number" min={0} step={1} value={maxCollisions} onChange={(e) => setMaxCollisions(Number(e.target.value))} />
-        </label>
+        <div className="field-row">
+          <label><span className="lbl">Max steps</span>
+            <input type="number" min={1} max={MAX_STEPS} step={1} value={maxSteps} onChange={(e) => setMaxSteps(Number(e.target.value))} />
+          </label>
+          <label><span className="lbl">Max collisions</span>
+            <input type="number" min={0} step={1} value={maxCollisions} onChange={(e) => setMaxCollisions(Number(e.target.value))} />
+          </label>
+        </div>
+        <p className="hint">Max steps caps the Decisions in an Episode (at most {MAX_STEPS}) and with it the Worker's 0G bill.</p>
         {!signedIn
           ? <button type="button" className="primary" disabled={signing} onClick={() => void signIn()}>{signing ? "Signing…" : "Sign in to post"}</button>
           : !canPost
-          ? <Link to="/app/onboard" className="primary-link">Onboard as a Requester to post</Link>
+          ? <Link viewTransition to="/app/onboard" className="primary-link">Onboard as a Requester to post</Link>
           : <button className="primary" disabled={busy || !(maxBounty > 0) || !limitsValid(maxSteps, maxCollisions)}>{busy ? "Posting…" : "Post Mission"}</button>}
-        {error && <span className="bad" role="alert">{error}</span>}
-        {pending && <span role="status">{pending}</span>}
+        {error && <span className="banner bad" role="alert">{error}</span>}
+        {pending && <span className="banner" role="status">{pending}</span>}
       </form>
-    </section>
+    </Panel>
   )
 }

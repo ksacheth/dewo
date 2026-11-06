@@ -13,10 +13,12 @@ export default function AppShell() {
       <header className="app-header">
         <Link className="brand" to="/"><img src="/dewo-logo.svg" alt="Dewo" /></Link>
         <nav className="app-nav" aria-label="App">
-          {NAV.map((n) => <NavLink key={n.to} to={n.to} end={n.end}>{n.label}</NavLink>)}
+          {NAV.map((n) => <NavLink key={n.to} to={n.to} end={n.end} viewTransition>{n.label}</NavLink>)}
         </nav>
-        {mode?.board === "mock" && <span className="badge">mock board</span>}
-        <div style={{ marginLeft: "auto" }}><OperatorButton /></div>
+        <div className="header-end">
+          {mode?.board === "mock" && <span className="badge" title="Reading the file-backed mock board, not Arkiv">Mock board</span>}
+          <OperatorButton />
+        </div>
       </header>
       <Outlet />
     </div>

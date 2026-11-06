@@ -1,54 +1,67 @@
 import { useEffect, useRef, useState } from 'react';
 
-const RUN = 6000, HOLD = 2500, STEPS = 96;
+const RUN = 6000, HOLD = 2500, MAX = 60;
 const PATH = 'M60 150 C150 150 160 95 250 95 S340 175 440 150 S520 130 560 150';
 
+/** The rover is moved straight on the SVG node each frame; React renders only when the Decision count changes. */
 export default function Mission() {
-  const pathRef = useRef(null);
-  const [t, setT] = useState(() => (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 0));
+  const pathRef = useRef(null), dotRef = useRef(null), boxRef = useRef(null);
+  const [step, setStep] = useState(0);
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return setT(0.999);
-    const start = performance.now();
-    const id = setInterval(() => setT(((performance.now() - start) % (RUN + HOLD)) / RUN), 60);
-    return () => clearInterval(id);
+    const path = pathRef.current, dot = dotRef.current;
+    const len = path.getTotalLength();
+    const place = (p) => { const pt = path.getPointAtLength(len * p); dot.setAttribute('transform', `translate(${pt.x} ${pt.y})`); };
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { place(1); setStep(38); setDone(true); return; }
+    let raf = 0, start = 0, visible = false;
+    const ease = (t) => 1 - Math.pow(1 - t, 3);
+    const tick = (now) => {
+      start ||= now;
+      const t = ((now - start) % (RUN + HOLD)) / RUN;
+      const p = ease(Math.min(1, t));
+      place(p);
+      setStep(Math.round(p * 38));
+      setDone(t >= 1);
+      if (visible) raf = requestAnimationFrame(tick);
+    };
+    const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; cancelAnimationFrame(raf); if (visible) raf = requestAnimationFrame(tick); });
+    io.observe(boxRef.current);
+    return () => { io.disconnect(); cancelAnimationFrame(raf); };
   }, []);
 
-  const p = t >= 0.999 ? 1 : t;
-  const len = pathRef.current?.getTotalLength() ?? 0;
-  const pt = pathRef.current?.getPointAtLength(len * p) ?? { x: 60, y: 150 };
-  const done = t >= 0.999;
-
   return (
-    <section id="explore" className="section mission">
-      <span className="eyebrow">04 / THE FIRST MISSION</span>
-      <h2>Real decisions.<br /><span>A simulated world.</span></h2>
-      <p className="section-intro">A rover. An unseen obstacle Course. A goal to reach.<br />Physical AI is the first proving ground for Dewo.</p>
-      <div className="mission-panel reveal">
-        <div className="mission-label"><span className="status-dot"></span> ILLUSTRATIVE MISSION <span>ROVER / 001</span></div>
-        <div className="course">
-          <svg viewBox="0 0 620 300" role="img" aria-label="A rover drives from the dock around obstacles to the charger">
-            <path ref={pathRef} d={PATH} fill="none" stroke="#a5d2bd" strokeOpacity=".4" strokeWidth="2" strokeDasharray="6 6" />
-            <rect x="140" y="130" width="46" height="44" rx="4" className="obs" />
-            <rect x="280" y="40" width="64" height="46" rx="4" className="obs" />
-            <rect x="330" y="190" width="44" height="34" rx="4" className="obs" />
-            <text x="40" y="190" className="lbl">◉ DOCK</text>
-            <text x="525" y="190" className="lbl">ϟ CHARGER</text>
-            <circle cx={pt.x} cy={pt.y} r="9" className="rover-dot" />
+    <section id="explore" className="sec mission-sec">
+      <header className="sec-head reveal">
+        <span className="kicker">04 · The first Mission</span>
+        <h2>Real decisions.<br /><span>A simulated world.</span></h2>
+        <p className="lede">A rover, a public obstacle Course, a goal to reach within the Requester's limits. Physical AI is Dewo's first proving ground.</p>
+      </header>
+      <div className="rover-panel reveal" ref={boxRef}>
+        <div className="rover-bar"><span>Illustrative Mission</span><span>rover / 001</span></div>
+        <div className="rover-field">
+          <svg viewBox="0 0 620 260" role="img" aria-label="A rover drives from the start around obstacles to the goal">
+            <path ref={pathRef} d={PATH} fill="none" className="trail" />
+            <rect x="140" y="128" width="46" height="44" className="obs" />
+            <rect x="280" y="40" width="64" height="46" className="obs" />
+            <rect x="330" y="188" width="44" height="34" className="obs" />
+            <text x="60" y="190" textAnchor="middle" className="lbl">start</text>
+            <circle cx="560" cy="150" r="16" className="goal" />
+            <text x="560" y="190" textAnchor="middle" className="lbl">goal</text>
+            <circle ref={dotRef} r="7" className="rover" />
           </svg>
-          {done && <span className="stamp">PASS · 3/3 VERIFIERS</span>}
+          <span className={`verdict${done ? ' on' : ''}`}>Pass · 2 of 3 Verifiers</span>
         </div>
-        <div className="mission-meta">
-          <span><small>STEP</small>{Math.round(p * STEPS)} / 120</span>
-          <span><small>COLLISIONS</small>0</span>
-          <span><small>VERIFICATION</small>Independent Replay</span>
-        </div>
+        <dl className="rover-meta">
+          <div><dt>Decisions</dt><dd>{step} / {MAX}</dd></div>
+          <div><dt>Collisions</dt><dd>0 / 0</dd></div>
+          <div><dt>Verification</dt><dd>Independent Replay</dd></div>
+        </dl>
       </div>
-      <figure className="run-video">
+      <figure className="run-video reveal">
         <video src="/trial.mp4" poster="/assets/hero-poster.jpg" controls preload="none" playsInline></video>
-        <figcaption>A recorded run.</figcaption>
+        <figcaption>A recorded run in the simulator.</figcaption>
       </figure>
-      <p className="mission-caption">One Mission type today. A foundation for verifiable agent work tomorrow.</p>
     </section>
   );
 }

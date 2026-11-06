@@ -19,10 +19,10 @@ export function ReplayPlayer({ decisions, maxSteps }: { decisions: MissionState[
     <div className="replay">
       <img className="frame" src={API.frame(d.frame)} alt={`Camera frame, step ${d.step}`} />
       <div className="row">
-        <button type="button" className="chip" onClick={() => { if (!playing && i >= last) setI(0); setPlaying(!playing) }}>{playing ? "Pause" : "Play"}</button>
+        <button type="button" className="chip sm" onClick={() => { if (!playing && i >= last) setI(0); setPlaying(!playing) }}>{playing ? "Pause" : "Play"}</button>
         <input type="range" min={0} max={last} value={Math.min(i, last)} onChange={(e) => { setPlaying(false); setI(Number(e.target.value)) }} aria-label="Decision" style={{ flex: 1 }} />
       </div>
-      <div className="row mono"><strong>{d.action}</strong><span className="dim">Decision {d.step}/{maxSteps}</span><span className="dim" title={d.chatID}>chat {short(d.chatID, 4)}</span></div>
+      <div className="row mono"><strong style={{ fontWeight: 400 }}>{d.action}</strong><span className="dim">Decision {d.step}/{maxSteps}</span><span className="dim" title={d.chatID}>chat {short(d.chatID, 4)}</span></div>
     </div>
   )
 }

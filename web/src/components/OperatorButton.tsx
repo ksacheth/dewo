@@ -9,11 +9,11 @@ export function OperatorButton() {
   const navigate = useNavigate()
   if (!operator) return null
   return (
-    <div className="row" style={{ gap: 8 }}>
+    <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
       {signedIn
-        ? <><Link className="pill eyebrow" to="/app/onboard" title="Your role">{role ?? "choose role"} · {short(operator.address!, 4)}</Link><button type="button" className="chip" onClick={() => void signOut()}>Sign out</button></>
+        ? <><Link viewTransition className="pill" to="/app/onboard" title="Your role and wallet"><span style={{ textTransform: "capitalize" }}>{role ?? "Choose role"}</span><span className="addr mono dim">{short(operator.address!, 4)}</span></Link><button type="button" className="chip" onClick={() => void signOut()}>Sign out</button></>
         : <button type="button" className="chip" disabled={busy || !hasWallet()} title={hasWallet() ? "Sign in with your wallet" : "No browser wallet found"}
-            onClick={async () => { if (await signIn()) navigate("/app/onboard") }}>{busy ? "Signing…" : "Sign in"}</button>}
+            onClick={async () => { if (await signIn()) navigate("/app/onboard", { viewTransition: true }) }}>{busy ? "Signing…" : "Sign in"}</button>}
       {error && <span className="bad" role="alert" style={{ fontSize: 11 }}>{error}</span>}
     </div>
   )

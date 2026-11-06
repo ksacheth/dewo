@@ -4,6 +4,7 @@ import { usePoll } from "../arkiv"
 import type { Leader } from "../arkiv"
 import { API } from "../api"
 import { arkivEntity, plural, short } from "../links"
+import { PageHeader, Panel, Stat, Stats, Tag } from "../ui"
 
 /** One Worker's public record: its reputation and every past Mission, Fails included. */
 export default function WorkerPage() {
@@ -16,28 +17,35 @@ export default function WorkerPage() {
   useEffect(() => { document.title = `Dewo · ${name}` }, [name])
   return (
     <main className="page">
-      <div className="row" style={{ marginBottom: 16 }}><Link to="/app/leaderboard" className="chip">← Leaderboard</Link></div>
-      <div>
-        <section className="panel">
-          <h2>{name} <span className="mono dim">{short(address, 6)}</span></h2>
-          {worker
-            ? <>
-                <div className="metrics">
-                  <div className="metric"><small>Level</small><span className="value">{worker.level}</span></div>
-                  <div className="metric"><small>XP</small><span className="value">{Math.round(worker.xp)}</span></div>
-                  <div className="metric"><small>Reliability</small><span className="value">{(worker.reliability * 100).toFixed(0)}%</span></div>
-                </div>
-                <h3 className="sub">Past Missions</h3>
+      <PageHeader meta={<><Link viewTransition to="/app/leaderboard">Leaderboard</Link><span aria-hidden>/</span><span>Worker</span></>} title={name} description={<span className="mono">{address}</span>} />
+      {worker
+        ? <div className="col">
+            <Stats>
+              <Stat label="Level" value={worker.level} />
+              <Stat label="XP" value={Math.round(worker.xp)} />
+              <Stat label="Reliability" value={`${(worker.reliability * 100).toFixed(0)}%`} />
+              <Stat label="Passes" value={<>{worker.missions.filter((m) => m.outcome === "Pass").length}<span className="dim"> / {worker.missions.length}</span></>} />
+            </Stats>
+            <Panel title="Past Missions" meta="Fails included" flush>
+              <ol className="rows">
                 {worker.missions.map((m) => (
-                  <div key={m.missionId} className="card">
-                    <div className="row"><strong className={m.outcome === "Pass" ? "ok" : "bad"}>{m.outcome}</strong><span>{m.difficultyClass}</span><span className="dim">{m.steps !== undefined && `${plural(m.steps, "move")} · `}{plural(m.collisions, "collision")}</span></div>
-                    <div className="mono dim"><Link to={`/app/mission/${m.missionId}`}>Mission</Link> · <a href={arkivEntity(m.entityKey)} target="_blank" rel="noreferrer">Verdict entity</a>{settlements?.[m.missionId] && <> · <a href={settlements[m.missionId]} target="_blank" rel="noreferrer">settlement</a></>}</div>
-                  </div>
+                  <li key={m.missionId} className="row-item" style={{ gridTemplateColumns: "auto minmax(0,1fr) auto" }}>
+                    <Tag tone={m.outcome === "Pass" ? "ok" : "bad"}>{m.outcome}</Tag>
+                    <span style={{ display: "grid", gap: 2 }}>
+                      <span className="row-title">{m.difficultyClass}</span>
+                      <span className="row-sub">{m.steps !== undefined && `${plural(m.steps, "move")} · `}{plural(m.collisions, "collision")}</span>
+                    </span>
+                    <span className="row-end" style={{ fontSize: 13 }}>
+                      <Link viewTransition to={`/app/mission/${m.missionId}`}>Mission</Link>
+                      <a href={arkivEntity(m.entityKey)} target="_blank" rel="noreferrer">Verdict</a>
+                      {settlements?.[m.missionId] && <a href={settlements[m.missionId]} target="_blank" rel="noreferrer">Settlement</a>}
+                    </span>
+                  </li>
                 ))}
-              </>
-            : <p className="dim">No Verdicts for this Worker yet.</p>}
-        </section>
-      </div>
+              </ol>
+            </Panel>
+          </div>
+        : <Panel title="Past Missions"><p className="dim">No Verdicts for this Worker yet.</p></Panel>}
     </main>
   )
 }

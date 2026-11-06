@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import type { MissionState } from "../feed"
 import { API } from "../api"
 import { short } from "../links"
+import { Panel } from "../ui"
 
 const MS_PER_IMAGE = 70
 
@@ -50,37 +51,40 @@ export function RoverView({ state }: { state: MissionState }) {
   const robot = drone ? "Drone" : "Rover"
   const failed = Object.values(state.verifiers).some((v) => v.outcome && v.outcome !== "Pass") || (state.settled && state.settled.outcome !== "Pass")
   return (
-    <section className="panel panel-hero" aria-label={`${robot} view`}>
-      <h2>{robot} · every Decision is a 0G model call</h2>
-      {arena ? (
-        <div className="arena">
-          <img className="frame" src={API.frame(arena)} alt="Whole arena, rendered in MuJoCo" />
-          {shown && (
-            <div className="onboard">
-              <img src={API.frame(shown.frame)} alt={`Camera frame, step ${shown.step}`} />
-              <div>
-                <span className="dim">What the model sees · Decision {shown.step}/{maxSteps}</span>
-                <strong>{shown.action}</strong>
-                <span className="mono dim" title={shown.chatID}>0G chat {short(shown.chatID, 4)}</span>
-              </div>
+    <Panel title={robot} meta="What the model saw, Decision by Decision" label={`${robot} view`} flush>
+      <div className="run">
+        <div className="run-frame">
+          {arena ? (
+            <div className="arena">
+              <img className="frame" src={API.frame(arena)} alt="Whole arena, rendered in MuJoCo" />
+              {shown && (
+                <div className="onboard">
+                  <img src={API.frame(shown.frame)} alt={`Camera frame, step ${shown.step}`} />
+                  <div>
+                    <span className="dim">What the model sees · Decision {shown.step} / {maxSteps}</span>
+                    <strong>{shown.action}</strong>
+                    <span className="mono dim" title={shown.chatID}>0G chat {short(shown.chatID, 4)}</span>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          ) : shown ? <img className="frame" src={API.frame(shown.frame)} alt={`Camera frame, step ${shown.step}`} /> : <div className="frame" />}
+          {last?.collision && <div className="banner bad">Collision: the move was blocked</div>}
+          {last?.atGoal && <div className="banner ok">{drone ? "Flew through the hoop" : "Reached the charger"}</div>}
+          {state.decisions.some((d) => d.action === "STOP") && <div className="banner bad">Episode ended by STOP</div>}
+          {failed && <div className="banner bad">Outcome: {state.settled?.outcome ?? "Fail"}</div>}
+          {state.episode && <p className="mono dim">Episode submitted · log {short(state.episode.episodeLogRoot)} · {state.episode.decisionCount} Decisions {state.episode.txUrl && <a href={state.episode.txUrl} target="_blank" rel="noreferrer">0G Chainscan</a>}</p>}
         </div>
-      ) : shown ? <img className="frame" src={API.frame(shown.frame)} alt={`Camera frame, step ${shown.step}`} /> : <div className="frame" />}
-      {last?.collision && <div className="banner bad">Collision: the move was blocked</div>}
-      {last?.atGoal && <div className="banner good">{drone ? "Flew through the hoop" : "Reached the charger"}</div>}
-      {state.decisions.some((d) => d.action === "STOP") && <div className="banner bad">Episode ended by STOP</div>}
-      {failed && <div className="banner bad">Outcome: {state.settled?.outcome ?? "Fail"}</div>}
-      <div className="decisions" role="listbox" aria-label="Decisions">
-        {list.map((d) => (
-          <div key={d.step} className="step" role="option" aria-selected={shown?.step === d.step} onClick={() => setPicked(d.step === latest?.step ? null : d.step)}>
-            <span>{d.step}/{maxSteps}</span><strong>{d.action}</strong>
-            <span className="mono dim" title={d.chatID}>{short(d.chatID, 4)} <button className="chip" onClick={(e) => { e.stopPropagation(); void navigator.clipboard?.writeText(d.chatID) }}>copy</button></span>
-          </div>
-        ))}
-        {list.length === 0 && <p className="dim">Waiting for the first Decision.</p>}
+        <div className="decisions" role="listbox" aria-label="Decisions">
+          {list.map((d) => (
+            <div key={d.step} className="step" role="option" aria-selected={shown?.step === d.step} onClick={() => setPicked(d.step === latest?.step ? null : d.step)}>
+              <span>{d.step} / {maxSteps}</span><strong>{d.action}</strong>
+              <span className="mono dim" title={d.chatID}>{short(d.chatID, 4)} <button className="chip sm" onClick={(e) => { e.stopPropagation(); void navigator.clipboard?.writeText(d.chatID) }}>Copy</button></span>
+            </div>
+          ))}
+          {list.length === 0 && <p className="empty">Waiting for the first Decision.</p>}
+        </div>
       </div>
-      {state.episode && <p className="mono dim">Episode submitted · log {short(state.episode.episodeLogRoot)} · {state.episode.decisionCount} Decisions {state.episode.txUrl && <a href={state.episode.txUrl} target="_blank" rel="noreferrer">0G Chainscan</a>}</p>}
-    </section>
+    </Panel>
   )
 }

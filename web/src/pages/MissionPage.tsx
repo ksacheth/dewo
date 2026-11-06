@@ -3,14 +3,16 @@ import { Link, useLocation, useParams, useSearchParams } from "react-router-dom"
 import { StageRail } from "../components/StageRail"
 import { useMissionFeed } from "../feed"
 import { useLive } from "../hooks"
-import { short } from "../links"
+import { plural, short, usdc } from "../links"
+import { PageHeader, Tag } from "../ui"
 import { ResultCard } from "../panels/ResultCard"
-import { AwardedStage } from "../stages/AwardedStage"
-import { BiddingStage } from "../stages/BiddingStage"
+import { AuctionCanvas } from "../components/AuctionCanvas"
 import { RunningStage } from "../stages/RunningStage"
 import { VerifyingStage } from "../stages/VerifyingStage"
 import { stageOf } from "../stages"
 import type { StageId } from "../stages"
+
+const PHASE = { waiting: "Waiting", posted: "Posted", bidding: "Bidding", awarded: "Awarded", staked: "Staked", running: "Running", verifying: "Verifying", settled: "Settled" } as const
 
 /** One Mission, start to finish. It follows the Mission's progress; animations play only for live changes. */
 export default function MissionPage() {
@@ -27,24 +29,27 @@ export default function MissionPage() {
   useEffect(() => { document.title = `Dewo · ${state.phase}` }, [state.phase])
   const stage = viewed ?? current
   // Decide per stage, once, when it appears: a stage already on screen when the page went live must not start animating.
-  const key = `${stage}-${replayKey}`
+  // Bidding and Stake are one continuous canvas: it must not remount between them, so the camera can move.
+  const key = `${stage === "bidding" || stage === "awarded" ? "auction" : stage}-${replayKey}`
   const mounted = useRef({ key: "", enter: false })
   if (mounted.current.key !== key) mounted.current = { key, enter: live || replayKey > 0 }
   const animate = mounted.current.enter
   return (
     <main className="page">
-      <div className="row" style={{ marginBottom: 16 }}>
-        <Link to="/app" className="chip">← Missions</Link>
-        <span className="mono dim">{short(id)}</span>
-        <span className="eyebrow">phase: <strong>{state.phase}</strong></span>
-        {mockRequester && <span className="badge">mock requester</span>}
-        {replay && <span className="badge">replay</span>}
-      </div>
+      <PageHeader
+        meta={<><Link viewTransition to="/app">Missions</Link><span aria-hidden>/</span><span className="mono">{short(id)}</span></>}
+        title={state.posted ? <><span style={{ textTransform: "capitalize" }}>{state.posted.difficultyClass}</span> Mission</> : "Mission"}
+        description={state.posted ? `${usdc(state.posted.maxBounty)} USDC bounty · at most ${state.posted.maxSteps} Decisions and ${plural(state.posted.maxCollisions, "collision")} · Risk Weight ${state.posted.riskWeight}` : undefined}
+        actions={<>
+          <Tag tone={state.phase === "settled" ? "ok" : "accent"} live={state.phase !== "settled" && state.phase !== "waiting"}>{PHASE[state.phase]}</Tag>
+          {mockRequester && <Tag tone="warn">Mock requester</Tag>}
+          {replay && <Tag>Replay</Tag>}
+        </>}
+      />
       <StageRail current={current} viewed={stage} onView={setViewed} />
-      {state.phase === "waiting" && <p className="dim">Waiting for events for this Mission…</p>}
+      {state.phase === "waiting" && <p className="dim" style={{ marginBottom: 16 }}>Waiting for events for this Mission…</p>}
       <div key={key} className={`stage${animate ? " enter" : ""}`}>
-        {stage === "bidding" && <BiddingStage state={state} animate={live && current === "bidding"} />}
-        {stage === "awarded" && <AwardedStage state={state} />}
+        {(stage === "bidding" || stage === "awarded") && <AuctionCanvas state={state} view={stage} live={live} />}
         {stage === "running" && <RunningStage state={state} />}
         {stage === "verifying" && <VerifyingStage state={state} />}
         {stage === "result" && <ResultCard state={state} animate={animate} onReplay={() => setReplayKey((k) => k + 1)} />}
