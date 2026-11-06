@@ -147,9 +147,25 @@ contract MissionEscrowTest is EscrowFixture {
     function testReplacementAwardRejectedInsideStakeWindow() public {
         _award();
         bytes[2] memory signatures = _sigs(escrow.awardDigest(missionId, address(0x300), PRICE, STAKE));
-        vm.warp(1090); // awardedAt + stakeWindow: not yet lapsed
+        vm.warp(1089); // one second before awardedAt + stakeWindow: stake still works
         vm.expectRevert(MissionEscrow.InvalidTime.selector);
         escrow.award(missionId, address(0x300), PRICE, STAKE, signatures);
+        vm.prank(worker);
+        escrow.stake(missionId);
+    }
+
+    function testReplacementAwardAtExactStakeBoundary() public {
+        _award();
+        address next = address(0x300);
+        bytes[2] memory signatures = _sigs(escrow.awardDigest(missionId, next, PRICE, STAKE));
+        vm.warp(1090); // awardedAt + stakeWindow: stake reverts, replacement succeeds
+        vm.prank(worker);
+        vm.expectRevert(MissionEscrow.InvalidTime.selector);
+        escrow.stake(missionId);
+        escrow.award(missionId, next, PRICE, STAKE, signatures);
+        MissionEscrow.Mission memory m = escrow.getMission(missionId);
+        assertEq(m.worker, next);
+        assertEq(m.awardedAt, 1090);
     }
 
     function testReplacementAwardAfterMissedStake() public {
