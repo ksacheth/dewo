@@ -13,6 +13,12 @@ the lattice reports, with real dynamics:
 - rover: a wheeled chassis on planar joints, driven by position actuators along the
   same kind of trajectory, with its wheels rolling with the ground speed.
 
+Each move is a quintic segment. When the next move carries on in about the same
+direction the robot passes the waypoint at speed, so a run of FORWARDs is one
+smooth cruise rather than a pitch-forward, brake, pitch-back swing at every step.
+For that the process draws each move once the next one arrives (or stdin ends),
+so it runs one move behind the Episode.
+
 A blocked move (collision) is drawn as a bump: the robot heads for the move, stops
 at the obstacle and comes back, as the sim says it stays where it was.
 
@@ -47,7 +53,7 @@ MASS = 0.9
 G = 9.81
 KP, KV, KR, KW = 14.0, 8.0, 6.0, 0.5
 PROP_SPEED = 90.0  # rad/s of the drawn blades
-MOVE_SECONDS = 1.0  # simulated time of one move
+MOVE_SECONDS = 0.6  # simulated time of one move (on screen every move is IMAGES_PER_MOVE images)
 # Drone chase camera: behind and above the drone, looking along the start-to-hoop line, following it with a lag.
 CHASE_DISTANCE = 2.9
 CHASE_ELEVATION = -36.0  # degrees, looking down: high enough to see over the blocks near the drone
@@ -194,13 +200,39 @@ def overview_xml(course):
 
 
 def _min_jerk(t, duration):
-    """Position, velocity and acceleration fractions of a minimum-jerk move at time t."""
+    """Position fraction of a minimum-jerk move at time t (used for the heading)."""
     s = min(max(t / duration, 0.0), 1.0)
+    return 10 * s**3 - 15 * s**4 + 6 * s**5
+
+
+def _quintic(p0, v0, p1, v1, T, t):
+    """Position, velocity, acceleration at t of the quintic from (p0, v0) to (p1, v1) in T s, with no acceleration at either end.
+
+    With v0 = v1 = 0 this is the minimum-jerk move; with the speed carried over from one move to the next the robot
+    cruises through a waypoint instead of braking to a hover and pitching back at every step.
+    """
+    if t >= T:
+        return p1, v1, np.zeros_like(p1)
+    d = p1 - p0
+    c3 = (20 * d - (8 * v1 + 12 * v0) * T) / (2 * T**3)
+    c4 = (-30 * d + (14 * v1 + 16 * v0) * T) / (2 * T**4)
+    c5 = (12 * d - 6 * (v1 + v0) * T) / (2 * T**5)
     return (
-        10 * s**3 - 15 * s**4 + 6 * s**5,
-        (30 * s**2 - 60 * s**3 + 30 * s**4) / duration,
-        (60 * s - 180 * s**2 + 120 * s**3) / duration**2,
+        p0 + v0 * t + c3 * t**3 + c4 * t**4 + c5 * t**5,
+        v0 + 3 * c3 * t**2 + 4 * c4 * t**3 + 5 * c5 * t**4,
+        6 * c3 * t + 12 * c4 * t**2 + 20 * c5 * t**3,
     )
+
+
+def _through_velocity(a, b, c, t_ab, t_bc):
+    """Speed to pass waypoint b at, between legs a->b and b->c: a Catmull-Rom tangent, or 0 to stop there.
+
+    It stops when either leg does not move (a turn in place), or when the path turns by more than 90 degrees.
+    """
+    d1, d2 = b - a, c - b
+    if np.linalg.norm(d1) < 1e-6 or np.linalg.norm(d2) < 1e-6 or float(d1 @ d2) <= 0:
+        return np.zeros_like(b)
+    return (c - a) / (t_ab + t_bc)
 
 
 def _wrap(a):
@@ -243,6 +275,18 @@ def waypoints(course, msg):
         contact = t
     touch = {k: a[k] + (goal[k] - a[k]) * contact for k in a}
     return [(touch, 0.55), (a, 0.45)]
+
+
+def legs(course, msg):
+    """waypoints() with each leg's simulated time, its hold at the end and its image count: [(target, s, settle s, images)]."""
+    if not msg.get("from"):  # the start position: settle in place
+        return [(msg["to"], 0.25, 0.12, IMAGES_PER_MOVE)]
+    ws = waypoints(course, msg)
+    if msg.get("collision"):  # a bump: ease up to the obstacle, back off and settle, whatever the move time
+        (touch, _), (back, _) = ws
+        half = IMAGES_PER_MOVE // 2
+        return [(touch, 0.7, 0.0, half), (back, 0.8, 0.3, half)]
+    return [(t, MOVE_SECONDS * max(share, 0.7), 0.12, max(1, round(IMAGES_PER_MOVE * share))) for t, share in ws]
 
 
 def fly_through(course, pose):
@@ -323,6 +367,7 @@ class Overview:
             self.wheels = [self.model.joint(f"wheel_{n}").qposadr[0] for n in ("fl", "fr", "rl", "rr")]
         mujoco.mj_forward(self.model, self.data)
         self.at = dict(s)
+        self.v = np.zeros(3 if self.drone else 2)  # the reference speed carried from one leg into the next
 
     def _aim(self):
         """Where the chase camera points: the drone, led a little towards the hoop."""
@@ -337,20 +382,29 @@ class Overview:
             return np.array(self.data.qpos[0:3])
         return np.array([self.data.qpos[0], self.data.qpos[1]])
 
-    def _fly(self, target, duration, frames, settle=0.12):
-        """Track a minimum-jerk path from where the robot is to `target` (then hold it `settle` s), rendering `frames` evenly spaced images."""
-        keys = ("x", "y", "z") if self.drone else ("x", "y")
-        p0 = np.array([self.at[k] for k in keys])
-        p1 = np.array([target[k] for k in keys])
+    def _vec(self, pose):
+        return np.array([pose[k] for k in (("x", "y", "z") if self.drone else ("x", "y"))], float)
+
+    def _fly(self, target, duration, frames, settle=0.12, v1=None):
+        """Track a quintic from the last target, at the carried speed, to `target`, arriving at speed `v1` (default: at
+        rest, then holding `settle` s), rendering `frames` evenly spaced images."""
+        p0, p1, v0 = self._vec(self.at), self._vec(target), self.v
+        v1 = np.zeros_like(p1) if v1 is None else v1
+        if np.linalg.norm(v1) > 0:
+            settle = 0.0  # cruising on into the next leg: no hold
+        # Speeding up from a hover (or slowing to one) over a fixed time would overshoot the cruise speed and pitch
+        # back; give that leg the time a steady ramp needs, 2 * distance / speed. The images per leg stay the same.
+        dist, speed = float(np.linalg.norm(p1 - p0)), max(float(np.linalg.norm(v0)), float(np.linalg.norm(v1)))
+        if speed > 0 and min(float(np.linalg.norm(v0)), float(np.linalg.norm(v1))) == 0:
+            duration = min(max(duration, 2 * dist / speed), 2.5)
         yaw0 = self.yaw
         yaw1 = yaw0 + _wrap(target["yaw"] - yaw0)
         steps = int(round((duration + settle) / DT))
         shots = {int(round(steps * (i + 1) / frames)) - 1 for i in range(frames)}
         images = []
         for n in range(steps):
-            s, ds, dds = _min_jerk(n * DT, duration)
-            p_d, v_d, a_d = p0 + (p1 - p0) * s, (p1 - p0) * ds, (p1 - p0) * dds
-            yaw_d = yaw0 + (yaw1 - yaw0) * s
+            p_d, v_d, a_d = _quintic(p0, v0, p1, v1, duration, n * DT)
+            yaw_d = yaw0 + (yaw1 - yaw0) * _min_jerk(n * DT, duration)
             if self.drone:
                 self.ctrl.control(p_d, v_d, a_d, yaw_d)
             else:
@@ -367,6 +421,7 @@ class Overview:
                 images.append(self._shot())
         self.yaw = yaw1
         self.at = dict(target)
+        self.v = v1
         return images
 
     def _roll_wheels(self, before, yaw_before):
@@ -387,16 +442,22 @@ class Overview:
             self.renderer.update_scene(self.data, camera="overview")
         return self.renderer.render().copy()
 
-    def move(self, msg):
-        """Fly one reported move; returns the PNG paths of its images."""
-        legs = waypoints(self.course, msg)
+    def move(self, msg, next_msg=None):
+        """Fly one reported move; returns the PNG paths of its images.
+
+        `next_msg` is the move after it, if known: when it carries on in about the same direction the robot passes
+        through this move's end at speed instead of stopping, as a real drone (or rover) given FORWARD, FORWARD would.
+        """
+        mine = legs(self.course, msg)
+        bumps_next = bool(next_msg and next_msg.get("collision"))
+        after = legs(self.course, next_msg)[:1] if next_msg and next_msg.get("from") and not bumps_next else []
         images = []
-        for target, share in legs:
-            frames = max(1, round(IMAGES_PER_MOVE * share))
-            if not msg.get("from"):  # the start position: settle in place
-                images += self._fly(target, 0.25, frames)
-            else:  # a bump comes back the way it went, so its last leg holds longer to settle
-                images += self._fly(target, MOVE_SECONDS * max(share, 0.7), frames, 0.12 if len(legs) == 1 else 0.3)
+        start = self._vec(self.at)
+        for i, (target, duration, settle, frames) in enumerate(mine):
+            following = [] if msg.get("collision") else (mine[i + 1:] + after)[:1]
+            v1 = _through_velocity(start, self._vec(target), self._vec(following[0][0]), duration, following[0][1]) if following else None
+            images += self._fly(target, duration, frames, settle, v1)
+            start = self._vec(target)
         paths = []
         for i, rgb in enumerate(images):
             path = self.out_dir / f"overview_{msg['seq']:04d}_{i}.png"
@@ -414,15 +475,33 @@ def main():
     p.add_argument("--out-dir", required=True)
     a = p.parse_args()
     view = Overview(json.loads(Path(a.course).read_text()), a.out_dir)
+
+    def draw(msg, next_msg):
+        try:
+            out = {"seq": msg["seq"], "images": view.move(msg, next_msg)}
+        except Exception as e:  # one bad image must not end the view
+            out = {"seq": msg.get("seq"), "error": str(e)}
+        print(json.dumps(out), flush=True)
+
+    # One move behind the Episode: a move is drawn once the next one is known (or the input ends), so the robot can
+    # cruise through waypoints. The start position is drawn at once.
+    pending = None
     for line in sys.stdin:
-        seq = None
         try:
             msg = json.loads(line)
-            seq = msg["seq"]
-            out = {"seq": seq, "images": view.move(msg)}
-        except Exception as e:  # one bad image must not end the view
-            out = {"seq": seq, "error": str(e)}
-        print(json.dumps(out), flush=True)
+            msg["seq"]
+        except Exception as e:
+            print(json.dumps({"seq": None, "error": str(e)}), flush=True)
+            continue
+        if pending is not None:
+            draw(pending, msg)
+            pending = None
+        if msg.get("from"):
+            pending = msg
+        else:
+            draw(msg, None)
+    if pending is not None:
+        draw(pending, None)
 
 
 if __name__ == "__main__":

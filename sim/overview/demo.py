@@ -112,19 +112,22 @@ def main():
     frames_dir = Path(tempfile.mkdtemp(prefix="dewo-demo-"))
     ep = Episode(course, frames_dir / "onboard")
     view = Overview(course, frames_dir / "arena")
-    reel = []
+    # Run the Episode first: every move, the label for it and the onboard frame its Decision was made from.
     obs = ep.observe()
-    onboard = decode_png(obs["frame"])
-    for path in view.move({"seq": 0, "from": None, "to": obs["pose"], "collision": False}):
-        reel.append(compose(decode_png(path), onboard, ""))
+    moves = [({"seq": 0, "from": None, "to": obs["pose"], "collision": False}, decode_png(obs["frame"]), "")]
     pose = obs["pose"]
     for seq, action in enumerate(actions, 1):
+        onboard = decode_png(ep.observe()["frame"])
         r = ep.act(action)
         label = "goal" if r["atGoal"] else "hit" if r["collision"] else ""
-        for path in view.move({"seq": seq, "from": pose, "to": r["pose"], "collision": r["collision"], "atGoal": r["atGoal"], "action": action}):
-            reel.append(compose(decode_png(path), onboard, label))
+        moves.append(({"seq": seq, "from": pose, "to": r["pose"], "collision": r["collision"], "atGoal": r["atGoal"], "action": action}, onboard, label))
         pose = r["pose"]
-        onboard = decode_png(ep.observe()["frame"])  # the view the next Decision is made from
+    # Then fly it, each move knowing the next, as the overview process does one move behind a live Episode.
+    reel = []
+    for k, (msg, onboard, label) in enumerate(moves):
+        next_msg = moves[k + 1][0] if k + 1 < len(moves) else None
+        for path in view.move(msg, next_msg):
+            reel.append(compose(decode_png(path), onboard, label))
     reel += [reel[-1]] * FPS  # hold the last frame a second
     ep.close()
     view.close()

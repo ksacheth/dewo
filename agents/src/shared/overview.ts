@@ -1,5 +1,6 @@
 // Spectator view of an Episode: feeds poses to the overview process (sim/overview) and emits a
-// rover.moved event per finished move. Display only, so nothing here may touch the Episode: writes
+// rover.moved event per finished move. The process answers a move once it has seen the next one (it smooths through
+// waypoints), so images arrive one move late and the last move's when close() ends its stdin. Display only, so nothing here may touch the Episode: writes
 // never wait for a reply, and a missing, crashed or stuck process only means no images.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { relative, resolve } from "node:path";
