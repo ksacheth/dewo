@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { beforeEach, describe, expect, it } from "vitest"
 import { emit, runsDir } from "../src/events"
 
@@ -35,6 +35,8 @@ describe("emit", () => {
 
   it("defaults the runs folder to the repo root's runs/ from any package", () => {
     delete process.env.RUNS_DIR
-    expect(runsDir()).toMatch(/dewo\/runs$/)
+    const dir = runsDir()
+    expect(dir).toMatch(/[\\/]runs$/)
+    expect(existsSync(join(dirname(dir), "pnpm-workspace.yaml"))).toBe(true)
   })
 })
