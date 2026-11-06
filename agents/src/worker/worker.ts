@@ -65,17 +65,25 @@ export interface WorkerConfig {
    * submitEpisode: no Decision starts after deadline - submitMarginSeconds (DEFAULT_SUBMIT_MARGIN_SECONDS when unset).
    */
   submitMarginSeconds?: number;
-  /** Longest one tick waits on 0G Storage uploads before trying again on the next (DEFAULT_UPLOAD_WAIT_SECONDS when unset). */
+  /** Longest one tick waits on a Mission's 0G Storage uploads; they go on in the background (DEFAULT_UPLOAD_WAIT_SECONDS when unset). */
   uploadWaitSeconds?: number;
 }
 
-/** Hashio and Galileo transactions take 20 to 40 s each; the uploads and submitEpisode fit comfortably in 90 s. */
+/**
+ * No Decision starts after deadline - this: it covers the two 0G Storage uploads and submitEpisode. Hashio and Galileo
+ * transactions take 20 to 40 s each. It is larger than SUBMIT_TX_SECONDS: the first 30 s of it are for the uploads, the
+ * last SUBMIT_TX_SECONDS are the budget submitEpisode must never lose to a slow upload.
+ */
 export const DEFAULT_SUBMIT_MARGIN_SECONDS = 90;
-export const DEFAULT_UPLOAD_WAIT_SECONDS = 30;
+/** How long one tick waits on a Mission's uploads; a slower upload is rejoined by the next tick, so no Mission starves another. */
+export const DEFAULT_UPLOAD_WAIT_SECONDS = 1;
 /**
  * Kept for submitEpisode alone: from deadline - this, the Worker submits the Episode with its locally computed roots even when
- * 0G Storage has not confirmed the uploads. A root submitted to the Flow contract that a Verifier cannot download is
- * infrastructure (503, no Verdict, so rescue returns the stake), where a missed deadline is a No-show that loses it.
+ * 0G Storage has not confirmed the uploads. A root whose document a Verifier cannot download is infrastructure (503, no
+ * Verdict, so rescue returns the stake), where a missed deadline is a No-show that loses it.
+ * Residual risk: this assumes the SDK already mined the Flow `Submit` transaction (it does so before waiting on the storage
+ * nodes). If the upload stalls earlier (node selection, gas, retries), a Verifier finds no Flow submission in
+ * [stakedAt - skew, submissionTimestamp] and Fails the Mission as not uploaded instead of answering "not ready".
  */
 export const SUBMIT_TX_SECONDS = 60;
 
@@ -262,18 +270,23 @@ export class Worker {
     const { episode } = record;
     if (!episode) return this.move(record, "GAVE_UP", "finished Episode was not kept");
     if (await this.deps.registry.isSubmitted(record.missionId, this.config.address)) return this.submitted(record);
-    if (this.deps.clock.now() > episode.deadline) return this.move(record, "GAVE_UP", "Episode Submission deadline passed");
-    let submission: Submission;
+    if (this.deps.clock.now() > episode.deadline) {
+      this.uploads.release(record.missionId);
+      return this.move(record, "GAVE_UP", "Episode Submission deadline passed");
+    }
+    let submission: Submission | undefined;
     try {
       submission = await this.submit(record.missionId, episode);
     } catch (error) {
       return console.error(`worker: submitting the Episode of ${record.missionId} failed, will retry:`, error);
     }
+    if (!submission) return; // the uploads are still going on in the background; the next tick looks again
     this.submitted(record);
     this.deps.events.emit(record.missionId, "episode.submitted", submission.payload, zeroGTxUrl(submission.txHash));
   }
 
   private submitted(record: MissionRecord): void {
+    this.uploads.release(record.missionId);
     const { episode: _flown, ...rest } = record;
     this.put({ ...rest, stage: "SUBMITTED", note: undefined });
   }
@@ -300,7 +313,7 @@ export class Worker {
     }
   }
 
-  private async submit(missionId: string, episode: Omit<EpisodeLog, "header"> & { deadline: number }): Promise<Submission> {
+  private async submit(missionId: string, episode: Omit<EpisodeLog, "header"> & { deadline: number }): Promise<Submission | undefined> {
     const { storage, registry, escrow, clock } = this.deps;
     const { terms } = await escrow.getMission(missionId);
     const encode = (text: string) => new TextEncoder().encode(text);
@@ -314,12 +327,14 @@ export class Worker {
     const logBytes = encode(JSON.stringify(log));
     const episodeLogRoot = await storage.rootOf(logBytes);
 
-    const secondsLeft = episode.deadline - SUBMIT_TX_SECONDS - clock.now();
-    if (secondsLeft > 0) {
-      const wait = Math.min(this.config.uploadWaitSeconds ?? DEFAULT_UPLOAD_WAIT_SECONDS, secondsLeft);
-      const documents = [{ root: policyRoot, bytes: policy }, { root: episodeLogRoot, bytes: logBytes }];
-      if (!(await this.uploads.storedWithin(documents, wait * 1000))) throw new Error(`0G Storage has not stored the Episode yet (${secondsLeft} s left to wait)`);
-    } else {
+    const fallbackIn = episode.deadline - SUBMIT_TX_SECONDS - clock.now();
+    const wait = Math.min(this.config.uploadWaitSeconds ?? DEFAULT_UPLOAD_WAIT_SECONDS, Math.max(0, fallbackIn));
+    const documents = [{ root: policyRoot, bytes: policy }, { root: episodeLogRoot, bytes: logBytes }];
+    if (!(await this.uploads.storedWithin(missionId, documents, wait * 1000))) {
+      if (fallbackIn > 0) {
+        console.info(`worker: ${missionId}: 0G Storage has not confirmed the uploads yet; submitting anyway in ${Math.ceil(fallbackIn)} s`);
+        return undefined;
+      }
       console.warn(`worker: ${missionId}: submitting before the deadline although 0G Storage has not confirmed the uploads`);
     }
     const { txHash } = await registry.submitEpisode(missionId, episodeLogRoot, policyRoot, log.decisions.length);
