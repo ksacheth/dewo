@@ -395,7 +395,7 @@ export class Requester {
 
   private lapsed(mission: EscrowMission): boolean {
     const { award, stakedAt, terms } = mission;
-    return !!award && stakedAt === null && this.deps.clock.now() > award.awardedAt + terms.deadlines.stakeWindow;
+    return !!award && stakedAt === null && this.deps.clock.now() >= award.awardedAt + terms.deadlines.stakeWindow;
   }
 
   private move(record: RequesterRecord, stage: RequesterStage, note?: string): void {

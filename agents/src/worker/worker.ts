@@ -183,7 +183,8 @@ export class Worker {
     const { award } = mission;
     if (!award || !this.isAwardedToMe(mission)) return this.move(record, "BID_PLACED");
     if (mission.stakedAt !== null) return this.move(record, "STAKED");
-    if (this.deps.clock.now() > award.awardedAt + mission.terms.deadlines.stakeWindow) {
+    // R4: stake() works while now < awardedAt + stakeWindow; from then on the Award may be replaced.
+    if (this.deps.clock.now() >= award.awardedAt + mission.terms.deadlines.stakeWindow) {
       return this.move(record, "LOST", "missed the stake window");
     }
     if (this.isBusy(record.missionId)) return this.move(record, "LOST", "busy with another Mission; let the Award lapse");

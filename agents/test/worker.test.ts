@@ -41,6 +41,25 @@ describe("Worker: bidding", () => {
     expect(w.board.bids).toHaveLength(0);
   });
 
+  it("stakes one second before the stake window ends and gives up at the boundary (R4)", async () => {
+    const early = setup();
+    early.post();
+    await early.worker.tick();
+    early.escrow.grant("m1");
+    early.clock.t += 29;
+    await early.worker.tick();
+    expect(early.escrow.stakes).toHaveLength(1);
+
+    const late = setup();
+    late.post();
+    await late.worker.tick();
+    late.escrow.grant("m1");
+    late.clock.t += 30;
+    await late.worker.tick();
+    expect(late.escrow.stakes).toHaveLength(0);
+    expect(late.records.get("m1")).toMatchObject({ stage: "LOST", note: "missed the stake window" });
+  });
+
   it("does not bid while busy with a won Mission", async () => {
     const w = setup();
     w.records.put({ missionId: "old", stage: "STAKED" });
