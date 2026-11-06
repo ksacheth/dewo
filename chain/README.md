@@ -36,7 +36,7 @@ Paris to avoid relying on newer opcodes across the two target networks.
 
 For USDC, Requester approves `maxBounty`, then calls
 `createMission(courseSeed, verifiers, deadlines, maxBounty, difficultyClass, riskWeightBps, maxSteps, maxCollisions)`.
-`courseSeed` is the public, non-zero Course Seed. `difficultyClass` is 0 easy, 1 medium,
+`courseSeed` is the public, non-zero Course Seed. `maxSteps` must be 1 to `MAX_STEPS` (200), a public constant that bounds every Verifier's Replay. `difficultyClass` is 0 easy, 1 medium,
 2 hard and `riskWeightBps` is 0 to 10000. `maxSteps` (non-zero) and `maxCollisions` are
 the Requester's Pass limits: at most that many Decisions and collisions. All are stored
 on-chain so Workers price and Verifiers judge against terms the Requester cannot change

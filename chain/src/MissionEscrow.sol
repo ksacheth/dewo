@@ -62,6 +62,8 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
 
     /// @dev Gas forwarded to a native payout recipient during settle/rescue; failure defers the payout.
     uint256 private constant PAYOUT_GAS = 100_000;
+    /// @notice Protocol ceiling on a Mission's maxSteps: bounds every Verifier's Replay cost (ADR 0006).
+    uint32 public constant MAX_STEPS = 200;
 
     error InvalidConfiguration();
     error InvalidState();
@@ -97,7 +99,7 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
     }
 
     /// @param courseSeed Public Course Seed: Workers generate and study the Course from it before bidding.
-    /// @param maxSteps Most Decisions an Episode may take (a Pass limit and the Worker's 0G spend bound); non-zero.
+    /// @param maxSteps Most Decisions an Episode may take (a Pass limit and the Worker's 0G spend bound); 1 to MAX_STEPS.
     /// @param maxCollisions Most collisions a Pass may have.
     function createMission(
         bytes32 courseSeed,
@@ -109,7 +111,8 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
         uint32 maxSteps,
         uint32 maxCollisions
     ) external payable nonReentrant returns (bytes32 missionId) {
-        if (courseSeed == bytes32(0) || maxBounty == 0 || maxSteps == 0) revert InvalidConfiguration();
+        if (courseSeed == bytes32(0) || maxBounty == 0) revert InvalidConfiguration();
+        if (maxSteps == 0 || maxSteps > MAX_STEPS) revert InvalidConfiguration();
         // 0 easy, 1 medium, 2 hard; risk weight in basis points. Stored for Verifiers, unused by payouts.
         if (difficultyClass > 2 || riskWeightBps > 10_000) revert InvalidConfiguration();
         for (uint256 i; i < 3; ++i) {

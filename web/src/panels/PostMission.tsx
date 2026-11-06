@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { DEFAULT_MAX_COLLISIONS, DEFAULT_MAX_STEPS } from "../constants"
+import { DEFAULT_MAX_COLLISIONS, DEFAULT_MAX_STEPS, MAX_STEPS } from "../constants"
 import { isUnreachable } from "../unreachable"
 
 /** A fresh Idempotency-Key; randomUUID needs a secure context, which a LAN address over http is not. */
@@ -18,7 +18,7 @@ function useIdempotencyKey() {
 /** Starts a Mission. Calls the Requester API (I7) via the proxy. A retry of the same form reuses its Idempotency-Key, so it cannot lock a second bounty; 202 means the first attempt is still being created. The clearly labelled mock requester stands in only when no Requester is configured or it is unreachable (network error, 502/503/504, or Vite's 500 with an empty body for a refused upstream); any other error response is shown to the user. */
 
 const limitsValid = (maxSteps: number, maxCollisions: number) =>
-  Number.isInteger(maxSteps) && maxSteps >= 1 && Number.isInteger(maxCollisions) && maxCollisions >= 0
+  Number.isInteger(maxSteps) && maxSteps >= 1 && maxSteps <= MAX_STEPS && Number.isInteger(maxCollisions) && maxCollisions >= 0
 
 export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: boolean) => void }) {
   const [difficultyClass, setDifficulty] = useState("medium")
@@ -62,7 +62,7 @@ export function PostMission({ onPosted }: { onPosted: (missionId: string, mock: 
         <input type="range" min={0} max={1} step={0.05} value={riskWeight} onChange={(e) => setRisk(Number(e.target.value))} />
       </label>
       <label>Max steps <span>(Decisions; also bounds the Worker's 0G bill)</span>
-        <input type="number" min={1} step={1} value={maxSteps} onChange={(e) => setMaxSteps(Number(e.target.value))} style={{ width: 70 }} />
+        <input type="number" min={1} max={MAX_STEPS} step={1} value={maxSteps} onChange={(e) => setMaxSteps(Number(e.target.value))} style={{ width: 70 }} />
       </label>
       <label>Max collisions
         <input type="number" min={0} step={1} value={maxCollisions} onChange={(e) => setMaxCollisions(Number(e.target.value))} style={{ width: 60 }} />

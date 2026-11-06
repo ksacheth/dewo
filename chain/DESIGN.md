@@ -70,7 +70,7 @@ to communicate to consumers before integration.
 Submission and verification, but those do not require new Escrow writes.
 `createMission` also stores `courseSeed` (the public Course Seed, non-zero),
 `difficultyClass` (0 easy, 1 medium, 2 hard), `riskWeightBps` (at most 10000) and
-the Requester's limits `maxSteps` (non-zero) and `maxCollisions`. `difficultyClass`
+the Requester's limits `maxSteps` (1 to `MAX_STEPS` = 200) and `maxCollisions`. `difficultyClass`
 and `riskWeightBps` are also in `MissionCreated`. They are immutable Mission terms
 for Workers to price from and Verifiers to judge against; payouts and the Award and
 Verdict EIP-712 types do not use them. Values out of range revert with

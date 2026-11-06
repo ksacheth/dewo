@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, openSync, r
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { dirname, join, resolve, sep } from "node:path"
 import { randomBytes } from "node:crypto"
+import { MAX_STEPS } from "../src/constants"
 import type { Plugin, ViteDevServer } from "vite"
 
 const MISSION_ID = /^0x[0-9a-fA-F]{64}$/
@@ -178,15 +179,15 @@ function deployments(server: ViteDevServer) {
  */
 type MockMissionBody = { difficultyClass: string; maxBounty: number; riskWeight: number; maxSteps: number; maxCollisions: number }
 
-const uint32From = (x: unknown, min: number): boolean => Number.isInteger(x) && (x as number) >= min && (x as number) <= 0xffffffff
+const wholeBetween = (x: unknown, min: number, max: number): boolean => Number.isInteger(x) && (x as number) >= min && (x as number) <= max
 
-/** Why a mock POST /missions body is invalid, or null. The limits mirror createMission (ADR 0006): maxSteps >= 1, uint32. */
+/** Why a mock POST /missions body is invalid, or null. The limits mirror createMission (ADR 0006): maxSteps 1 to MAX_STEPS. */
 function mockBodyError(body: MockMissionBody): string | null {
   const num = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x)
   if (!body || typeof body !== "object" || !["easy", "medium", "hard"].includes(body.difficultyClass) || !(num(body.maxBounty) && body.maxBounty > 0 && body.maxBounty <= 1000) || !(num(body.riskWeight) && body.riskWeight >= 0 && body.riskWeight <= 1))
     return "invalid difficultyClass, maxBounty or riskWeight"
-  if (!uint32From(body.maxSteps, 1) || !uint32From(body.maxCollisions, 0))
-    return "maxSteps must be a whole number of at least 1 and maxCollisions a whole number of at least 0"
+  if (!wholeBetween(body.maxSteps, 1, MAX_STEPS) || !wholeBetween(body.maxCollisions, 0, 0xffffffff))
+    return `maxSteps must be a whole number from 1 to ${MAX_STEPS} and maxCollisions a whole number of at least 0`
   return null
 }
 

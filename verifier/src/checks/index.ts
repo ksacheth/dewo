@@ -1,5 +1,5 @@
 import { keccak256, toBytes, type Hex } from "viem";
-import { canonicalJson, movingSteps, type EpisodeLog, type MissionLimits, type Policy } from "@dewo/agents/formats";
+import { canonicalJson, movingSteps, replayableSteps, type EpisodeLog, type MissionLimits, type Policy } from "@dewo/agents/formats";
 import { SimInputError } from "../adapters/sim-cli.js";
 import type { Fetched, MissionRecord, SealedBid, SimPort, ZeroGPort } from "../ports.js";
 import { Outcome } from "../sign.js";
@@ -71,9 +71,10 @@ export async function verifyEpisode(deps: VerifyDeps, e: EpisodeInput): Promise<
   if (!policy.ok) return fail("policy", policy.reason);
   if (!policyMatchesBid(policy.value, e.bid.policyHash)) return fail("policy");
 
-  // Check 2 starts with the Mission's maxSteps, judged on the log itself: it also bounds what a Replay costs this Verifier.
+  // Check 2 starts with the Mission's maxSteps (never above the protocol's MAX_STEPS), judged on the log itself before the sim
+  // runs: it bounds what any log can make this Verifier replay, whatever maxSteps the escrow holds.
   const { decisions } = log.value;
-  if (decisions.length > e.mission.maxSteps) return fail("steps");
+  if (decisions.length > replayableSteps(limitsOf(e.mission))) return fail("steps");
 
   const course = await deps.sim.course(e.mission.courseSeed, e.mission.difficultyClass);
   const actions = decisions.map((d) => d.action);

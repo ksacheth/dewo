@@ -70,7 +70,7 @@ it("isUnreachable: 502/503/504 and an empty 500 only", () => {
 
 it("mock requester rejects missing or invalid limits", async () => {
   const board = { postMission: async () => { throw new Error("must not write") }, emit() { throw new Error("must not emit") } }
-  for (const limits of [{}, { maxSteps: 0, maxCollisions: 0 }, { maxSteps: 1.5, maxCollisions: 0 }, { maxSteps: 60, maxCollisions: -1 }]) {
+  for (const limits of [{}, { maxSteps: 0, maxCollisions: 0 }, { maxSteps: 201, maxCollisions: 0 }, { maxSteps: 1.5, maxCollisions: 0 }, { maxSteps: 60, maxCollisions: -1 }]) {
     const res = fakeRes()
     await mockRequester({ difficultyClass: "easy", maxBounty: 5, riskWeight: 0.5, ...limits } as never, res, async () => board, "mock")
     expect(res.statusCode).toBe(400)

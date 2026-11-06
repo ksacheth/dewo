@@ -4,7 +4,7 @@ import { verifyEpisode, type EpisodeInput } from "../src/checks/index.js";
 import { NotJson, NotUploaded } from "../src/ports.js";
 import { Outcome } from "../src/sign.js";
 import { FakeSim, SEED, honestEpisode, zeroG, frameHashFor, pngFor, POLICY, ROUTER_POLICY } from "./fixtures/builders.js";
-import { buildRequest, policyHash, type Policy } from "@dewo/agents/formats";
+import { MAX_STEPS, buildRequest, policyHash, type Policy } from "@dewo/agents/formats";
 
 const deps = (sim = new FakeSim(), g = zeroG()) => ({ sim, zeroG: g });
 
@@ -44,6 +44,13 @@ describe("verifyEpisode", () => {
       const sim = new FakeSim();
       const over = await verifyEpisode(deps(sim), limited([...actions], { maxSteps: 6 }));
       expect(over).toMatchObject({ outcome: Outcome.Fail, failedCheck: "steps", steps: 0 });
+      expect(sim.seeds).toEqual([]);
+    });
+
+    it("never replays more than the protocol's MAX_STEPS, whatever maxSteps the escrow holds", async () => {
+      const sim = new FakeSim();
+      const long = limited(["FORWARD", ...turns(MAX_STEPS), "FORWARD", "FORWARD"], { maxSteps: 4_000_000_000 });
+      expect(await verifyEpisode(deps(sim), long)).toMatchObject({ outcome: Outcome.Fail, failedCheck: "steps" });
       expect(sim.seeds).toEqual([]);
     });
 

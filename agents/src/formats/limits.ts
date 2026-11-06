@@ -9,22 +9,30 @@ export interface MissionLimits {
   maxCollisions: number;
 }
 
-/** createMission stores both limits as uint32. */
+/**
+ * Protocol ceiling on maxSteps, the same as `MissionEscrow.MAX_STEPS`. It bounds what any Episode Log can make a Verifier replay
+ * (a Decision takes seconds on 0G, so 200 already exceeds any realistic Episode window).
+ */
+export const MAX_STEPS = 200;
+
+/** createMission stores maxCollisions as uint32. */
 const UINT32_MAX = 0xffff_ffff;
 
-/** A whole number from `min` to the uint32 maximum. */
-const isUint32From = (value: number, min: number): boolean => Number.isInteger(value) && value >= min && value <= UINT32_MAX;
+const isWholeBetween = (value: number, min: number, max: number): boolean => Number.isInteger(value) && value >= min && value <= max;
 
 /** Everything wrong with a pair of limits, as readable sentences; empty when createMission would accept them. */
 export function limitsProblems(limits: MissionLimits): string[] {
   const rules = [
-    ["maxSteps", limits.maxSteps, 1],
-    ["maxCollisions", limits.maxCollisions, 0],
+    ["maxSteps", limits.maxSteps, 1, MAX_STEPS],
+    ["maxCollisions", limits.maxCollisions, 0, UINT32_MAX],
   ] as const;
   return rules
-    .filter(([, value, min]) => !isUint32From(value, min))
-    .map(([name, value, min]) => `${name} must be a whole number from ${min} to ${UINT32_MAX}, got ${value}`);
+    .filter(([, value, min, max]) => !isWholeBetween(value, min, max))
+    .map(([name, value, min, max]) => `${name} must be a whole number from ${min} to ${max}, got ${value}`);
 }
+
+/** The most Decisions a Verifier will replay for this Mission: its maxSteps, never above the protocol's MAX_STEPS. */
+export const replayableSteps = (limits: MissionLimits): number => Math.min(limits.maxSteps, MAX_STEPS);
 
 /** Moving Actions, every Decision except STOP: `steps` in `sim replay` output and in a Verdict. */
 export function movingSteps(actions: readonly Action[]): number {

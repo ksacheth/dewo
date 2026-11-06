@@ -43,6 +43,15 @@ contract MissionEscrowTest is EscrowFixture {
         escrow.createMission(SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, 0, MAX_COLLISIONS);
     }
 
+    function testRejectMaxStepsAboveProtocolMaximum() public {
+        assertEq(escrow.MAX_STEPS(), 200);
+        vm.expectRevert(MissionEscrow.InvalidConfiguration.selector);
+        escrow.createMission(SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, 201, MAX_COLLISIONS);
+        vm.prank(requester);
+        bytes32 id = escrow.createMission(SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, 200, MAX_COLLISIONS);
+        assertEq(escrow.getMission(id).maxSteps, 200);
+    }
+
     function testZeroMaxCollisionsIsAllowed() public {
         vm.prank(requester);
         bytes32 id = escrow.createMission(SEED, verifiers, deadlines, BOUNTY, DIFFICULTY, RISK_BPS, 1, 0);
