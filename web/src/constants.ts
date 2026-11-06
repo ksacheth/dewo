@@ -11,3 +11,4 @@ export const DEFAULT_MAX_COLLISIONS = 0
 export const DRONE_SEED_PREFIX = "0x64726f6e"
 export type Task = "rover" | "drone"
 export const taskOf = (courseSeed: string): Task => (courseSeed.toLowerCase().startsWith(DRONE_SEED_PREFIX) ? "drone" : "rover")
+
