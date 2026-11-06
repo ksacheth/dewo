@@ -12,3 +12,9 @@ export class NoValidBidsError extends Error {}
 
 /** The bidding window has not closed (`now < biddingEndsAt`): no Award can be signed yet. Callers should retry after it closes. */
 export class BiddingOpenError extends Error {}
+
+/**
+ * 0G Storage could not be reached: the indexer or network is down, or a download timed out. This is infrastructure, never the
+ * Worker's fault, so no Verdict is signed. The Requester can retry; if 0G stays down, the Mission ends in `MissionEscrow.rescue`.
+ */
+export class StorageUnavailableError extends Error {}

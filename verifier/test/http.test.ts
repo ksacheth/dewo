@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { privateKeyToAccount } from "viem/accounts";
 import { createApp, type PaymentGate } from "../src/server.js";
 import { boardEvents } from "../src/events.js";
+import { StorageUnavailableError } from "../src/errors.js";
 import type { EscrowAward } from "../src/ports.js";
 import { FakeSim, MISSION, OTHER_WORKER, WORKER, fakeBoard, fakeChain, honestEpisode, zeroG } from "./fixtures/builders.js";
 
@@ -34,13 +35,16 @@ beforeEach(() => {
 });
 afterEach(() => { delete process.env.RUNS_DIR; });
 
-function app(opts: { award?: () => EscrowAward | null; bidders?: Record<string, bigint>; now?: () => number; arkivDown?: boolean } = {}) {
+function app(opts: { award?: () => EscrowAward | null; bidders?: Record<string, bigint>; now?: () => number; arkivDown?: boolean; storageDown?: boolean } = {}) {
   const { mission, ...episode } = honestEpisode();
   const written: unknown[] = [];
   const deps = {
     key: KEY, escrow: ESCROW, gate, events: boardEvents("verifier-1"), sim: new FakeSim(), zeroG: zeroG(), now: opts.now ?? (() => 5_000),
     board: fakeBoard({ prices: opts.bidders ?? { [WORKER]: 5_000_000n } }), chain: fakeChain({ award: opts.award }),
-    source: { load: async () => ({ mission, worker: WORKER, timeline: { stakedAt: 1_000, seedReleasedAt: 1_010, episodeSubmittedAt: 1_100 }, episode }) },
+    source: { load: async () => {
+      if (opts.storageDown) throw new StorageUnavailableError("0G Storage download timed out");
+      return { mission, worker: WORKER, timeline: { stakedAt: 1_000, seedReleasedAt: 1_010, episodeSubmittedAt: 1_100 }, episode };
+    } },
     verdicts: { writeVerdict: async (v: unknown) => { if (opts.arkivDown) throw new Error("arkiv down"); written.push(v); return { entityKey: ("0x" + "ab".repeat(32)) as `0x${string}` }; } },
   };
   return { a: createApp(deps), written };
@@ -192,6 +196,16 @@ describe("Verifier HTTP API (I6)", () => {
     expect((await res.json()).verdict).toBe("Pass");
     // The payment did settle: the feed still says so, with its link.
     expect(eventsOf().map((l) => [l.type, l.txUrl])).toEqual([["replay.paid", "https://hashscan.io/testnet/transaction/0.0.1234@1700000000.000000000"]]);
+  });
+
+  it("answers a retryable 503 when 0G Storage is unreachable, charging nothing and signing no Verdict (issue #47)", async () => {
+    settleCalls = 0;
+    const { a, written } = app({ storageDown: true });
+    const res = await post(a, "/replay", { "x-payment": "paid" });
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toMatch(/0G Storage/);
+    expect(settleCalls).toBe(0);
+    expect(written).toEqual([]);
   });
 
   it("returns 400 for a malformed missionId", async () => {

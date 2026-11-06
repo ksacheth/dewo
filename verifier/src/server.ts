@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { isHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { BiddingOpenError, EvidenceExpiredError, NoValidBidsError, PendingError } from "./errors.js";
+import { BiddingOpenError, EvidenceExpiredError, NoValidBidsError, PendingError, StorageUnavailableError } from "./errors.js";
 import { createAwarder, type SignedAward } from "./routes/award.js";
 import { decideVerdict, publishVerdict, type DecidedVerdict } from "./routes/replay.js";
 import type { BoardPort, EpisodeSource, EscrowPort, EventSink, SimPort, VerdictSink, ZeroGPort } from "./ports.js";
@@ -32,9 +32,10 @@ async function logFailure(what: string, step: () => Promise<unknown>) {
     console.error(`${what}: ${errorMessage(e)}`);
   }
 }
-/** Pending: retry later. Evidence expired: retrying cannot help. Anything else is our failure. */
+/** Pending: retry later. 0G Storage unavailable: retry later (no Verdict). Evidence expired: retrying cannot help. Anything else is our failure. */
 const replayErrorStatus = (e: unknown) => {
   if (e instanceof PendingError) return 409;
+  if (e instanceof StorageUnavailableError) return 503;
   if (e instanceof EvidenceExpiredError) return 410;
   return 500;
 };
