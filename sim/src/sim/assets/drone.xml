@@ -1,0 +1,25 @@
+<mujoco model="dewo-drone">
+  <!-- Course geoms are inserted at COURSE by camera.py. Motion is kinematic:
+       the drone is a mocap body, MuJoCo only renders and measures distances. -->
+  <option gravity="0 0 0"/>
+  <visual>
+    <headlight ambient="0.45 0.45 0.45" diffuse="0.45 0.45 0.45" specular="0 0 0"/>
+    <global offwidth="224" offheight="224"/>
+  </visual>
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" rgb1="0.55 0.7 0.9" rgb2="0.93 0.95 1" width="64" height="64"/>
+    <material name="floor" rgba="0.82 0.82 0.78 1"/>
+    <material name="wall" rgba="0.45 0.45 0.5 0.18"/>
+    <material name="tower" rgba="0.3 0.33 0.4 1"/>
+    <material name="goal" rgba="0.1 0.8 0.2 1"/>
+  </asset>
+  <worldbody>
+    <light pos="3 3 6" dir="0 0 -1" diffuse="0.6 0.6 0.6" specular="0 0 0" castshadow="false"/>
+    <body name="drone" mocap="true" pos="0 0 0">
+      <geom name="drone_geom" type="cylinder" size="0.2 0.08" group="4" contype="0" conaffinity="0"/>
+      <!-- Looks forward and about 20 degrees down, so the ground, block tops and the hoop are all in view. -->
+      <camera name="onboard" pos="0.12 0 -0.02" xyaxes="0 -1 0 0.34 0 0.94" fovy="75"/>
+    </body>
+    <!--COURSE-->
+  </worldbody>
+</mujoco>
