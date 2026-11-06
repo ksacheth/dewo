@@ -15,6 +15,14 @@ There is no Step Budget. A Pass needs the goal, zero collisions, Path Cost (non-
 ## Develop
 Run `pnpm install` at the repo root first (the workspace links `@dewo/agents`). Then `pnpm test`, `pnpm typecheck`. `scripts/run-quorum.sh` starts all three instances.
 
+## Spike #6 result (x402 on Hedera testnet)
+`pnpm spike:x402` paid one Replay end to end through Blocky402: an unpaid `/replay` returned 402 (0.05 USDC, token `0.0.5449`), the paid retry returned a signed Verdict, and the payment settled only after the Verdict was produced. Transaction `0.0.7162784@1793947550.708183124` ([HashScan](https://hashscan.io/testnet/transaction/0.0.7162784@1793947550.708183124)): `CRYPTOTRANSFER`, SUCCESS, 50000 units of `0.0.5449` from `0.0.11329527` to `0.0.11333729`.
+
+Notes for integration:
+- Circle's faucet mints `0.0.5449`, not `0.0.429274`, so the Verifier charges in `0.0.5449` by default (`X402_ASSET` overrides). The escrow settlement asset should match.
+- The x402 client refuses tokens it does not recognise as defaults. Any client that pays a Verifier (the M4 Requester) must allow it, e.g. `spendControls: { allowedAssets: [{ network: "hedera:testnet", asset: "0.0.5449", maxAmountPerPayment: "1000000" }] }`.
+- The receiving account needs the token associated or auto-association enabled, and the payer needs the token plus some HBAR.
+
 ## Award fallback
 `POST /award` takes only `{ missionId }`. Each instance reads the current Award from MissionEscrow; if its stake window passed with no stake, that Worker is added to the instance's lapsed set and the next call returns the next-best Bid. All three instances apply the same rule to the same chain state, so they agree. A staked Award is never replaced.
 
