@@ -11,8 +11,11 @@ Design, deadline semantics and outstanding interface coordination are in
 - Registry: immutable Episode Submission per Mission and Worker.
 - Local tests mock HTS association; they do **not** prove live HTS compatibility.
 - Deployment scripts are supplied; live deployments and HashScan evidence are pending.
-- Re-awarding is intentionally disabled pending the Award-round change agreed with
-  M4/M5. An expired unstaked Award can only be rescued at the final deadline.
+- Award replacement is implemented: `award()` may be called again only while Awarded
+  and unstaked, from `awardedAt + stakeWindow`; the lapsed winner cannot be re-awarded;
+  no round field in the signed types (proposal still open).
+- Payouts never revert `settle`/`rescue`: an undeliverable payout is credited to
+  `owed(address)` (event `PayoutDeferred`) and claimed with `withdraw()` (event `Withdrawn`).
 
 ## Setup and validation
 
@@ -39,8 +42,12 @@ after Bids arrive. Payouts and signatures do not use them. Read the
 returned `bytes32` Mission ID or `MissionCreated` event. After bidding closes,
 anyone can submit two Verifier signatures via `award`. Worker approves the signed
 Bid Stake and calls `stake`. The contract transfers exactly that amount.
-Anyone can relay two matching Verdicts to `settle`, or call `rescue` at the final
-deadline. USDC amounts are integer token base units (six decimals for USDC).
+If the winner misses the stake window, anyone can submit a replacement `award` from
+`awardedAt + stakeWindow` (the lapsed winner cannot be re-awarded). Anyone can relay two
+matching Verdicts to `settle`, or call `rescue` at the final deadline. A payout the
+recipient cannot receive is deferred: read `owed(address)`, watch `PayoutDeferred`, and the
+recipient calls `withdraw()` (emits `Withdrawn`; reverts with `NothingOwed` or while
+delivery still fails). USDC amounts are integer token base units (six decimals for USDC).
 
 Deadline tuple order: `biddingEndsAt, stakeWindow, seedReleaseWindow, episodeWindow,
 rescueAt`. Example relative to creation time `t`: `(t+60, 30, 30, 300, t+3600)`.
@@ -96,8 +103,9 @@ fallback happens if association fails. HBAR does not fulfill the USDC acceptance
 
 ## Remaining live validation
 
-1. Resolve/review the proposed deadline tuple, registry event, and Award rounds with
-   the I5 consumers; implement coordinated re-awarding before declaring M2 complete.
+1. Resolve/review the proposed deadline tuple and registry event with the I5 consumers,
+   and decide whether to add an optional round field to the signed types;
+   re-awarding without it is already implemented.
 2. Deploy on Hedera; confirm association succeeds. Fund a Mission with test USDC,
    obtain two real Verifier signatures, stake and settle. Record HashScan deposit
    and payout links here (spike #5).
@@ -105,6 +113,8 @@ fallback happens if association fails. HBAR does not fulfill the USDC acceptance
 4. Export and commit actual deployment artifacts. Hand these and signing types to
    M3/M4/M5, then exercise the real agent/Verifier integration.
 
-Native payout recipients must accept value transfers; a rejecting recipient makes
-the transaction revert atomically. HTS token restrictions or account association
-failures can similarly block payouts. Validate participant accounts in the live spike.
+A payout that cannot be delivered (a native recipient rejecting value or exhausting the
+100,000 gas forwarded, or an HTS token restriction or missing association) does not revert
+`settle`/`rescue`: the amount is credited to `owed[recipient]`, `PayoutDeferred` is emitted
+and the funds stay in the Escrow. The recipient claims with `withdraw()`, which reverts
+while delivery still fails. Validate participant accounts in the live spike.

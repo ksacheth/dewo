@@ -140,8 +140,8 @@ contract MissionEscrow is EIP712, ReentrancyGuard {
     {
         Mission storage mission = missions[missionId];
         if (mission.state == State.Awarded) {
-            // Replacement Award: only once the current winner missed the stake window.
-            if (block.timestamp <= mission.awardedAt + mission.deadlines.stakeWindow) revert InvalidTime();
+            // Replacement Award: from awardedAt + stakeWindow, when stake() no longer succeeds.
+            if (block.timestamp < mission.awardedAt + mission.deadlines.stakeWindow) revert InvalidTime();
             lapsedWorker[missionId][mission.worker] = true;
         } else if (mission.state != State.Created) {
             revert InvalidState();
