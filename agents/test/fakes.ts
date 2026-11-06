@@ -18,6 +18,7 @@ import type {
   SimPort,
   SimSession,
   StoragePort,
+  TxResult,
 } from "../src/worker/ports";
 import type { AuditPort } from "../src/requester/audit";
 import type {
@@ -51,6 +52,13 @@ export const policy: Policy = {
   version: "1",
 };
 
+let txCounter = 0;
+/** A distinct fake transaction hash per call. */
+export function fakeTx(): TxResult {
+  txCounter += 1;
+  return { txHash: toHex(txCounter, { size: 32 }) };
+}
+
 export class FakeClock {
   t = 1_000;
   now(): number {
@@ -82,10 +90,10 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
     this.missions.set(missionId, { terms: missionTerms, award: null, stakedAt: null, settled: false });
   }
 
-  async createMission(missionTerms: MissionTerms): Promise<string> {
+  async createMission(missionTerms: MissionTerms): Promise<{ missionId: string } & TxResult> {
     const missionId = `m${this.missions.size + 1}`;
     this.open(missionId, missionTerms);
-    return missionId;
+    return { missionId, ...fakeTx() };
   }
 
   rescues: string[] = [];
@@ -94,20 +102,23 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
     return [...this.missions].find(([, m]) => m.terms.seedCommitment === commitment)?.[0] ?? null;
   }
 
-  async rescue(missionId: string): Promise<void> {
+  async rescue(missionId: string): Promise<TxResult> {
     if (this.clock.now() < this.mission(missionId).terms.deadlines.rescueAt) throw new Error("InvalidTime");
     this.rescues.push(missionId);
     this.patch(missionId, { settled: true });
+    return fakeTx();
   }
 
-  async award(missionId: string, award: AwardTerms, signatures: readonly Hex[]): Promise<void> {
+  async award(missionId: string, award: AwardTerms, signatures: readonly Hex[]): Promise<TxResult> {
     this.awards.push({ missionId, award, signatures });
     this.grant(missionId, award);
+    return fakeTx();
   }
 
-  async settle(missionId: string, outcome: Outcome, evidenceHash: Hex, signatures: readonly Hex[]): Promise<void> {
+  async settle(missionId: string, outcome: Outcome, evidenceHash: Hex, signatures: readonly Hex[]): Promise<TxResult> {
     this.settlements.push({ missionId, outcome, evidenceHash, signatures });
     this.patch(missionId, { settled: true });
+    return fakeTx();
   }
 
   /** Test helper: sets the current Award directly. */
@@ -124,9 +135,10 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
     return this.mission(missionId);
   }
 
-  async stake(missionId: string, amount: bigint): Promise<void> {
+  async stake(missionId: string, amount: bigint): Promise<TxResult> {
     this.stakes.push({ missionId, amount });
     this.patch(missionId, { stakedAt: this.clock.now() });
+    return fakeTx();
   }
 
   private mission(missionId: string): EscrowMission {
@@ -190,8 +202,9 @@ export class FakeBoard implements BoardPort, RequesterBoardPort {
 export class FakeRegistry implements RegistryPort {
   submissions: { missionId: string; episodeLogRoot: Hex; policyRoot: Hex; decisionCount: number }[] = [];
 
-  async submitEpisode(missionId: string, episodeLogRoot: Hex, policyRoot: Hex, decisionCount: number): Promise<void> {
+  async submitEpisode(missionId: string, episodeLogRoot: Hex, policyRoot: Hex, decisionCount: number): Promise<TxResult> {
     this.submissions.push({ missionId, episodeLogRoot, policyRoot, decisionCount });
+    return fakeTx();
   }
   async isSubmitted(missionId: string): Promise<boolean> {
     return this.submissions.some((s) => s.missionId === missionId);
@@ -319,8 +332,10 @@ export function world() {
   const registry = new FakeRegistry();
   const storage = new FakeStorage();
   const verifiers = new FakeVerifiers(board, escrow, registry);
-  const events: { missionId: string; type: string; data: unknown }[] = [];
-  const emit = { emit: (missionId: string, type: string, data: unknown) => void events.push({ missionId, type, data }) };
+  const events: { missionId: string; type: string; data: unknown; txUrl?: string }[] = [];
+  const emit = {
+    emit: (missionId: string, type: string, data: unknown, txUrl?: string) => void events.push({ missionId, type, data, ...(txUrl ? { txUrl } : {}) }),
+  };
   return { clock, escrow, board, registry, storage, verifiers, events, emit };
 }
 

@@ -90,7 +90,7 @@ describe.skipIf(!OUT)("escrow + registry adapters against M2's contracts (Anvil)
     const workerAddress = privateKeyToAccount(workerKey).address;
     const now = Number((await deployer.public.getBlock()).timestamp);
 
-    const missionId = await requester.createMission(
+    const { missionId } = await requester.createMission(
       {
         maxBounty: 10_000_000n,
         difficultyClass: "medium",
@@ -142,7 +142,7 @@ describe.skipIf(!OUT)("escrow + registry adapters against M2's contracts (Anvil)
   it("rescues a Mission nobody bid on once rescueAt has passed", async () => {
     const requester = new EscrowContract(clientsFor(requesterKey), escrowAddress);
     const now = Number((await deployer.public.getBlock()).timestamp);
-    const missionId = await requester.createMission(
+    const { missionId } = await requester.createMission(
       {
         maxBounty: 1_000_000n,
         difficultyClass: "easy",

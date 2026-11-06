@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { policyHash } from "../src/formats";
 import { payouts } from "../src/requester/payouts";
 import { OUTCOMES } from "../src/requester/ports";
+import { hederaTxUrl, zeroGTxUrl } from "../src/shared/tx-links";
 import { BIDDING_CLOSES_AFTER, REPLAY_PRICE, RIVAL, VERIFIER_ADDRESSES, policy, requesterIn, workerIn, world } from "./fakes";
 
 async function fullMission() {
@@ -55,6 +56,32 @@ describe("I8 payloads", () => {
     expect(of("settled")).toEqual([
       { outcome: "Pass", workerPayout: (BigInt(price) + BigInt(stake)).toString(), requesterPayout: (10_000_000n - BigInt(price)).toString() },
     ]);
+  });
+
+  it("links the transaction behind every on-chain event (Hedera on HashScan, 0G on Chainscan)", async () => {
+    const { w } = await fullMission();
+    const urlsOf = (type: string) => w.events.filter((e) => e.type === type).map((e) => e.txUrl);
+    const hashscan = /^https:\/\/hashscan\.io\/testnet\/transaction\/0x[0-9a-f]{64}$/;
+    const chainscan = /^https:\/\/chainscan-galileo\.0g\.ai\/tx\/0x[0-9a-f]{64}$/;
+
+    for (const type of ["mission.posted", "award.signed", "stake.deposited", "settled"]) {
+      const urls = urlsOf(type);
+      expect(urls.length, type).toBeGreaterThan(0);
+      for (const url of urls) expect(url, type).toMatch(hashscan);
+    }
+    expect(urlsOf("episode.submitted")).toEqual([expect.stringMatching(chainscan)]);
+    // Both signatures of one Award ride in the same transaction.
+    expect(new Set(urlsOf("award.signed")).size).toBe(1);
+    // Off-chain events carry no link.
+    for (const type of ["bid.sealed", "seed.released", "decision.made", "replay.paid"]) {
+      for (const url of urlsOf(type)) expect(url, type).toBeUndefined();
+    }
+  });
+
+  it("builds the explorer links from a transaction hash", () => {
+    const hash = `0x${"ab".repeat(32)}` as const;
+    expect(hederaTxUrl(hash)).toBe(`https://hashscan.io/testnet/transaction/${hash}`);
+    expect(zeroGTxUrl(hash)).toBe(`https://chainscan-galileo.0g.ai/tx/${hash}`);
   });
 
   it("types every amount as a string of base units", async () => {

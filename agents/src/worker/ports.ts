@@ -43,9 +43,14 @@ export interface EscrowMission {
   settled: boolean;
 }
 
+/** Every on-chain write reports its transaction hash, so events can link to the explorer. */
+export interface TxResult {
+  txHash: Hex;
+}
+
 export interface EscrowPort {
   getMission(missionId: string): Promise<EscrowMission>;
-  stake(missionId: string, amount: bigint): Promise<void>;
+  stake(missionId: string, amount: bigint): Promise<TxResult>;
 }
 
 export interface SeedRelease {
@@ -76,7 +81,7 @@ export interface BoardPort {
 }
 
 export interface RegistryPort {
-  submitEpisode(missionId: string, episodeLogRoot: Hex, policyRoot: Hex, decisionCount: number): Promise<void>;
+  submitEpisode(missionId: string, episodeLogRoot: Hex, policyRoot: Hex, decisionCount: number): Promise<TxResult>;
   isSubmitted(missionId: string, worker: Hex): Promise<boolean>;
 }
 

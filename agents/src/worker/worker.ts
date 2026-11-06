@@ -13,6 +13,7 @@ import {
   type Policy,
 } from "../formats";
 import type { EventData } from "../shared/events";
+import { hederaTxUrl, zeroGTxUrl } from "../shared/tx-links";
 import { runEpisode } from "./episode";
 import type {
   BalancesPort,
@@ -59,6 +60,12 @@ export interface WorkerDeps {
   events: EventsPort;
   clock: Clock;
   records: RecordStore;
+}
+
+/** An Episode Submission: the event payload and the 0G transaction that recorded it. */
+interface Submission {
+  payload: EventData["episode.submitted"];
+  txHash: Hex;
 }
 
 export class Worker {
@@ -172,9 +179,9 @@ export class Worker {
     }
     if (this.isBusy(record.missionId)) return this.move(record, "LOST", "busy with another Mission; let the Award lapse");
 
-    await this.deps.escrow.stake(record.missionId, award.stake);
+    const { txHash } = await this.deps.escrow.stake(record.missionId, award.stake);
     this.move(record, "STAKED");
-    this.deps.events.emit(record.missionId, "stake.deposited", { worker: this.config.address, stake: award.stake.toString() });
+    this.deps.events.emit(record.missionId, "stake.deposited", { worker: this.config.address, stake: award.stake.toString() }, hederaTxUrl(txHash));
   }
 
   private async fly(record: MissionRecord, mission: EscrowMission): Promise<void> {
@@ -211,14 +218,14 @@ export class Worker {
     if (!episode) return this.move(record, "GAVE_UP", "finished Episode was not kept");
     if (await this.deps.registry.isSubmitted(record.missionId, this.config.address)) return this.submitted(record);
     if (this.deps.clock.now() > episode.deadline) return this.move(record, "GAVE_UP", "Episode Submission deadline passed");
-    let payload: EventData["episode.submitted"];
+    let submission: Submission;
     try {
-      payload = await this.submit(record.missionId, episode);
+      submission = await this.submit(record.missionId, episode);
     } catch (error) {
       return console.error(`worker: submitting the Episode of ${record.missionId} failed, will retry:`, error);
     }
     this.submitted(record);
-    this.deps.events.emit(record.missionId, "episode.submitted", payload);
+    this.deps.events.emit(record.missionId, "episode.submitted", submission.payload, zeroGTxUrl(submission.txHash));
   }
 
   private submitted(record: MissionRecord): void {
@@ -242,7 +249,7 @@ export class Worker {
     }
   }
 
-  private async submit(missionId: string, episode: Omit<EpisodeLog, "header">): Promise<EventData["episode.submitted"]> {
+  private async submit(missionId: string, episode: Omit<EpisodeLog, "header">): Promise<Submission> {
     const { storage, registry, escrow } = this.deps;
     const { terms } = await escrow.getMission(missionId);
     const encode = (text: string) => new TextEncoder().encode(text);
@@ -253,8 +260,8 @@ export class Worker {
       decisions: episode.decisions,
     };
     const episodeLogRoot = await storage.upload(encode(JSON.stringify(log)));
-    await registry.submitEpisode(missionId, episodeLogRoot, policyRoot, log.decisions.length);
-    return { episodeLogRoot, policyRoot, decisionCount: log.decisions.length };
+    const { txHash } = await registry.submitEpisode(missionId, episodeLogRoot, policyRoot, log.decisions.length);
+    return { payload: { episodeLogRoot, policyRoot, decisionCount: log.decisions.length }, txHash };
   }
 
   private isAwardedToMe(mission: EscrowMission): boolean {

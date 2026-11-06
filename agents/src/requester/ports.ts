@@ -1,7 +1,7 @@
 // What the Requester needs from the outside world: the MissionEscrow writes (I5), its
 // Arkiv entities (I4) and the Verifier HTTP API (I6, with x402 paid inside the adapter).
 import type { Hex } from "../formats";
-import type { EscrowMission, MissionTerms } from "../worker/ports";
+import type { EscrowMission, MissionTerms, TxResult } from "../worker/ports";
 
 /** I5 Outcome enum, in contract order. */
 export const OUTCOMES = ["Pass", "Fail", "NoShow", "InvalidCourse", "NoSeedRelease"] as const;
@@ -25,15 +25,15 @@ export interface SignedVerdict {
 }
 
 export interface RequesterEscrowPort {
-  /** Locks maxBounty and fixes the terms on-chain; returns the Mission id. */
-  createMission(terms: MissionTerms, verifiers: readonly Hex[]): Promise<string>;
+  /** Locks maxBounty and fixes the terms on-chain; returns the Mission id and the transaction. */
+  createMission(terms: MissionTerms, verifiers: readonly Hex[]): Promise<{ missionId: string } & TxResult>;
   getMission(missionId: string): Promise<EscrowMission>;
   /** The id of this Requester's Mission with that Seed Commitment (from MissionCreated events), or null. */
   findMission(seedCommitment: Hex): Promise<string | null>;
   /** Refunds the Mission once rescueAt has passed; anyone may call it. */
-  rescue(missionId: string): Promise<void>;
-  award(missionId: string, award: AwardTerms, signatures: readonly Hex[]): Promise<void>;
-  settle(missionId: string, outcome: Outcome, evidenceHash: Hex, signatures: readonly Hex[]): Promise<void>;
+  rescue(missionId: string): Promise<TxResult>;
+  award(missionId: string, award: AwardTerms, signatures: readonly Hex[]): Promise<TxResult>;
+  settle(missionId: string, outcome: Outcome, evidenceHash: Hex, signatures: readonly Hex[]): Promise<TxResult>;
 }
 
 /** The public Mission entity on Arkiv, for discovery. Verifiers and Workers trust the on-chain terms. */
