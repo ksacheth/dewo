@@ -4,7 +4,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { randomBytes } from "node:crypto"
 import { describe, expect, it } from "vitest"
-import { generatePrivateKey } from "viem/accounts"
+import { generatePrivateKey, privateKeyToAddress } from "viem/accounts"
 
 const envFile = join(__dirname, "..", ".env")
 if (existsSync(envFile)) process.loadEnvFile(envFile)
@@ -44,6 +44,9 @@ describe.skipIf(!enabled)("real Arkiv (Rabdi)", () => {
 
     await board.releaseSeed(wallet!, missionId, "42", "0xsalt", wallet!.account.publicKey)
     expect(await board.readSeedRelease(missionId, pk)).toEqual({ seed: "42", salt: "0xsalt" })
+    const releasedAt = await board.seedReleasedAt(missionId, me)
+    expect(Math.abs(releasedAt! - Date.now() / 1000)).toBeLessThan(300)
+    expect(await board.seedReleasedAt(missionId, privateKeyToAddress(verifierKeys[0]))).toBeNull()
 
     expect(await board.readSeedReveal(missionId)).toBeNull()
     await board.revealSeed(wallet!, missionId, "0x2a", "0x5a17")

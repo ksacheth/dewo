@@ -156,6 +156,25 @@ describe("Seed Release", () => {
     await board.releaseSeed(workerB, mid(1), "666", "0xevil", pubKeyOf(workerA.privateKey))
     expect(await board.readSeedRelease(mid(1), workerA.privateKey)).toBeNull()
   })
+
+  it("seedReleasedAt: when the Requester released to that Worker, in unix seconds; anyone can ask", async () => {
+    await board.postMission(requester, mission(1))
+    expect(await board.seedReleasedAt(mid(1), workerA.account.address)).toBeNull()
+    vi.setSystemTime(NOW + 5_000)
+    await board.releaseSeed(requester, mid(1), seed.seed, seed.salt, pubKeyOf(workerA.privateKey))
+    vi.setSystemTime(NOW + 9_000)
+    await board.releaseSeed(requester, mid(1), "43", "0xlater", pubKeyOf(workerA.privateKey))
+    expect(await board.seedReleasedAt(mid(1), workerA.account.address)).toBe(nowSec + 5)
+    expect(await board.seedReleasedAt(mid(1), workerA.account.address, requester.account.address)).toBe(nowSec + 5)
+    expect(await board.seedReleasedAt(mid(1), workerB.account.address)).toBeNull()
+  })
+
+  it("seedReleasedAt ignores a Release not written by the Requester, and an unknown Mission", async () => {
+    await board.postMission(requester, mission(1))
+    await board.releaseSeed(workerB, mid(1), "666", "0xevil", pubKeyOf(workerA.privateKey))
+    expect(await board.seedReleasedAt(mid(1), workerA.account.address)).toBeNull()
+    expect(await board.seedReleasedAt(mid(2), workerA.account.address)).toBeNull()
+  })
 })
 
 describe("Seed Reveal", () => {

@@ -2,7 +2,7 @@ import { ExpirationTime } from "@arkiv-network/sdk"
 import { and, eq } from "@arkiv-network/sdk/query"
 import { addr } from "@arkiv-network/sdk/schema"
 import { privateKeyToAccount, publicKeyToAddress } from "viem/accounts"
-import { plain, readClient } from "./client"
+import { blockTimestamps, plain, readClient } from "./client"
 import type { Wallet, Written } from "./client"
 import { decrypt, encrypt } from "./crypto"
 import { getMission } from "./missions"
@@ -32,6 +32,26 @@ export async function readSeedRelease(missionId: Hex, workerPrivKey: Hex): Promi
     .fetch()
   const row = entities[0] && plain<SeedReleaseRow>(entities[0] as never)
   return row ? JSON.parse(decrypt(workerPrivKey, row.sealed)) : null
+}
+
+/**
+ * Unix seconds of the block that created the earliest Seed Release to `worker` written by the Mission's Requester (D5),
+ * or null if there is none. Needs no key, so the Requester can check it before releasing and the Worker can time its
+ * episodeWindow the way the Verifiers do. Pass `requester` when you already know it (the Mission entity expires first).
+ */
+export async function seedReleasedAt(missionId: Hex, worker: Hex, requester?: Hex): Promise<number | null> {
+  const owner = requester ?? (await getMission(missionId))?.requester
+  if (!owner) return null
+  const { entities } = await readClient()
+    .select()
+    .from(SeedRelease)
+    .where(and(eq("missionId", missionId), eq("worker", addr(worker))))
+    .ownedBy(owner)
+    .limit(10)
+    .fetch()
+  const earliest = entities.map((e) => plain<SeedReleaseRow>(e as never)).sort((a, b) => a.$createdAt - b.$createdAt || (a.$key < b.$key ? -1 : 1))[0]
+  if (!earliest) return null
+  return (await blockTimestamps([earliest.$createdAt])).get(earliest.$createdAt) ?? null
 }
 
 /** D13: after the Episode the Requester publishes {seed, salt} in the clear. Readonly and long-lived, like a Verdict. */
