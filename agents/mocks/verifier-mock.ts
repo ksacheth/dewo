@@ -45,6 +45,6 @@ export function createMockVerifier(options: MockVerifierOptions): Server {
     const { outcome, evidenceHash, signature } = options.verdict;
     const settled = { success: true, transaction: options.settlementTx || "0.0.1001@1700000000.000000001", network: "hedera:testnet" };
     const headers: Record<string, string> = options.settlementTx === null ? {} : { "PAYMENT-RESPONSE": Buffer.from(JSON.stringify(settled)).toString("base64") };
-    json(200, { verdict: outcome, evidenceHash, signature }, headers);
+    json(200, { verdict: outcome, signature, evidenceHash, pathCost: 0, optimalPathCost: 0, collisions: 0 }, headers);
   });
 }
