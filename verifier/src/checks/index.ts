@@ -31,8 +31,6 @@ export interface VerdictResult {
   pathQuality: number;
   collisions: number;
   failedCheck?: CheckName;
-  /** Checks that could not run fully (e.g. request rebuild without frame payloads). */
-  gaps: string[];
 }
 
 /** What a Replay measured. Zeros when the pipeline stopped before measuring it. */
@@ -55,10 +53,10 @@ const headerBindsEpisode = (e: EpisodeInput): boolean => {
 
 /** Run the spec 5.1 checks in order. Any failure is a Fail, except an unsolvable Course (Invalid Course). */
 export async function verifyEpisode(deps: VerifyDeps, e: EpisodeInput): Promise<VerdictResult> {
-  const done = (outcome: Outcome, m: Measured = NOT_MEASURED, failedCheck?: CheckName, gaps: string[] = []): VerdictResult => ({
+  const done = (outcome: Outcome, m: Measured = NOT_MEASURED, failedCheck?: CheckName): VerdictResult => ({
     outcome, evidenceHash: evidence(e, outcome, m),
     pathCost: m.pathCost, optimalPathCost: m.optimalPathCost, pathQuality: m.pathCost > 0 ? pathQuality(m.optimalPathCost, m.pathCost) : 0,
-    collisions: m.collisions, failedCheck, gaps,
+    collisions: m.collisions, failedCheck,
   });
   const fail = (check: CheckName) => done(Outcome.Fail, NOT_MEASURED, check);
 
@@ -77,8 +75,7 @@ export async function verifyEpisode(deps: VerifyDeps, e: EpisodeInput): Promise<
   const actions = e.log.decisions.map((d) => d.action);
   const replay = await deps.sim.replay(course, actions);
   const measured: Measured = { pathCost: pathCost(actions), optimalPathCost: optimal, collisions: replay.collisions, atGoal: replay.atGoal };
-  const decisions = await checkDecisions(deps.zeroG, e.policy, e.log.decisions, replay);
-  if (!decisions.ok) return done(Outcome.Fail, measured, "decisions", decisions.gaps);
-  if (!replayPasses(replay, measured.pathCost, optimal)) return done(Outcome.Fail, measured, "replay", decisions.gaps);
-  return done(Outcome.Pass, measured, undefined, decisions.gaps);
+  if (!(await checkDecisions(deps.zeroG, e.policy, e.log.decisions, replay))) return done(Outcome.Fail, measured, "decisions");
+  if (!replayPasses(replay, measured.pathCost, optimal)) return done(Outcome.Fail, measured, "replay");
+  return done(Outcome.Pass, measured);
 }

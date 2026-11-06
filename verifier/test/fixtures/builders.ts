@@ -1,7 +1,7 @@
-import { concat, keccak256, toBytes, type Hex } from "viem";
-import { policyHash, type Action, type Decision, type EpisodeLog, type Policy } from "@dewo/agents/formats";
+import { createHash } from "node:crypto";
+import type { Hex } from "viem";
+import { buildRequest, policyHash, seedCommitment, type Action, type Decision, type EpisodeLog, type Policy } from "@dewo/agents/formats";
 import type { SimPort, ZeroGPort, Course, ReplayResult } from "../../src/ports.js";
-import { buildRequest } from "../../src/request.js";
 import type { EpisodeInput } from "../../src/checks/index.js";
 
 export const SEED = ("0x" + "5e".repeat(16)) as Hex;
@@ -25,15 +25,15 @@ export class FakeSim implements SimPort {
     const frameHashes = actions.map((_, i) => frameHashFor(actions.slice(0, i)));
     return {
       frameHashes,
-      frames: frameHashes.map(frameOf),
       collisions: actions.filter((a) => a === (this.opts.collideAt ?? "TURN_LEFT")).length,
       atGoal: actions.filter((a) => a === "FORWARD").length >= 3,
       steps: actions.length,
     };
   }
 }
-export const frameHashFor = (prefix: Action[]): Hex => keccak256(toBytes(`frame:${prefix.join(",")}`));
-export const frameOf = (hash: Hex): string => `data:image/png;base64,${hash.slice(2, 14)}`;
+/** Stand-in PNG bytes for the view before the next Action; the sim reports their sha256 as the frame hash. */
+export const pngFor = (prefix: Action[]): Uint8Array => Buffer.from(`png:${prefix.join(",")}`);
+export const frameHashFor = (prefix: Action[]): Hex => `0x${createHash("sha256").update(pngFor(prefix)).digest("hex")}`;
 
 export const zeroG = (valid = true): ZeroGPort => ({ verifyResponse: async () => valid });
 
@@ -42,12 +42,12 @@ export function honestEpisode(actions: Action[] = ["FORWARD", "FORWARD", "FORWAR
     const frameHash = frameHashFor(actions.slice(0, step));
     return {
       step, frameHash, chatID: `chat-${step}`, providerAddress: PROVIDER,
-      request: buildRequest(POLICY, frameOf(frameHash), actions.slice(0, step)),
+      request: buildRequest(POLICY, pngFor(actions.slice(0, step)), actions.slice(0, step)),
       rawResponse: `I will go ${action}.`, action,
     };
   });
   const log: EpisodeLog = {
-    header: { missionId: MISSION, worker: WORKER, policyRoot: ("0x" + "22".repeat(32)) as Hex, seedCommitment: keccak256(concat([SEED, SALT])) },
+    header: { missionId: MISSION, worker: WORKER, policyRoot: ("0x" + "22".repeat(32)) as Hex, seedCommitment: seedCommitment(SEED, SALT) },
     decisions,
   };
   return {

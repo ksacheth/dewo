@@ -42,7 +42,7 @@ async function main() {
 
   const app = createApp({
     key, escrow: hedera.MissionEscrow!.address, gate, now: () => Math.floor(Date.now() / 1000),
-    board, sim, zeroG: zeroGCompute(broker), verdicts,
+    board, escrowState: escrow, sim, zeroG: zeroGCompute(broker), verdicts,
     events: ndjsonEvents(process.env.RUNS_DIR ?? "../runs", name),
     source: createEpisodeSource({
       board, escrow, seeds,

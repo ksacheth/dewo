@@ -9,6 +9,8 @@ import { Outcome } from "../src/sign.js";
 import type { VerdictRecord } from "../src/ports.js";
 import { FakeSim, honestEpisode, zeroG, MISSION, WORKER } from "./fixtures/builders.js";
 
+const OTHER = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC" as const;
+
 const KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
 const ESCROW = "0x5FbDB2315678afecb367f032d93F642f64180aa3" as const;
 
@@ -20,15 +22,18 @@ const gate: PaymentGate = async (req) =>
     ? { settle: async () => { settleCalls++; return settleResult; } }
     : { status: 402, body: { x402Version: 2, accepts: [{ scheme: "exact", network: "hedera:testnet" }] } };
 
-function app() {
+type EscrowAward = { worker: `0x${string}`; awardedAt: number; stakeWindow: number; stakedAt: number | null } | null;
+
+function app(opts: { escrowAward?: () => EscrowAward; bidders?: `0x${string}`[]; now?: () => number } = {}) {
   const { mission, ...episode } = honestEpisode();
   const dir = mkdtempSync(join(tmpdir(), "runs-"));
   const events = ndjsonEvents(dir, "verifier-1");
   const written: unknown[] = [];
   const deps = {
-    key: KEY, escrow: ESCROW, gate, events, sim: new FakeSim(), zeroG: zeroG(), now: () => 5_000,
+    key: KEY, escrow: ESCROW, gate, events, sim: new FakeSim(), zeroG: zeroG(), now: opts.now ?? (() => 5_000),
+    escrowState: { getAward: async () => (opts.escrowAward ? opts.escrowAward() : null) },
     board: {
-      getMission: async () => mission, listBids: async () => [{ worker: WORKER, policyHash: "0x00" as Hex }],
+      getMission: async () => mission, listBids: async () => (opts.bidders ?? [WORKER]).map((worker) => ({ worker, policyHash: "0x00" as Hex })),
       openBid: async () => 5_000_000n, listVerdicts: async () => [],
     },
     source: { load: async () => ({ mission, worker: WORKER, timeline: { stakedAt: 1_000, seedReleasedAt: 1_010, episodeSubmittedAt: 1_100 }, episode }) },
@@ -58,6 +63,56 @@ describe("Verifier HTTP API (I6)", () => {
     verdicts = Array.from({ length: 6 }, (_, i) => ({ worker: WORKER, outcome: Outcome.Pass, pathQuality: 1, timestamp: i }));
     const second = await (await post(a, "/award")).json();
     expect(second).toEqual(first);
+  });
+
+  describe("Award fallback after a lapsed stake window", () => {
+    let current: EscrowAward = null;
+    let now = 5_000;
+    const lapsedApp = () => app({ escrowAward: () => current, bidders: [WORKER, OTHER], now: () => now });
+    const award = async (a: ReturnType<typeof app>["a"]) => (await post(a, "/award")).json();
+
+    it("keeps returning the same Award while the winner still has time to stake", async () => {
+      current = null; now = 5_000;
+      const { a } = lapsedApp();
+      const first = await award(a);
+      current = { worker: first.worker, awardedAt: 5_000, stakeWindow: 30, stakedAt: null };
+      now = 5_029;
+      expect(await award(a)).toEqual(first);
+    });
+
+    it("skips the winner whose stake window passed without a stake, and awards the next-best Bid", async () => {
+      current = null; now = 5_000;
+      const { a } = lapsedApp();
+      const first = await award(a);
+      current = { worker: first.worker, awardedAt: 5_000, stakeWindow: 30, stakedAt: null };
+      now = 5_031;
+      const second = await award(a);
+      expect(second.worker).not.toBe(first.worker);
+      expect([WORKER, OTHER]).toContain(second.worker);
+    });
+
+    it("does not skip a winner who staked, even after the window", async () => {
+      current = null; now = 5_000;
+      const { a } = lapsedApp();
+      const first = await award(a);
+      current = { worker: first.worker, awardedAt: 5_000, stakeWindow: 30, stakedAt: 5_010 };
+      now = 6_000;
+      expect(await award(a)).toEqual(first);
+    });
+
+    it("remembers every lapsed winner, so a second lapse does not bring the first back", async () => {
+      current = null; now = 5_000;
+      const { a } = lapsedApp();
+      const first = await award(a);
+      current = { worker: first.worker, awardedAt: 5_000, stakeWindow: 30, stakedAt: null };
+      now = 5_031;
+      const second = await award(a);
+      current = { worker: second.worker, awardedAt: 5_031, stakeWindow: 30, stakedAt: null };
+      now = 5_070;
+      const res = await post(a, "/award"); // both bidders lapsed: nobody is left
+      expect(res.status).toBe(422);
+      expect((await res.json()).error).toMatch(/no valid bid/i);
+    });
   });
 
   it("POST /replay answers 402 with payment requirements before payment, and does no work", async () => {

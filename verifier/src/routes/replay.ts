@@ -2,6 +2,7 @@ import { keccak256, toBytes, type Address, type Hex } from "viem";
 import { canonicalJson } from "@dewo/agents/formats";
 import { verifyEpisode } from "../checks/index.js";
 import { classifyTimeline } from "../deadlines.js";
+import { PendingError } from "../errors.js";
 import type { EpisodeSource, EventSink, SimPort, VerdictSink, ZeroGPort } from "../ports.js";
 import { Outcome, signVerdict } from "../sign.js";
 
@@ -11,8 +12,6 @@ export interface ReplayDeps {
   key: Hex; escrow: Address; now: () => number; // unix seconds
 }
 export interface ReplayResponse { verdict: Outcome; signature: Hex; evidenceHash: Hex }
-
-export class PendingError extends Error {}
 
 /** Decide the Outcome (by deadlines or by Replay), sign the Verdict, record it on Arkiv, and return it. */
 export async function handleReplay(deps: ReplayDeps, missionId: Hex): Promise<ReplayResponse> {

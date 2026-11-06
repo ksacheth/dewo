@@ -1,4 +1,5 @@
 import type { Hex } from "viem";
+import { PendingError } from "./errors.js";
 import type { EpisodeLog, Policy } from "@dewo/agents/formats";
 import type { BoardPort, EpisodeRegistryPort, EpisodeSource, EscrowPort, LoadedEpisode, SeedPort, StoragePort } from "./ports.js";
 
@@ -16,6 +17,7 @@ export function createEpisodeSource(deps: EpisodeSourceDeps): EpisodeSource {
     async load(missionId: Hex): Promise<LoadedEpisode> {
       const [mission, award] = await Promise.all([deps.board.getMission(missionId), deps.escrow.getAward(missionId)]);
       if (!award) throw new Error(`no award for mission ${missionId}`);
+      if (award.stakedAt === null) throw new PendingError(`mission ${missionId}: winner has not staked yet`);
 
       const [seedReleasedAt, submission, reveal, bids] = await Promise.all([
         deps.seeds.seedReleasedAt(missionId, award.worker),

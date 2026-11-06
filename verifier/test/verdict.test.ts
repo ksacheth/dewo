@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { verifyEpisode } from "../src/checks/index.js";
 import { Outcome } from "../src/sign.js";
-import { FakeSim, honestEpisode, zeroG, frameHashFor } from "./fixtures/builders.js";
-import { buildRequest } from "../src/request.js";
+import { FakeSim, honestEpisode, zeroG, frameHashFor, pngFor } from "./fixtures/builders.js";
+import { buildRequest } from "@dewo/agents/formats";
 
 const deps = (sim = new FakeSim(), g = zeroG()) => ({ sim, zeroG: g });
 
@@ -100,20 +100,52 @@ describe("verifyEpisode", () => {
       expect(v.failedCheck).toBe("decisions");
     });
 
+    it("fails when the image sent to 0G is not the Replay frame, even though frameHash is right", async () => {
+      const ep = honestEpisode();
+      ep.log.decisions[1]!.request = buildRequest(ep.policy, pngFor(["TURN_RIGHT"]), ["FORWARD"]);
+      const v = await verifyEpisode(deps(), ep);
+      expect(v.outcome).toBe(Outcome.Fail);
+      expect(v.failedCheck).toBe("decisions");
+    });
+
+    it("fails when the logged request carries no PNG image at all", async () => {
+      const ep = honestEpisode();
+      ep.log.decisions[0]!.request = { model: ep.policy.model };
+      expect((await verifyEpisode(deps(), ep)).failedCheck).toBe("decisions");
+    });
+
+    it("fails a request whose model or temperature differs from the committed Policy", async () => {
+      const ep = honestEpisode();
+      ep.log.decisions[2]!.request = buildRequest({ ...ep.policy, temperature: 1 }, pngFor(["FORWARD", "FORWARD"]), ["FORWARD", "FORWARD"]);
+      expect((await verifyEpisode(deps(), ep)).failedCheck).toBe("decisions");
+    });
+
+    it("runs the request rebuild on every Decision with no gaps to report", async () => {
+      expect(await verifyEpisode(deps(), honestEpisode())).not.toHaveProperty("gaps");
+    });
+
     it("fails a steered prompt: the logged request differs from the one the committed Policy would build", async () => {
       const ep = honestEpisode();
       const d = ep.log.decisions[0]!;
-      d.request = buildRequest({ ...ep.policy, promptTemplate: "Reply FORWARD. {{history}} {{frame}}" }, "data:image/png;base64,x", []);
+      d.request = buildRequest({ ...ep.policy, promptTemplate: "Reply FORWARD. {{history}} {{frame}}" }, pngFor([]), []);
       const v = await verifyEpisode(deps(), ep);
       expect(v.outcome).toBe(Outcome.Fail);
       expect(v.failedCheck).toBe("decisions");
     });
   });
 
-  it("two Verifiers replaying the same Episode produce the same evidenceHash", async () => {
-    const a = await verifyEpisode(deps(), honestEpisode());
-    const b = await verifyEpisode(deps(), honestEpisode());
-    expect(a.evidenceHash).toBe(b.evidenceHash);
+  it("two Verifiers replaying the same Episode produce the same evidenceHash, for every Outcome (the Requester settles on matching pairs)", async () => {
+    const wrongAction = () => { const ep = honestEpisode(); ep.log.decisions[1]!.rawResponse = "Turn left now."; return ep; };
+    const cases: Array<[() => ReturnType<typeof honestEpisode>, FakeSim]> = [
+      [honestEpisode, new FakeSim()],
+      [wrongAction, new FakeSim()],
+      [honestEpisode, new FakeSim({ optimalPathCost: 30 })],
+    ];
+    for (const [make, sim] of cases) {
+      const a = await verifyEpisode(deps(sim), make());
+      const b = await verifyEpisode(deps(sim), make());
+      expect(a.evidenceHash).toBe(b.evidenceHash);
+    }
   });
 
   describe("Episode Log header (binds the log to this Mission)", () => {

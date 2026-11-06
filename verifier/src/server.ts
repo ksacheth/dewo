@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { isHex, type Address, type Hex } from "viem";
 import { computeAward } from "./routes/award.js";
-import { PendingError, handleReplay } from "./routes/replay.js";
-import type { BoardPort, EpisodeSource, EventSink, SimPort, VerdictSink, ZeroGPort } from "./ports.js";
+import { PendingError } from "./errors.js";
+import { handleReplay } from "./routes/replay.js";
+import type { BoardPort, EpisodeSource, EscrowPort, EventSink, SimPort, VerdictSink, ZeroGPort } from "./ports.js";
 
 export interface GateChallenge { status: number; body: unknown; headers?: Record<string, string> }
 /** A payment that verified but has not been charged yet. */
@@ -14,7 +15,7 @@ const HASHSCAN_TX = "https://hashscan.io/testnet/transaction/";
 
 export interface AppDeps {
   key: Hex; escrow: Address; gate: PaymentGate; now: () => number;
-  board: BoardPort; source: EpisodeSource; sim: SimPort; zeroG: ZeroGPort;
+  board: BoardPort; escrowState: EscrowPort; source: EpisodeSource; sim: SimPort; zeroG: ZeroGPort;
   verdicts: VerdictSink; events: EventSink;
 }
 
@@ -33,14 +34,21 @@ export function createApp(deps: AppDeps) {
   // The Quorum needs 2 matching Award signatures, so an instance never re-signs a different Award for the same Mission,
   // even if Verdict history moves on between calls.
   const awards = new Map<Hex, Awaited<ReturnType<typeof computeAward>>>();
+  // Workers whose Award lapsed (no stake within the window). Every Verifier excludes them, so all three agree on the next-best Bid.
+  const lapsed = new Map<Hex, Set<Address>>();
+  const lapsedFor = (missionId: Hex) => lapsed.get(missionId) ?? lapsed.set(missionId, new Set()).get(missionId)!;
 
   app.post("/award", async (c) => {
     const missionId = await readMissionId(c.req.raw);
     if (!missionId) return respond({ error: "missionId must be a 32-byte hex string" }, 400);
     try {
+      const onChain = await deps.escrowState.getAward(missionId);
+      if (onChain && onChain.stakedAt === null && deps.now() > onChain.awardedAt + onChain.stakeWindow) {
+        lapsedFor(missionId).add(onChain.worker.toLowerCase() as Address);
+      }
       const cached = awards.get(missionId);
-      if (cached) return respond(cached);
-      const award = await computeAward({ board: deps.board, key: deps.key, escrow: deps.escrow }, missionId);
+      if (cached && !lapsedFor(missionId).has(cached.worker.toLowerCase() as Address)) return respond(cached);
+      const award = await computeAward({ board: deps.board, key: deps.key, escrow: deps.escrow }, missionId, { exclude: [...lapsedFor(missionId)] });
       awards.set(missionId, award);
       await deps.events.emit(missionId, "award.signed", { ...award });
       return respond(award);

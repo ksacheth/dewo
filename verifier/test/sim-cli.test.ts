@@ -41,7 +41,6 @@ describe("cliSim (I1 over the sim CLI)", () => {
     const res = await cliSim(fakeRunner(calls, files)).replay(COURSE as never, ["FORWARD", "STOP"]);
     expect(files.actions).toEqual(["FORWARD", "STOP"]);
     expect(res).toMatchObject({ frameHashes: ["0xaa", "0xbb"], atGoal: true, steps: 2 });
-    expect(res.frames).toBeUndefined();
   });
 
   it("cleans up its temp files", async () => {

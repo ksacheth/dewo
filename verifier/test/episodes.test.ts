@@ -4,11 +4,12 @@ import { createEpisodeSource } from "../src/episodes.js";
 import type { BoardPort } from "../src/ports.js";
 import { SEED, SALT, MISSION, WORKER, POLICY, honestEpisode } from "./fixtures/builders.js";
 import { policyHash } from "@dewo/agents/formats";
+import { PendingError } from "../src/errors.js";
 
 const LOG_ROOT = ("0x" + "33".repeat(32)) as Hex;
 const POLICY_ROOT = ("0x" + "22".repeat(32)) as Hex;
 
-function world(over: { submission?: null; seeds?: boolean; award?: null } = {}) {
+function world(over: { submission?: null; seeds?: boolean; award?: null; unstaked?: boolean } = {}) {
   const ep = honestEpisode();
   const downloads: Hex[] = [];
   const board: BoardPort = {
@@ -17,7 +18,7 @@ function world(over: { submission?: null; seeds?: boolean; award?: null } = {}) 
   };
   const source = createEpisodeSource({
     board,
-    escrow: { getAward: async () => (over.award === null ? null : { worker: WORKER, stakedAt: 1_000 }) },
+    escrow: { getAward: async () => (over.award === null ? null : { worker: WORKER, awardedAt: 990, stakeWindow: 30, stakedAt: over.unstaked ? null : 1_000 }) },
     seeds: {
       seedReleasedAt: async () => 1_010,
       revealedSeed: async () => (over.seeds === false ? null : { seed: SEED, salt: SALT }),
@@ -51,6 +52,10 @@ describe("createEpisodeSource", () => {
 
   it("has no episode while the seed has not been revealed yet", async () => {
     expect((await world({ seeds: false }).source.load(MISSION)).episode).toBeUndefined();
+  });
+
+  it("is pending (not an error) while the winner has not staked: the Award may still lapse", async () => {
+    await expect(world({ unstaked: true }).source.load(MISSION)).rejects.toBeInstanceOf(PendingError);
   });
 
   it("rejects when the Mission has no Award yet", async () => {

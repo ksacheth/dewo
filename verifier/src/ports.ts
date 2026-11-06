@@ -32,8 +32,6 @@ export interface ReplayResult {
   atGoal: boolean;
   /** Decisions the sim executed; it stops at the goal. */
   steps: number;
-  /** Frame payloads (e.g. data URLs) for the request-rebuild check. Not in I1 today; see open question for M1. */
-  frames?: string[];
 }
 export interface SimPort {
   course(seed: Hex, difficulty: Difficulty): Promise<Course>;
@@ -82,8 +80,9 @@ export interface EpisodeRegistryPort {
 }
 /** 0G Storage: download a JSON document by root hash. */
 export interface StoragePort { downloadJson<T>(root: Hex): Promise<T> }
-/** Hedera MissionEscrow facts: who won, and when they staked. */
-export interface EscrowPort { getAward(missionId: Hex): Promise<{ worker: Address; stakedAt: number } | null> }
+/** The current Award on Hedera. `stakedAt` is null until the winner stakes; it lapses once `awardedAt + stakeWindow` passes without a stake. */
+export interface EscrowAward { worker: Address; awardedAt: number; stakeWindow: number; stakedAt: number | null }
+export interface EscrowPort { getAward(missionId: Hex): Promise<EscrowAward | null> }
 /** Arkiv seed facts. The revealed seed and salt become public after the Episode Submission. */
 export interface SeedPort {
   seedReleasedAt(missionId: Hex, worker: Address): Promise<number | undefined>;
