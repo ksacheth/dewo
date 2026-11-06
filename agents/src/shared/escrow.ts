@@ -51,8 +51,11 @@ export function toEscrowMission(raw: RawMission): EscrowMission {
 }
 
 export interface EscrowScanOptions {
-  /** First block to scan for MissionCreated events: the escrow's `deployBlock` from chain/deployments. */
-  fromBlock?: bigint;
+  /**
+   * First block to scan for MissionCreated events: the escrow's `deployBlock` from chain/deployments.
+   * Required: scanning from genesis on Hashio means hundreds of slow eth_getLogs calls.
+   */
+  fromBlock: bigint;
   /**
    * Most blocks per eth_getLogs call. Hashio rejects ranges spanning more than 7 days (about 302k blocks);
    * the default stays well under that.
@@ -70,7 +73,7 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
   constructor(
     private readonly clients: EvmClients,
     private readonly address: Hex,
-    { fromBlock = 0n, logChunk = DEFAULT_LOG_CHUNK }: EscrowScanOptions = {},
+    { fromBlock, logChunk = DEFAULT_LOG_CHUNK }: EscrowScanOptions,
   ) {
     if (logChunk < 1n) throw new Error("logChunk must be at least 1 block");
     this.fromBlock = fromBlock;

@@ -30,6 +30,8 @@ const KEYS: Hex[] = [
 ];
 const [deployerKey, requesterKey, workerKey, ...verifierKeys] = KEYS as [Hex, Hex, Hex, Hex, Hex, Hex];
 const verifiers = verifierKeys.map((key) => privateKeyToAccount(key));
+// A fresh Anvil chain: scanning from genesis is a handful of blocks.
+const ANVIL_SCAN = { fromBlock: 0n };
 
 const artifact = (file: string, name: string) =>
   JSON.parse(readFileSync(join(OUT!, file, `${name}.json`), "utf8")) as { abi: Abi; bytecode: { object: Hex } };
@@ -85,8 +87,8 @@ describe.skipIf(!OUT)("escrow + registry adapters against M2's contracts (Anvil)
   afterAll(() => anvil?.kill());
 
   it("creates, awards, stakes, submits and settles a Mission", async () => {
-    const requester = new EscrowContract(clientsFor(requesterKey), escrowAddress);
-    const worker = new EscrowContract(clientsFor(workerKey), escrowAddress);
+    const requester = new EscrowContract(clientsFor(requesterKey), escrowAddress, ANVIL_SCAN);
+    const worker = new EscrowContract(clientsFor(workerKey), escrowAddress, ANVIL_SCAN);
     const registry = new RegistryContract(clientsFor(workerKey), registryAddress);
     const workerAddress = privateKeyToAccount(workerKey).address;
     const now = Number((await deployer.public.getBlock()).timestamp);
@@ -141,7 +143,7 @@ describe.skipIf(!OUT)("escrow + registry adapters against M2's contracts (Anvil)
   }, 60_000);
 
   it("rescues a Mission nobody bid on once rescueAt has passed", async () => {
-    const requester = new EscrowContract(clientsFor(requesterKey), escrowAddress);
+    const requester = new EscrowContract(clientsFor(requesterKey), escrowAddress, ANVIL_SCAN);
     const now = Number((await deployer.public.getBlock()).timestamp);
     const { missionId } = await requester.createMission(
       {
@@ -160,8 +162,8 @@ describe.skipIf(!OUT)("escrow + registry adapters against M2's contracts (Anvil)
   }, 60_000);
 
   it("parks a payout the token refuses, then withdraws it once delivery works (R11)", async () => {
-    const requester = new EscrowContract(clientsFor(requesterKey), escrowAddress);
-    const worker = new EscrowContract(clientsFor(workerKey), escrowAddress);
+    const requester = new EscrowContract(clientsFor(requesterKey), escrowAddress, ANVIL_SCAN);
+    const worker = new EscrowContract(clientsFor(workerKey), escrowAddress, ANVIL_SCAN);
     const workerAddress = privateKeyToAccount(workerKey).address;
     const balanceOf = (account: Hex) =>
       deployer.public.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [account] });

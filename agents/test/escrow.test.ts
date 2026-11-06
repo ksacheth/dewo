@@ -87,7 +87,7 @@ describe("EscrowContract settlement asset", () => {
   it("does not cache a failed lookup", async () => {
     const reads = [Promise.reject(new Error("rpc blip")), Promise.resolve("0x00000000000000000000000000000000000000cc")];
     const clients = { public: { readContract: () => reads.shift() } } as never;
-    const escrow = new EscrowContract(clients, "0x00000000000000000000000000000000000000dd");
+    const escrow = new EscrowContract(clients, "0x00000000000000000000000000000000000000dd", { fromBlock: 0n });
     const lookup = () => (escrow as unknown as { settlementAsset(): Promise<string> }).settlementAsset();
 
     await expect(lookup()).rejects.toThrow("rpc blip");
