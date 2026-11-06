@@ -308,7 +308,7 @@ export class FakeVerifiers implements VerifiersPort {
     const submitted = await this.registry.isSubmitted(missionId);
     const outcome: Outcome = this.dissenting.has(url) ? "Fail" : submitted ? "Pass" : "NoShow";
     const verdict: SignedVerdict = { outcome, evidenceHash: keccak256(toBytes(`${missionId}:${outcome}`)), signature: sign(url, missionId) };
-    return { verdict, payment: { challenged: true, amount: REPLAY_PRICE } };
+    return { verdict, payment: { challenged: true, amount: REPLAY_PRICE, payTo: "0.0.5005", network: "hedera:testnet", asset: "0.0.429274", paymentTx: `tx-${url}` } };
   }
 
   private failIfBroken(url: string): void {

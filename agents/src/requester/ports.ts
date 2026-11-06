@@ -65,6 +65,12 @@ export interface ReplayPayment {
   challenged: boolean;
   /** USDC base units paid; 0 when the Replay was free. */
   amount: bigint;
+  /** Who was paid, on which network and in which asset, as the x402 payment named them (absent if it was never paid). */
+  payTo?: string;
+  network?: string;
+  asset?: string;
+  /** The settlement transaction id from the PAYMENT-RESPONSE header, if the Verifier sent one. */
+  paymentTx?: string;
 }
 
 export interface ReplayResult {

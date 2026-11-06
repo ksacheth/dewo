@@ -349,7 +349,17 @@ export class Requester {
       const verifier = this.config.verifiers.find((v) => v.url === url)!.address;
       if (payment.challenged) this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: 402, amount: payment.amount.toString() });
       this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: "paid", amount: payment.amount.toString() });
-      await this.audit({ missionId: record.missionId, verifier: url, outcome: verdict.outcome });
+      await this.audit({
+        missionId: record.missionId,
+        verifier,
+        verifierUrl: url,
+        outcome: verdict.outcome,
+        amount: payment.amount.toString(),
+        payTo: payment.payTo,
+        network: payment.network,
+        asset: payment.asset,
+        paymentTx: payment.paymentTx,
+      });
     } catch (error) {
       next = { ...next, note: `Replay at ${url} failed: ${String(error)}` };
     }

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { seedCommitment, toBaseUnits, type Hex } from "../src/formats";
 import type { AuditPort, PaymentRecord } from "../src/requester/audit";
 import { CREATE_RETRY_SECONDS } from "../src/requester/requester";
-import { BIDDING_CLOSES_AFTER, RIVAL, ME, SALT, SEED, VERIFIER_URLS, requesterIn, world } from "./fakes";
+import { BIDDING_CLOSES_AFTER, REPLAY_PRICE, RIVAL, ME, SALT, SEED, VERIFIER_ADDRESSES, VERIFIER_URLS, requesterIn, world } from "./fakes";
 
 const randoms = (): (() => Hex) => {
   const values: Hex[] = [SEED, SALT];
@@ -169,8 +169,20 @@ describe("Requester: HCS spending log", () => {
   it("records every paid Replay", async () => {
     const records: PaymentRecord[] = [];
     const { missionId } = await settledWith({ recordPayment: async (r) => void records.push(r) });
-    expect(records.map((r) => r.verifier)).toEqual(VERIFIER_URLS);
-    expect(records[0]).toMatchObject({ missionId, outcome: "Pass" });
+    expect(records.map((r) => r.verifierUrl)).toEqual(VERIFIER_URLS);
+    expect(records.map((r) => r.verifier)).toEqual(VERIFIER_ADDRESSES);
+    expect(records[0]).toEqual({
+      missionId,
+      verifier: VERIFIER_ADDRESSES[0],
+      verifierUrl: VERIFIER_URLS[0],
+      outcome: "Pass",
+      amount: REPLAY_PRICE.toString(),
+      payTo: "0.0.5005",
+      network: "hedera:testnet",
+      asset: "0.0.429274",
+      paymentTx: `tx-${VERIFIER_URLS[0]}`,
+      at: expect.any(String),
+    });
   });
 
   it("still settles when the audit log is down", async () => {

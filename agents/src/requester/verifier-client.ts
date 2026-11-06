@@ -110,30 +110,58 @@ async function post(doFetch: typeof fetch, url: string, missionId: string, timeo
   return response.json();
 }
 
-/** Passes calls through to fetch and notes the 402 challenge and the amount of the payment that answers it. */
+/** Passes calls through to fetch and notes the 402 challenge, the payment that answers it and its settlement. */
 function recordingFetch(payment: ReplayPayment): typeof fetch {
-  let quoted = 0n;
+  let quoted: Partial<PaymentTerms> = {};
   return async (input, init) => {
     const signature = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined)).get("PAYMENT-SIGNATURE");
     const response = await fetch(input, init);
     if (response.status === 402) {
       payment.challenged = true;
-      quoted = decodedAmount(response.headers.get("PAYMENT-REQUIRED"), "accepts") ?? quoted;
+      quoted = paymentTerms(decodedHeader(response.headers.get("PAYMENT-REQUIRED"))?.accepts) ?? quoted;
     }
-    if (signature) payment.amount = decodedAmount(signature, "accepted") ?? quoted;
+    if (signature) {
+      const chosen = { ...quoted, ...paymentTerms(decodedHeader(signature)?.accepted) };
+      payment.amount = chosen.amount ?? payment.amount;
+      Object.assign(payment, { payTo: chosen.payTo, network: chosen.network, asset: chosen.asset });
+    }
+    const settled = decodedHeader(response.headers.get("PAYMENT-RESPONSE"));
+    if (typeof settled?.transaction === "string" && settled.transaction) payment.paymentTx = settled.transaction;
     return response;
   };
 }
 
-/** The `amount` in a base64 JSON x402 header: of the first option under "accepts", or of the "accepted" one. */
-function decodedAmount(header: string | null, field: "accepts" | "accepted"): bigint | undefined {
+interface PaymentTerms {
+  amount: bigint;
+  payTo: string;
+  network: string;
+  asset: string;
+}
+
+/** A base64 JSON x402 header (PAYMENT-REQUIRED, PAYMENT-SIGNATURE or PAYMENT-RESPONSE), or undefined if absent or malformed. */
+function decodedHeader(header: string | null): Record<string, unknown> | undefined {
   if (!header) return undefined;
   try {
-    const body = JSON.parse(Buffer.from(header, "base64").toString()) as Record<string, { amount?: string } | { amount?: string }[]>;
-    const chosen = body[field];
-    const amount = (Array.isArray(chosen) ? chosen[0] : chosen)?.amount;
-    return amount === undefined ? undefined : BigInt(amount);
+    const body: unknown = JSON.parse(Buffer.from(header, "base64").toString());
+    return typeof body === "object" && body !== null ? (body as Record<string, unknown>) : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** The terms of one payment option: the first of a PAYMENT-REQUIRED "accepts" list, or the "accepted" one of a signature. */
+function paymentTerms(option: unknown): Partial<PaymentTerms> | undefined {
+  const chosen = Array.isArray(option) ? option[0] : option;
+  if (typeof chosen !== "object" || chosen === null) return undefined;
+  const { amount, payTo, network, asset } = chosen as Record<string, unknown>;
+  const terms: Partial<PaymentTerms> = {};
+  try {
+    if (typeof amount === "string") terms.amount = BigInt(amount);
+  } catch {
+    // an unparsable amount is treated as missing
+  }
+  if (typeof payTo === "string") terms.payTo = payTo;
+  if (typeof network === "string") terms.network = network;
+  if (typeof asset === "string") terms.asset = asset;
+  return terms;
 }

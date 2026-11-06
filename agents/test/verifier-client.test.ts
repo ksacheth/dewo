@@ -27,6 +27,16 @@ const fakePayFetch: PayFetchFactory = (base) => async (input, init) => {
   return base(input, { ...init, headers: { ...(init?.headers as Record<string, string>), "PAYMENT-SIGNATURE": signature } });
 };
 
+/** What the mock Verifier's 402 and PAYMENT-RESPONSE say, as the Requester records it for HCS (R7). */
+const fullPayment = {
+  challenged: true,
+  amount: 100_000n,
+  payTo: "0.0.0",
+  network: "hedera:testnet",
+  asset: "0.0.429274",
+  paymentTx: "0.0.1001@1700000000.000000001",
+};
+
 describe("HttpVerifiers against the I6 mock", () => {
   it("gets a free Award", async () => {
     expect(await new HttpVerifiers(fakePayFetch).requestAward(url, "m1")).toMatchObject({ worker: ME, price: 1_500_000n, stake: 500_000n });
@@ -35,9 +45,22 @@ describe("HttpVerifiers against the I6 mock", () => {
   it("pays the 402 and gets the Verdict", async () => {
     expect(await new HttpVerifiers(fakePayFetch).requestReplay(url, "m1")).toEqual({
       verdict,
-      payment: { challenged: true, amount: 100_000n },
+      payment: { ...fullPayment },
     });
     expect(seenRequirements[0]).toMatchObject({ x402Version: 2, accepts: [{ network: "hedera:testnet", amount: "100000" }] });
+  });
+
+  it("leaves paymentTx out when the Verifier sends no PAYMENT-RESPONSE", async () => {
+    const quiet = createMockVerifier({ award: null, verdict, settlementTx: null });
+    await new Promise<void>((resolve) => quiet.listen(0, resolve));
+    try {
+      const quietUrl = `http://127.0.0.1:${(quiet.address() as AddressInfo).port}`;
+      const { payment } = await new HttpVerifiers(fakePayFetch).requestReplay(quietUrl, "m1");
+      expect(payment).toMatchObject({ amount: 100_000n, payTo: "0.0.0" });
+      expect(payment.paymentTx).toBeUndefined();
+    } finally {
+      quiet.close();
+    }
   });
 
   it("fails if the Replay is not paid", async () => {
@@ -57,10 +80,9 @@ describe("the real @x402/fetch client against the I6 mock", () => {
     wrapFetchWithPayment(base, withSpendCap(new x402Client().register("hedera:*", dummyScheme), cap));
 
   it("reads the 402, pays and gets the Verdict when the price is within the cap", async () => {
-    expect(await new HttpVerifiers(paying(100_000n)).requestReplay(url, "m1")).toEqual({
-      verdict,
-      payment: { challenged: true, amount: 100_000n },
-    });
+    const replay = await new HttpVerifiers(paying(100_000n)).requestReplay(url, "m1");
+    expect(replay.verdict).toEqual(verdict);
+    expect(replay.payment).toEqual(fullPayment);
   });
 
   it("refuses to pay above the cap", async () => {
