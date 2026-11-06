@@ -9,12 +9,15 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "requester": "node --env-file-if-exists=.env --import tsx src/requester/main.ts",
+    "worker": "node --env-file-if-exists=.env --import tsx src/worker/main.ts",
     "spike:0g": "tsx scripts/zg-spike.ts",
     "check:router": "tsx scripts/router-check.ts"
   },
   "dependencies": {
     "@0gfoundation/0g-compute-ts-sdk": "^0.9.0",
     "@0gfoundation/0g-storage-ts-sdk": "^1.2.13",
+    "@dewo/board": "workspace:*",
     "@hiero-ledger/sdk": "2.90.1",
     "@x402/core": "^2.30.0",
     "@x402/fetch": "^2.30.0",

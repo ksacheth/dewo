@@ -193,6 +193,12 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
     return txResult(await send(this.clients, { address: this.address, abi: missionEscrowAbi, functionName: "withdraw", args: [] }));
   }
 
+  /** `account`'s balance of the settlement token (USDC base units): what a Worker can stake with. */
+  async assetBalance(account: Hex): Promise<bigint> {
+    const token = await this.settlementAsset();
+    return this.clients.public.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [account] });
+  }
+
   /** Lets the escrow pull `amount` of the settlement token, if it can't already. */
   private async approve(amount: bigint): Promise<void> {
     const token = await this.settlementAsset();

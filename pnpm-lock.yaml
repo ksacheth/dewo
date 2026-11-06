@@ -16,6 +16,9 @@ importers:
       '@0gfoundation/0g-storage-ts-sdk':
         specifier: ^1.2.13
         version: 1.2.13(bufferutil@4.1.0)(ethers@6.17.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(utf-8-validate@5.0.10)
+      '@dewo/board':
+        specifier: workspace:*
+        version: link:../board
       '@hiero-ledger/sdk':
         specifier: 2.90.1
         version: 2.90.1(bufferutil@4.1.0)(utf-8-validate@5.0.10)
