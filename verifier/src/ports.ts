@@ -113,11 +113,18 @@ export interface UploadRecordPort {
    * chain alone, so every Verifier gets the same answer. Rejects when the chain cannot be read or is not far enough past `to` yet.
    */
   submittedBetween(roots: readonly Hex[], from: number, to: number): Promise<boolean[]>;
+  /** Resolves once the chain is far enough past `to` for submittedBetween to answer; rejects while it is not, or cannot be read. */
+  assertPast(to: number): Promise<void>;
 }
 
 /** What the Verifier learns about a Mission's Episode from Hedera, Arkiv and 0G (episodes.ts implements this). */
 export interface EpisodeSource {
   load(missionId: Hex): Promise<LoadedEpisode>;
+  /**
+   * Whether a Verdict can be decided now, checked without downloading anything, so /replay can say "not yet" before it asks for
+   * payment. Rejects with PendingError while the Episode is pending, and with any other error while a source cannot answer yet.
+   */
+  ready(missionId: Hex, now: number): Promise<void>;
 }
 export interface LoadedEpisode {
   mission: MissionRecord;

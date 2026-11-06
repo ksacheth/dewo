@@ -82,11 +82,19 @@ async function rootsNotSubmitted(reader: FlowReader, roots: readonly Hex[], firs
  * the window was never uploaded in it. The window is mapped to blocks by timestamp alone, so all Verifiers scan the same blocks.
  */
 export function zeroGFlow(reader: FlowReader, { chunk = DEFAULT_CHUNK }: FlowOptions = {}): UploadRecordPort {
+  /** The chain head, once its block is stamped at least HEAD_MARGIN_SECONDS past `to`. */
+  async function headPast(stampOf: StampOf, to: number): Promise<bigint> {
+    const head = await reader.latestBlock();
+    if ((await stampOf(head)) < to + HEAD_MARGIN_SECONDS) throw new Error(`Galileo is not ${HEAD_MARGIN_SECONDS} s past ${to} yet`);
+    return head;
+  }
   return {
+    async assertPast(to) {
+      await headPast((block) => reader.blockTimestamp(block), to);
+    },
     async submittedBetween(roots, from, to) {
       const stampOf = memoized((block) => reader.blockTimestamp(block));
-      const head = await reader.latestBlock();
-      if ((await stampOf(head)) < to + HEAD_MARGIN_SECONDS) throw new Error(`Galileo is not ${HEAD_MARGIN_SECONDS} s past ${to} yet`);
+      const head = await headPast(stampOf, to);
       const first = await firstBlockAtOrAfter(stampOf, from, 0n, head);
       const last = (await firstBlockAtOrAfter(stampOf, to + 1, first, head)) - 1n;
       const missing = await rootsNotSubmitted(reader, roots, first, last, chunk);

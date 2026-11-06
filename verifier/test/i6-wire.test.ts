@@ -21,7 +21,7 @@ function app(timeline: { stakedAt: number; episodeSubmittedAt?: number }, bidder
   return createApp({
     key: KEY, escrow: ESCROW, gate: paid, events: boardEvents("verifier-1"), sim: new FakeSim(), zeroG: zeroG(), now: () => 5_000,
     board: fakeBoard({ prices: bidders }), chain: fakeChain(), trustedVerifiers: VERIFIERS, verdicts: { writeVerdict: async () => ({ entityKey: ("0x" + "ab".repeat(32)) as `0x${string}` }) },
-    source: { load: async () => ({ mission, worker: WORKER, timeline, episode }) },
+    source: { load: async () => ({ mission, worker: WORKER, timeline, episode }), ready: async () => {} },
   });
 }
 const post = async (a: ReturnType<typeof app>, path: string) =>

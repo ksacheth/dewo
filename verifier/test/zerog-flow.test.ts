@@ -54,6 +54,13 @@ describe("zeroGFlow.submittedBetween", () => {
 
   const one = (reader: FlowReader, root: Hex, from = 1_100, to = 1_200) => zeroGFlow(reader).submittedBetween([root], from, to).then(([found]) => found);
 
+  it("assertPast answers whether the head is HEAD_MARGIN_SECONDS past a time, without scanning any logs", async () => {
+    const { reader, ranges } = chain(1_000n, {}); // the head block is stamped 1_550
+    await expect(zeroGFlow(reader).assertPast(1_550 - HEAD_MARGIN_SECONDS)).resolves.toBeUndefined();
+    await expect(zeroGFlow(reader).assertPast(1_551 - HEAD_MARGIN_SECONDS)).rejects.toThrow(/not 120 s past/);
+    expect(ranges).toEqual([]);
+  });
+
   it("finds a submission of the root inside the window", async () => {
     const { reader } = chain(10_000n, { 300: [node("01")], 310: [node("ab")] });
     expect(await one(reader, ROOT)).toBe(true);

@@ -4,7 +4,7 @@ import { policyHash } from "@dewo/agents/formats";
 import { createEpisodeSource, UPLOAD_CLOCK_SKEW } from "../src/episodes.js";
 import { PendingError, StorageUnavailableError } from "../src/errors.js";
 import { NotJson, NotUploaded } from "../src/ports.js";
-import { LIMITS, MISSION, OTHER_WORKER, POLICY, SEED, WORKER, fakeBoard, fakeChain, honestEpisode } from "./fixtures/builders.js";
+import { DEADLINES, LIMITS, MISSION, OTHER_WORKER, POLICY, SEED, WORKER, fakeBoard, fakeChain, honestEpisode } from "./fixtures/builders.js";
 
 const LOG_ROOT = ("0x" + "33".repeat(32)) as Hex;
 const POLICY_ROOT = ("0x" + "22".repeat(32)) as Hex;
@@ -14,6 +14,10 @@ interface Over {
   stored?: (root: Hex) => Promise<unknown>;
   /** The 0G Flow lookup: whether the root was submitted in the window (default: every root was). */
   submitted?: (root: Hex) => Promise<boolean>;
+  /** Galileo is not yet far enough past the Episode Submission for the Flow lookup to answer. */
+  flowNotPast?: boolean;
+  /** The winning Bid is missing from Arkiv. */
+  noBid?: boolean;
 }
 
 function world(over: Over = {}) {
@@ -22,17 +26,49 @@ function world(over: Over = {}) {
   const lookups: { roots: readonly Hex[]; from: number; to: number }[] = [];
   const award = over.award === null ? undefined : () => ({ worker: WORKER, price: 5_000_000n, stake: 1n, awardedAt: 990, stakeWindow: 30, stakedAt: over.unstaked ? null : 1_000 });
   const source = createEpisodeSource({
-    board: fakeBoard({ prices: { [OTHER_WORKER]: 1n, [WORKER]: 5_000_000n } }),
+    board: fakeBoard({ prices: over.noBid ? { [OTHER_WORKER]: 1n } : { [OTHER_WORKER]: 1n, [WORKER]: 5_000_000n } }),
     chain: fakeChain({ award }),
     registry: { findSubmission: async (_m: Hex, worker: string) => (over.submission === null || worker !== WORKER ? null : { episodeLogRoot: LOG_ROOT, policyRoot: POLICY_ROOT, decisionCount: 3, timestamp: 1_100 }) },
     storage: { downloadJson: async (root: Hex) => { downloads.push(root); return over.stored ? over.stored(root) : root === LOG_ROOT ? ep.log : POLICY; } },
-    uploads: { submittedBetween: async (roots, from, to) => {
-      lookups.push({ roots, from, to });
-      return Promise.all(roots.map((root) => (over.submitted ? over.submitted(root) : true)));
-    } },
+    uploads: {
+      submittedBetween: async (roots, from, to) => {
+        lookups.push({ roots, from, to });
+        return Promise.all(roots.map((root) => (over.submitted ? over.submitted(root) : true)));
+      },
+      assertPast: async (to) => {
+        if (over.flowNotPast) throw new Error(`Galileo is not 120 s past ${to} yet`);
+      },
+    },
   });
   return { source, downloads, ep, lookups };
 }
+
+describe("EpisodeSource.ready: the same pending cases as a Replay, checked without downloading anything", () => {
+  const EPISODE_DEADLINE = 1_000 + DEADLINES.episodeWindow;
+  it("is ready once the Episode is submitted, its Bid is on Arkiv and Galileo is past the submission, and downloads nothing", async () => {
+    const { source, downloads, lookups } = world();
+    await expect(source.ready(MISSION, 2_000)).resolves.toBeUndefined();
+    expect(downloads).toEqual([]);
+    expect(lookups).toEqual([]);
+  });
+
+  it("is pending without an Award, a stake, a submission inside the window, or the winning Bid", async () => {
+    await expect(world({ award: null }).source.ready(MISSION, 2_000)).rejects.toBeInstanceOf(PendingError);
+    await expect(world({ unstaked: true }).source.ready(MISSION, 2_000)).rejects.toBeInstanceOf(PendingError);
+    await expect(world({ submission: null }).source.ready(MISSION, EPISODE_DEADLINE)).rejects.toBeInstanceOf(PendingError);
+    await expect(world({ noBid: true }).source.ready(MISSION, 2_000)).rejects.toBeInstanceOf(PendingError);
+  });
+
+  it("is ready for a No-show once the Episode window is over", async () => {
+    await expect(world({ submission: null }).source.ready(MISSION, EPISODE_DEADLINE + 1)).resolves.toBeUndefined();
+  });
+
+  it("is not ready while Galileo is not yet far enough past the submission (not a PendingError: a source cannot answer yet)", async () => {
+    const ready = world({ flowNotPast: true }).source.ready(MISSION, 2_000);
+    await expect(ready).rejects.toThrow(/not 120 s past 1100/);
+    await expect(ready).rejects.not.toBeInstanceOf(PendingError);
+  });
+});
 
 describe("createEpisodeSource", () => {
   it("assembles the Episode from the on-chain Mission (Course Seed, limits), the registry submission, 0G Storage documents and the winner's Bid", async () => {
