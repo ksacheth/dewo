@@ -5,11 +5,11 @@ Each row is an Arkiv feature, the thing it does in Dewo, and what a user sees ch
 | Arkiv feature | Where | What the user sees |
 |---|---|---|
 | Indexed `difficultyClass`, `status`, `biddingClosesAt` | Mission Board | the filter chips (all / easy / medium / hard) are an Arkiv query; a Mission stops showing when bidding closes |
-| Expiration | mission, bid, seedRelease, verdict | cards disappear without anyone deleting them; seeds don't linger; Verdict history lasts 180 days (the leaderboard) |
+| Expiration | mission, bid, seedRelease, seedReveal, verdict | cards disappear without anyone deleting them; seeds don't linger; Verdict history lasts 180 days (the leaderboard) |
 | Ownership (`$owner`, `ownedBy`, `or` on `$owner`) | every read | a Verdict from any wallet but the 3 Verifiers is ignored, so the leaderboard can't be farmed by writing entities |
-| `readonly` flag | bid, seedRelease, verdict | a sealed Bid can't be changed after the others are seen |
+| `readonly` flag | bid, seedRelease, seedReveal, verdict | a sealed Bid can't be changed after the others are seen |
 | `bytes` columns + ECIES | bid, seedRelease | Bid cards show ciphertext (a lock and hex) until the Award reveals prices; the seed is readable by the winner alone |
-| `patchEntity` | mission `status` | the card moves from open to awarded |
+| `patchEntity` | mission `status` (`setMissionStatus`) | available, but no module patches the status yet: the card leaves the board when `biddingClosesAt` passes, not through a status change |
 | `$key` ordering + `limit/offset` | all lists | every list pages through all rows, 100 at a time |
 
 `watchEntityEvents` (live push) is not used yet; panels poll every 2 to 5 seconds.
@@ -17,8 +17,8 @@ Each row is an Arkiv feature, the thing it does in Dewo, and what a user sees ch
 ## Do the filters, owners and expiry fit the app?
 
 - **Filters.** We index what people actually filter on (`difficultyClass`, `status`, `biddingClosesAt`, `missionId`, `worker`, `outcome`). Everything else (prices, hashes, commitments) is stored and selected but not indexed, so it doesn't pay for an index.
-- **Who edits.** Only the Requester can patch a Mission (its `status`); Bids, Seed Releases and Verdicts are `readonly`. Because anyone can write to Arkiv, the reader, not the writer, enforces trust: Verdicts only count from the Verifier addresses, Seed Releases only from the Mission's Requester, Bids only if the owner is the Worker.
-- **Expiry.** 60 minutes for a Mission and its Bids (Escrow's rescue deadline, so the Quorum can still read them after bidding closes), 70 minutes for a Seed Release, 180 days for Verdicts (the chain maximum is about 182). Measured on Rabdi: a Mission created at block 266402 expires at 268202, 1800 blocks later.
+- **Who edits.** Only the Requester can patch a Mission (its `status`, via `setMissionStatus`, not yet called by any module); Bids, Seed Releases and Verdicts are `readonly`. Because anyone can write to Arkiv, the reader, not the writer, enforces trust: Verdicts only count from the Verifier addresses, Seed Releases only from the Mission's Requester, Bids only if the owner is the Worker.
+- **Expiry.** 60 minutes for a Mission and its Bids (Escrow's rescue deadline, so the Quorum can still read them after bidding closes), 70 minutes for a Seed Release, 180 days for Seed Reveals and Verdicts (the chain maximum is about 182). Measured on Rabdi: a Mission created at block 266402 expires at 268202, 1800 blocks later.
 
 ## Run it
 

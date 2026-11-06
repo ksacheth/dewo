@@ -40,6 +40,14 @@ describe("reliability", () => {
     const two = [verdict(1, "Pass", 1, { $owner: V[0] }), verdict(1, "Pass", 2, { $owner: V[1] }), verdict(1, "Fail", 3, { $owner: V[2] })]
     expect(reliability(two, V)).toBeCloseTo(3 / 4, 5)
   })
+  it("same Outcome with different evidenceHash makes no Quorum (R3)", () => {
+    const rows = [verdict(1, "Pass", 1, { $owner: V[0], evidenceHash: "0xa" }), verdict(1, "Pass", 2, { $owner: V[1], evidenceHash: "0xb" })]
+    expect(quorumResults(rows, V)).toEqual([])
+    const three = [...rows, verdict(1, "Pass", 3, { $owner: V[2], evidenceHash: "0xb" })]
+    const [r] = quorumResults(three, V)
+    expect(r.outcome).toBe("Pass")
+    expect(r.verdict.evidenceHash).toBe("0xb")
+  })
   it("duplicate Verdicts from one Verifier do not make a Quorum", () => {
     const dup = [verdict(1, "Pass", 1, { $owner: V[0] }), verdict(1, "Pass", 2, { $owner: V[0] }), verdict(1, "Fail", 3, { $owner: V[1] })]
     expect(quorumResults(dup, V)).toEqual([])

@@ -95,6 +95,10 @@ describe("Bids", () => {
     ...sealBid(price, verifiers.map((v) => pubKeyOf(v.privateKey)) as [Hex, Hex, Hex]),
   })
 
+  beforeEach(async () => {
+    await board.postMission(requester, mission(1, { biddingClosesAt: nowSec + 3600 }))
+  })
+
   it("keeps only each Worker's first Bid, and every Verifier can open it", async () => {
     await board.placeBid(workerA, bidFor(workerA, 5_000_000n))
     vi.setSystemTime(NOW + 1000)
@@ -106,8 +110,27 @@ describe("Bids", () => {
     expect(openBid(a, verifiers[1].privateKey)).toBe(5_000_000n)
   })
 
+  it("ignores a Bid created after biddingClosesAt; one at exactly the close counts (R2)", async () => {
+    await board.placeBid(workerA, bidFor(workerA, 5n)) // at NOW
+    vi.setSystemTime(NOW + 10_000)
+    await board.placeBid(workerB, bidFor(workerB, 6n))
+    const closes = nowSec + 10
+    expect((await board.listBids(mid(1), { closesAt: closes })).map((b) => b.worker).sort()).toEqual([workerA.account.address, workerB.account.address].sort())
+    expect((await board.listBids(mid(1), { closesAt: closes - 1 })).map((b) => b.worker)).toEqual([workerA.account.address])
+    expect(await board.listBids(mid(1), { closesAt: nowSec - 1 })).toEqual([])
+  })
+
+  it("derives the cutoff from the Mission, and an unknown Mission has no Bids", async () => {
+    await board.postMission(requester, mission(2, { biddingClosesAt: nowSec + 5 }))
+    await board.placeBid(workerA, bidFor(workerA, 5n, 2))
+    vi.setSystemTime(NOW + 6000)
+    await board.placeBid(workerB, bidFor(workerB, 5n, 2))
+    expect((await board.listBids(mid(2))).map((b) => b.worker)).toEqual([workerA.account.address])
+    expect(await board.listBids(mid(77))).toEqual([])
+  })
+
   it("drops a Bid whose owner is not its stated Worker", async () => {
-    const forged = { ...bidFor(workerB, 1n), worker: workerB.account.address, $owner: workerA.account.address, $key: mid(500), $createdAt: NOW, $expiresAt: NOW + 3_600_000 }
+    const forged = { ...bidFor(workerB, 1n), worker: workerB.account.address, $owner: workerA.account.address, $key: mid(500), $createdAt: NOW, createdAtSec: nowSec, $expiresAt: NOW + 3_600_000 }
     board.seedMock({ bids: [forged] })
     expect(await board.listBids(mid(1))).toEqual([])
   })
@@ -215,7 +238,7 @@ describe("separate processes share the mock file", () => {
       import { privateKeyToAccount } from "viem/accounts";
       const wallet = { account: privateKeyToAccount(${JSON.stringify(workerA.privateKey)}) };
       await new Promise((r) => setTimeout(r, ${startAt} - Date.now()));
-      for (let i = 0; i < ${each}; i++) await b.revealSeed(wallet, "0x${"%064x" % 0}".replace(/0$/, String(${p})), "seed" + ${p} + "-" + i, "salt")`
+      for (let i = 0; i < ${each}; i++) await b.revealSeed(wallet, "0x${(p + 1).toString(16).padStart(64, "0")}", "seed" + ${p} + "-" + i, "salt")`
     await Promise.all(Array.from({ length: procs }, (_, p) => new Promise<void>((ok, fail) => {
       const c = spawn(tsx, ["--input-type=module", "-e", script(p)], { env: process.env, stdio: "inherit" })
       c.on("exit", (code) => (code === 0 ? ok() : fail(new Error(`child ${p} exited ${code}`))))

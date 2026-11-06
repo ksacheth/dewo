@@ -2,13 +2,13 @@
 
 Entities written to Rabdi (Arkiv testnet) with `@arkiv-network/sdk`. Source of truth: [`board/src/schemas.ts`](../board/src/schemas.ts). Every schema is named `dewo.<entity>`, so the SDK adds an indexed `arkiv.schema` tag. Only indexed columns can be filtered on.
 
-Why these choices: [`board/DECISIONS.md`](../board/DECISIONS.md) (D1 to D9).
+Why these choices: [`board/DECISIONS.md`](../board/DECISIONS.md) (D1 to D14).
 
 | Entity | Owner (`$owner`) | Lifetime | Flags | Who reads it |
 |---|---|---|---|---|
 | `dewo.mission` | the Requester that posted it | 60 min (the Escrow rescue deadline) | mutable (`status` is patched) | Workers, Verifiers, Mission Board |
 | `dewo.bid` | the Worker that placed it | 60 min, same as its Mission | `readonly` | the 3 Verifiers (decrypt), Bid cards |
-| `dewo.seedRelease` | the Requester | 70 min (Episode deadline + 10 min) | `readonly` | the winning Worker |
+| `dewo.seedRelease` | the Requester | 70 min after creation | `readonly` | the winning Worker |
 | `dewo.seedReveal` | the Requester | 180 days | `readonly` | Verifiers (re-run the Replay), anyone |
 | `dewo.verdict` | one of the 3 Verifiers | 180 days (chain max is about 182) | `readonly` | Verifiers (Award), leaderboard |
 
@@ -19,7 +19,7 @@ Why these choices: [`board/DECISIONS.md`](../board/DECISIONS.md) (D1 to D9).
 | `missionId` | str | yes | Escrow's bytes32 Mission ID, `0x` + 64 hex. The one ID across Hedera, Arkiv and the event feed |
 | `difficultyClass` | str | yes | `easy`, `medium` or `hard` (what Workers price against) |
 | `bounty` | u256 | yes | max bounty in USDC base units (6 decimals) |
-| `status` | str | yes | `open`, `awarded`, `settled` |
+| `status` | str | yes | `open` is written by `postMission`; `awarded` and `settled` are accepted by `setMissionStatus`, but no module calls it in the current flow, so in practice every Mission stays `open` |
 | `requester` | addr | yes | writer wallet of the Requester |
 | `biddingClosesAt` | u64 | yes | unix seconds; the board hides the Mission after this |
 | `seedCommitment` | str | no | fingerprint of the Course Seed |
@@ -75,7 +75,7 @@ All in [`board/src`](../board/src). Every read filters by the writer it trusts, 
 | Consumer | Query | Trust filter |
 |---|---|---|
 | Mission Board (`listOpenMissions`) | `mission where status = "open" and biddingClosesAt > now [and difficultyClass = ...]`, order by key | none: Escrow is the real check |
-| Verifiers and Bid cards (`listBids`) | `bid where missionId = ...` | drop a Bid whose `$owner` is not its `worker`; keep only each Worker's first |
+| Verifiers and Bid cards (`listBids`) | `bid where missionId = ...` | drop a Bid whose `$owner` is not its `worker`; drop a Bid created in a block after `biddingClosesAt` (R2); keep only each Worker's first |
 | Worker (`readSeedRelease`) | `seedRelease where missionId = ... and worker = me` | `ownedBy` the Mission's `requester` |
 | Verifiers (`readSeedReveal`) | `seedReveal where missionId = ...` | `ownedBy` the Mission's `requester`; earliest wins |
 | Award and leaderboard (`listVerdicts`) | `verdict where ($owner = V1 or V2 or V3) [and worker = ...]` | the 3 addresses in `VERIFIER_ADDRESSES` |

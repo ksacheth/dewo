@@ -27,6 +27,22 @@ export function configureBoard(opts: { accessKey: string }) {
   defaultPub = makeClients(opts).pub
 }
 
+const blockTimes = new Map<number, Promise<number>>()
+/** Unix-seconds timestamp of each block number, fetched once per block and cached (R2: Arkiv rows only carry the block number). */
+export function blockTimestamps(blocks: Iterable<number>): Promise<Map<number, number>> {
+  return Promise.all(
+    [...new Set(blocks)].map(async (n) => {
+      let t = blockTimes.get(n)
+      if (!t) {
+        t = readClient().getBlock({ blockNumber: BigInt(n) }).then((b) => Number(b.timestamp))
+        blockTimes.set(n, t)
+        t.catch(() => blockTimes.delete(n)) // do not cache failures
+      }
+      return [n, await t] as const
+    }),
+  ).then((e) => new Map(e))
+}
+
 export type Wallet = NonNullable<ReturnType<typeof makeClients>["wallet"]>
 export type Written = { entityKey: Hex; txHash: Hex }
 

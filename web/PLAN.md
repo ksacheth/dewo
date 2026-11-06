@@ -5,9 +5,9 @@ Sources: `docs/spec.md` §2, §5.3 ("what judges see"), §6 (demo script), PRD #
 
 ---
 
-## 0. W0: your input before any web code (unanswered)
+## 0. W0: web UI decisions
 
-The rest of this plan is my default. Each answer below can override it. Record the answers here, then W1 can start.
+The defaults below are what was built; each row can still be overridden.
 
 | # | Question | My default |
 |---|---|---|
@@ -48,13 +48,13 @@ Rule: the UI never invents state. If the feed or Arkiv hasn't said it, the panel
 - **Vite + React + TypeScript.** No router (one page, plus a Worker drawer), no state library (one `useReducer` over the event stream), no UI kit (plain CSS, CSS grid for the split screen).
 - **No separate backend process.** `server/events.ts` is a **Vite plugin** (`configureServer`) that adds three middleware routes to the dev server. One `pnpm --filter web dev` runs everything. For the booth, `vite preview` with the same plugin (`configurePreviewServer`).
 - Imports `@dewo/board` (types, `leaderboard()`, `listOpenMissions`, `listBids`, `makeClients`) in the browser. `emit` is Node-only and never imported client-side (see board plan §8).
-- Switch real/mock board with one env flag: `VITE_BOARD=mock|real` → a Vite `resolve.alias` from `@dewo/board` to `@dewo/board/mock`. The mock reads a file, so in mock mode the browser can't read it directly: in mock mode the Arkiv-backed panels fetch `/api/board/*` from the plugin instead, which calls the mock in Node. Keep that switch in one module (`src/arkiv.ts`), so panels don't care.
+- Switch real/mock board with one env flag, `BOARD=mock|real` (default: real when `ARKIV_ACCESS_KEY` is set) → a Vite `resolve.alias` from `@dewo/board` to `@dewo/board/mock`. The mock reads a file, so in mock mode the browser can't read it directly: in mock mode the Arkiv-backed panels fetch `/api/board/*` from the plugin instead, which calls the mock in Node. Keep that switch in one module (`src/arkiv.ts`), so panels don't care.
 
 ```
 web/
 ├── package.json         vite, react, react-dom, @vitejs/plugin-react, @dewo/board (workspace)
-├── vite.config.ts       react plugin + events plugin + proxy /requester -> VITE_REQUESTER_URL
-├── .env.example         VITE_ARKIV_ACCESS_KEY, VITE_BOARD, VITE_REQUESTER_URL, VITE_VERIFIER_ADDRESSES, RUNS_DIR
+├── vite.config.ts       react plugin + events plugin + proxy /requester -> VITE_REQUESTER_URL (adds `Authorization: Bearer $REQUESTER_API_TOKEN` server-side when set, R13)
+├── .env.example         ARKIV_ACCESS_KEY, VERIFIER_ADDRESSES, BOARD, TEST_PRIVATE_KEY, RUNS_DIR, VITE_REQUESTER_URL, REQUESTER_API_TOKEN
 ├── server/events.ts     Vite plugin: SSE feed, frames, mock routes, deployments
 ├── src/
 │   ├── main.tsx         layout + providers
@@ -128,7 +128,7 @@ Layout follows the demo split screen: left column Mission Board + Bid cards, cen
 ### 5.1 `PostMission.tsx`
 - Fields: Difficulty Class (easy / medium / hard select), max bounty (USDC, number input, converted to base units on submit), Risk Weight slider 0–1 step 0.05 with a live hint ("0 = cheapest, 1 = most reliable"). The Decision Cap is 60 for every Mission (ADR 0003); show it read-only.
 - Submit → `POST /requester/missions { difficulty, maxBounty, riskWeight }` through the Vite proxy (avoids CORS on M4's server). Response `{ missionId }` → pin the feed to it.
-- If `VITE_REQUESTER_URL` is unset or unreachable, fall back to `POST /api/mock/missions`, which writes a `mission.posted` event into `runs/<random id>/events.web.ndjson` (and, in mock-board mode, a mock `mission` entity). The Issue explicitly allows "the button can write a mock event" until I7 lands. Label the fallback clearly in the UI ("mock requester") so a judge never sees a fake presented as real.
+- If `VITE_REQUESTER_URL` is unset or unreachable, fall back to `POST /api/mock/missions`, which writes a `mission.posted` event into `runs/<random id>/events.web.ndjson` (and, in mock-board mode only, a mock `mission` entity; in real board mode no entity is written, since it would have no escrow). "Unreachable" means a network error, a 502/503/504, or an HTTP 500 with an empty body: Vite 5's proxy answers a refused upstream with exactly that (see `src/unreachable.ts`). Any other Requester error is shown to the user. The Issue explicitly allows "the button can write a mock event" until I7 lands. Label the fallback clearly in the UI ("mock requester") so a judge never sees a fake presented as real.
 - Disable the button while a request is in flight; show the error text on failure. Accessible labels on every field.
 
 ### 5.2 `MissionBoard.tsx`
@@ -145,7 +145,7 @@ Layout follows the demo split screen: left column Mission Board + Bid cards, cen
 - Big frame: the latest `decision.made` frame (`/runs/<missionId>/<frame>`), 224×224 scaled up with `image-rendering: pixelated`.
 - Side list (newest on top): step `n / 60` (the Decision Cap), Action (icon + text), 0G chat ID (truncated, copy button), timestamp. Scrubbing: click a row to show that frame.
 - Footer: `episode.submitted` with the 0G Chainscan link and the Episode Log root.
-- Safe-stop shows up as a final Decision of `STOP` or an Outcome of Fail; render it as a red banner, never hide it (spec: no faked live mode).
+- A `STOP` Decision shows the banner "Episode ended by STOP"; an Outcome other than Pass shows a red Outcome banner. Safe-stop (0G unreachable) produces no Decision, so it is not inferred from STOP. Never hide either (spec: no faked live mode).
 
 ### 5.5 `VerifierCards.tsx`
 - Three cards (Verifier 1/2/3 by port or address). States driven by events: idle → `402 Payment Required` (from `replay.paid` with status 402) → paid (amount, HashScan link to the x402 settlement) → Replay running → PASS / FAIL / … with `evidenceHash`.
@@ -170,7 +170,7 @@ Layout follows the demo split screen: left column Mission Board + Bid cards, cen
 3. **Mission Board + Bid cards on the mock** (blocked by 1 and board "mock" ticket): mock routes, `arkiv.ts` switch.
 4. **Leaderboard + Worker drawer on the mock** (blocked by 3): seed the mock with a few Verdicts (incl. a Fail).
 5. **Post Mission** (blocked by 1): real I7 call with mock fallback.
-6. **Switch to real Arkiv** (blocked by board "real client" + "verdicts" tickets): `VITE_BOARD=real`, check every Arkiv panel against Rabdi, try `watchEntityEvents`.
+6. **Switch to real Arkiv** (blocked by board "real client" + "verdicts" tickets): `BOARD=real`, check every Arkiv panel against Rabdi, try `watchEntityEvents`.
 7. **Demo polish** (blocked by integration): run a real recorded Mission through `?replay=`, layout at the booth's screen size, the spec §6 beats in order, and settlement links.
 
 Done when (from #13): the UI plays a full Mission from the event feed, tested with a recorded `runs/` folder.
