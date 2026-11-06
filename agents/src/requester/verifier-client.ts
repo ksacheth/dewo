@@ -15,7 +15,7 @@ import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { ExactHederaScheme, createClientHederaSigner } from "@x402/hedera";
 import type { Hex } from "../formats";
 import { hederaPrivateKey } from "../shared/hedera-key";
-import { OUTCOMES, type ReplayPayment, type ReplayResult, type SignedAward, type SignedVerdict, type VerifiersPort } from "./ports";
+import { OUTCOMES, VerifierNotReadyError, type ReplayPayment, type ReplayResult, type SignedAward, type SignedVerdict, type VerifiersPort } from "./ports";
 
 export interface PayerConfig {
   /** Hedera account id of the Requester, e.g. 0.0.12345. */
@@ -96,8 +96,15 @@ export class HttpVerifiers implements VerifiersPort {
 
   async requestReplay(verifierUrl: string, missionId: string): Promise<ReplayResult> {
     const payment: ReplayPayment = { challenged: false, amount: 0n };
-    const body = await post(this.payFetch(recordingFetch(payment)), `${verifierUrl}/replay`, missionId, this.timeoutMs);
-    return { verdict: parseVerdict(body, `${verifierUrl}/replay`), payment };
+    const sent = { signed: false };
+    try {
+      const body = await post(this.payFetch(recordingFetch(payment, sent)), `${verifierUrl}/replay`, missionId, this.timeoutMs);
+      return { verdict: parseVerdict(body, `${verifierUrl}/replay`), payment };
+    } catch (error) {
+      // "Not ready" is only free when it came before any payment was signed: a Verifier holding a signed payment could have settled it.
+      if (error instanceof VerifierNotReadyError && sent.signed) throw new Error(`${error.message} (after a signed payment, so it counts as paid)`);
+      throw error;
+    }
   }
 }
 
@@ -144,6 +151,9 @@ function matching(fields: Record<string, unknown>, name: string, pattern: RegExp
   return value;
 }
 
+/** "Ask again later": a Verifier answers these before it asks for payment (verifier/src/server.ts); see requestReplay for after. */
+const NOT_READY = new Set([409, 503]);
+
 async function post(doFetch: typeof fetch, url: string, missionId: string, timeoutMs: number): Promise<unknown> {
   const response = await doFetch(url, {
     method: "POST",
@@ -151,7 +161,10 @@ async function post(doFetch: typeof fetch, url: string, missionId: string, timeo
     body: JSON.stringify({ missionId }),
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!response.ok) throw new Error(`${url} answered ${response.status}: ${await response.text()}`);
+  if (!response.ok) {
+    const message = `${url} answered ${response.status}: ${await response.text()}`;
+    throw NOT_READY.has(response.status) ? new VerifierNotReadyError(response.status, message) : new Error(message);
+  }
   return response.json();
 }
 
@@ -166,10 +179,11 @@ export function requestHeaders(input: unknown): HeadersInit | undefined {
   return headers instanceof Headers || (typeof headers === "object" && headers !== null) ? (headers as HeadersInit) : undefined;
 }
 
-function recordingFetch(payment: ReplayPayment): typeof fetch {
+function recordingFetch(payment: ReplayPayment, sent: { signed: boolean }): typeof fetch {
   let quoted: Partial<PaymentTerms> = {};
   return async (input, init) => {
     const signature = new Headers(init?.headers ?? requestHeaders(input)).get("PAYMENT-SIGNATURE");
+    if (signature) sent.signed = true;
     const response = await fetch(input, init);
     if (response.status === 402) {
       payment.challenged = true;

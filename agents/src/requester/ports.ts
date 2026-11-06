@@ -75,9 +75,24 @@ export interface ReplayResult {
   payment: ReplayPayment;
 }
 
+/**
+ * A Verifier answered "not yet" (409 or 503) before any payment was signed: the Episode is still pending, or one of its sources
+ * (escrow, 0G, Arkiv) cannot answer yet. Nothing was paid, so the Replay does not count against the cap; ask again later.
+ * The same statuses after a signed payment are plain errors and count, since the Verifier could have settled the payment.
+ */
+export class VerifierNotReadyError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "VerifierNotReadyError";
+  }
+}
+
 export interface VerifiersPort {
   /** POST /award (free). Null when there is no valid Bid to award. */
   requestAward(verifierUrl: string, missionId: string): Promise<SignedAward | null>;
-  /** POST /replay, paying the 402 through x402. The adapter enforces the per-Replay price cap. */
+  /**
+   * POST /replay, paying the 402 through x402. The adapter enforces the per-Replay price cap.
+   * Throws VerifierNotReadyError when the Verifier answers 409 or 503 before any payment was signed (ask again later).
+   */
   requestReplay(verifierUrl: string, missionId: string): Promise<ReplayResult>;
 }
