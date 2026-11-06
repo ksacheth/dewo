@@ -79,9 +79,20 @@ export class Worker {
   /** One polling round: bid on new Missions, then advance every tracked one. */
   async tick(): Promise<void> {
     for (const missionId of await this.deps.board.listOpenMissionIds()) {
-      if (!this.deps.records.get(missionId)) await this.consider(missionId);
+      if (!this.deps.records.get(missionId)) await this.isolated(missionId, () => this.consider(missionId));
     }
-    for (const { missionId } of this.deps.records.all()) await this.advanceUntilWaiting(missionId);
+    for (const { missionId } of this.deps.records.all()) {
+      await this.isolated(missionId, () => this.advanceUntilWaiting(missionId));
+    }
+  }
+
+  /** One bad Mission (a bogus Arkiv listing, an RPC hiccup) must not stop the others from being staked in time. */
+  private async isolated(missionId: string, work: () => Promise<void>): Promise<void> {
+    try {
+      await work();
+    } catch (error) {
+      console.error(`worker: mission ${missionId} failed this tick:`, error);
+    }
   }
 
   /** Keeps advancing one Mission within this tick (won -> staked -> flown) until it has to wait. */

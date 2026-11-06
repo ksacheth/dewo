@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { policyHash, type EpisodeLog } from "../src/formats";
 import { ME, RIVAL, policy, setup, terms } from "./fakes";
 
@@ -168,5 +168,37 @@ describe("Worker: Episode and submission", () => {
     await w.registry.submitEpisode("m1", "0x01", "0x02", 3);
     await w.worker.reconcile();
     expect(w.stage()).toBe("SUBMITTED");
+  });
+});
+
+describe("Worker: one bad Mission does not stop the others", () => {
+  it("stakes a won Mission even when another listing throws", async () => {
+    const w = setup();
+    w.post("m1");
+    await w.worker.tick();
+    w.escrow.grant("m1");
+    w.board.open.unshift("bogus"); // listed on Arkiv, unknown to the escrow
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await w.worker.tick();
+
+    expect(w.stage("m1")).toBe("STAKED");
+    expect(w.escrow.stakes).toHaveLength(1);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("bogus"), expect.anything());
+    errors.mockRestore();
+  });
+
+  it("keeps advancing the other tracked Missions when one record throws", async () => {
+    const w = setup();
+    w.records.put({ missionId: "ghost", stage: "BID_PLACED" }); // no such escrow Mission
+    w.post("m1");
+    w.records.put({ missionId: "m1", stage: "WON" });
+    w.escrow.grant("m1");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await w.worker.tick();
+
+    expect(w.stage("m1")).toBe("STAKED");
+    errors.mockRestore();
   });
 });
