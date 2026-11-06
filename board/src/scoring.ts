@@ -18,7 +18,7 @@ const qualityOf = (v: VerdictRow) => pathQuality(v.optimalPathCost, v.pathCost)
 export type MissionResult = { missionId: Hex; outcome: Outcome; at: number; verdict: VerdictRow }
 
 /**
- * One result per Mission: the Outcome at least 2 of the 3 Verifiers agree on (D4).
+ * One result per Mission: the (Outcome, evidenceHash) pair at least 2 of the 3 Verifiers agree on (D4, R3).
  * Only Verdicts owned by one of `verifiers` count (addresses compare case-insensitively), and each Verifier
  * counts once per Mission, by its earliest Verdict ($createdAt, then $key). Arkiv is public, so anyone can
  * write rows; this stops duplicates or outsiders from forming a fake Quorum. Missions without a Quorum are dropped.
@@ -37,12 +37,11 @@ export function quorumResults(verdicts: VerdictRow[], verifiers: readonly Hex[])
   for (const v of earliest.values()) byMission.set(v.missionId, [...(byMission.get(v.missionId) ?? []), v])
   const results: MissionResult[] = []
   for (const [missionId, vs] of byMission) {
-    const counts = new Map<Outcome, number>()
-    for (const v of vs) counts.set(v.outcome, (counts.get(v.outcome) ?? 0) + 1)
-    const agreed = [...counts].find(([, n]) => n >= 2)?.[0]
-    if (!agreed) continue
-    const matching = vs.filter((v) => v.outcome === agreed).sort((x, y) => x.$createdAt - y.$createdAt || (x.$key < y.$key ? -1 : 1))
-    results.push({ missionId, outcome: agreed, at: Math.max(...matching.map((v) => v.$createdAt)), verdict: matching[0] })
+    const groups = new Map<string, VerdictRow[]>() // R3: Verdicts match on (outcome, evidenceHash)
+    for (const v of vs) groups.set(`${v.outcome}:${v.evidenceHash}`, [...(groups.get(`${v.outcome}:${v.evidenceHash}`) ?? []), v])
+    const matching = [...groups.values()].find((g) => g.length >= 2)?.sort((x, y) => x.$createdAt - y.$createdAt || (x.$key < y.$key ? -1 : 1))
+    if (!matching) continue
+    results.push({ missionId, outcome: matching[0].outcome, at: Math.max(...matching.map((v) => v.$createdAt)), verdict: matching[0] })
   }
   return results.sort((a, b) => b.at - a.at)
 }

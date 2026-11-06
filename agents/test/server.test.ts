@@ -30,6 +30,43 @@ describe("parseMissionRequest limits", () => {
   });
 });
 
+describe("parseMissionRequest money precision", () => {
+  const request = (maxBounty: number) => parseMissionRequest({ difficulty: "easy", maxBounty, riskWeight: 0.5 });
+
+  it("rejects a maxBounty with more than 6 decimals", () => {
+    expect(request(1.0000001)).toContain("at most 6 decimals");
+    expect(request(0.1234567)).toContain("at most 6 decimals");
+  });
+
+  it("rejects a maxBounty that converts to 0 base units", () => {
+    expect(request(0.0000004)).toContain("at least 1 base unit");
+    expect(request(1e-9)).toContain("at least 1 base unit");
+  });
+
+  it("accepts up to 6 decimals, down to 1 base unit", () => {
+    expect(request(0.000001)).toMatchObject({ maxBounty: 0.000001 });
+    expect(request(1.234567)).toMatchObject({ maxBounty: 1.234567 });
+    expect(request(0.1)).toMatchObject({ maxBounty: 0.1 });
+    expect(request(49.999999)).toMatchObject({ maxBounty: 49.999999 });
+  });
+
+  it("answers 400 over HTTP", async () => {
+    const server = createRequesterServer(async () => "0xm");
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    try {
+      const { port } = server.address() as { port: number };
+      const response = await fetch(`http://127.0.0.1:${port}/missions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ difficulty: "easy", maxBounty: 0.0000001, riskWeight: 0.5 }),
+      });
+      expect(response.status).toBe(400);
+    } finally {
+      server.close();
+    }
+  });
+});
+
 describe("serverOptionsFromEnv", () => {
   it("defaults to the Vite origin, no token and 50 USDC", () => {
     expect(serverOptionsFromEnv({})).toEqual({ allowedOrigin: "http://localhost:5173", apiToken: undefined, maxBounty: 50 });

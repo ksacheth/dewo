@@ -4,7 +4,8 @@ import { addr } from "@arkiv-network/sdk/schema"
 import { asc } from "@arkiv-network/sdk/query"
 import { bytesToHex, hexToBytes } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
-import { fetchAll, plain, readClient } from "./client"
+import { blockTimestamps, fetchAll, plain, readClient } from "./client"
+import { getMission } from "./missions"
 import type { Wallet, Written } from "./client"
 import { Bid, LIFETIME_MS } from "./schemas"
 import type { BidInput } from "./schemas"
@@ -70,9 +71,21 @@ export async function placeBid(wallet: Wallet, bid: BidInput): Promise<Written> 
   )
 }
 
-export async function listBids(missionId: Hex): Promise<BidRow[]> {
+/** R2: a Bid counts only if its block timestamp is <= the Mission's biddingClosesAt (unix seconds), so every Verifier sees the same frozen set. */
+export const bidsBeforeClose = (rows: BidRow[], closesAt: number): BidRow[] => rows.filter((b) => b.createdAtSec <= closesAt)
+
+/**
+ * Bids for a Mission: first per Worker (D9), owned by their Worker (D5), created in a block at or before `closesAt` (R2).
+ * `closesAt` (unix seconds) defaults to the Mission's biddingClosesAt; an unknown Mission yields no Bids.
+ */
+export async function listBids(missionId: Hex, { closesAt }: { closesAt?: number } = {}): Promise<BidRow[]> {
+  const cutoff = closesAt ?? (await getMission(missionId))?.biddingClosesAt ?? null
+  if (cutoff === null) return [] // unknown Mission: no Bid can count
   const rows = await fetchAll<Record<string, unknown>>((offset) =>
     readClient().select().from(Bid).where(eq("missionId", missionId)).orderBy(asc("$key")).limit(100).offset(offset).fetch(),
   )
-  return firstBidPerWorker(rows.map((r) => plain<Omit<BidRow, "workerPubKey"> & { workerPubKey: Uint8Array }>(r)).map((r): BidRow => ({ ...r, workerPubKey: bytesToHex(r.workerPubKey) })))
+  const plainRows = rows.map((r) => plain<Omit<BidRow, "workerPubKey" | "createdAtSec"> & { workerPubKey: Uint8Array }>(r))
+  const times = await blockTimestamps(plainRows.map((r) => r.$createdAt))
+  const withTime = plainRows.map((r): BidRow => ({ ...r, workerPubKey: bytesToHex(r.workerPubKey), createdAtSec: times.get(r.$createdAt)! }))
+  return firstBidPerWorker(bidsBeforeClose(withTime, cutoff))
 }

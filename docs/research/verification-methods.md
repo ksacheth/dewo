@@ -1,3 +1,5 @@
+> **Superseded in part.** ADR 0003 sets the Pass rule, Path Quality q and XP (no SPL XP, no price floor, no stepBudget). This is a research note only, not the design.
+
 # Verification methods for the Episode (research note)
 
 Date: 2026-11-06. Scope: how to make Verifier cost sublinear in steps, how to drop the step cap from the pass rule, and what to build for the hackathon vs production. Items marked UNVERIFIED were not confirmed against a primary source. Vendor benchmark numbers are the vendor's own claims.

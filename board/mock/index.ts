@@ -6,7 +6,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, s
 import { dirname, join } from "node:path"
 import { privateKeyToAccount, publicKeyToAddress } from "viem/accounts"
 import { decrypt, encrypt } from "../src/crypto"
-import { firstBidPerWorker } from "../src/bids"
+import { bidsBeforeClose, firstBidPerWorker } from "../src/bids"
 import { runsDir } from "../src/events"
 import { LIFETIME_MS } from "../src/schemas"
 import type { BidInput, BidRow, DifficultyClass, Hex, MissionInput, MissionRow, MissionStatus, SeedReleaseRow, SeedRevealRow, VerdictInput, VerdictRow, WalletLike } from "../src/schemas"
@@ -18,7 +18,7 @@ export * from "../src/schemas"
 export * from "../src/crypto"
 export * from "../src/scoring"
 export * from "../src/events"
-export { BidOpenError, openBid, sealBid } from "../src/bids"
+export { BidOpenError, bidsBeforeClose, openBid, sealBid } from "../src/bids"
 export { leaderboardFrom, trustedVerifiers } from "../src/verdicts"
 export type { LeaderboardRow, VerdictFilter } from "../src/verdicts"
 
@@ -136,11 +136,14 @@ export async function getMission(missionId: Hex): Promise<MissionRow | null> {
 
 export async function placeBid(wallet: WalletLike, bid: BidInput): Promise<Written> {
   const worker = wallet.account.address
-  return write("bids", () => ({ ...bid, ...meta(worker, LIFETIME_MS.bid), worker }))
+  return write("bids", () => ({ ...bid, ...meta(worker, LIFETIME_MS.bid), worker, createdAtSec: Math.floor(Date.now() / 1000) }))
 }
 
-export async function listBids(missionId: Hex): Promise<BidRow[]> {
-  return firstBidPerWorker(live(load().bids).filter((b) => b.missionId === missionId))
+export async function listBids(missionId: Hex, { closesAt }: { closesAt?: number } = {}): Promise<BidRow[]> {
+  const cutoff = closesAt ?? (await getMission(missionId))?.biddingClosesAt ?? null
+  if (cutoff === null) return []
+  const rows = live(load().bids).filter((b) => b.missionId === missionId).map((b) => ({ ...b, createdAtSec: b.createdAtSec ?? Math.floor(b.$createdAt / 1000) }))
+  return firstBidPerWorker(bidsBeforeClose(rows, cutoff))
 }
 
 export async function releaseSeed(wallet: WalletLike, missionId: Hex, seed: string, salt: string, workerPubKey: Hex): Promise<Written> {

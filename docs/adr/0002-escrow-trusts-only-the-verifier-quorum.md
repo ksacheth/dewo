@@ -14,3 +14,7 @@ We did it this way because the contract can't read Arkiv (where Bids, Seed Relea
 
 - A Requester whose own Worker legitimately bids best can still farm XP. We accept this and document it, because every farmed Pass costs real bounty, 0G inference and Replay fees.
 - Verifier liveness is critical; `rescue()` is the backstop.
+
+## Update (2026-11-06)
+
+A replacement Award after a lapsed stake window still needs a fresh Quorum signature. Deferred payouts (`owed`, `withdraw()`) change only when a payout is delivered, not who is paid or who decides, so the trust root is unchanged. `rescue()` is available from `rescueAt` for any unsettled Mission, and `settle()` is blocked from then.

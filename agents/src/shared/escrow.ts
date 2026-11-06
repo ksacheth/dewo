@@ -1,8 +1,8 @@
 // MissionEscrow adapter (Hedera EVM), for both the Worker and the Requester.
 // Settlement is an ERC-20 (HTS USDC through its EVM facade): money moves by transferFrom,
 // so createMission and stake approve the escrow first.
-import { parseEventLogs, zeroAddress, type Hex } from "viem";
-import type { EscrowMission, EscrowPort, MissionTerms } from "../worker/ports";
+import { parseEventLogs, zeroAddress, type Hex, type TransactionReceipt } from "viem";
+import type { EscrowMission, EscrowPort, MissionTerms, TxResult } from "../worker/ports";
 import { OUTCOMES, type AwardTerms, type Outcome, type RequesterEscrowPort } from "../requester/ports";
 import { DIFFICULTY_CLASSES, ESCROW_STATES, erc20Abi, missionEscrowAbi } from "./abi";
 import { send, type EvmClients } from "./evm";
@@ -91,11 +91,11 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
     return null;
   }
 
-  async rescue(missionId: string): Promise<void> {
-    await send(this.clients, { address: this.address, abi: missionEscrowAbi, functionName: "rescue", args: [missionId as Hex] });
+  async rescue(missionId: string): Promise<TxResult> {
+    return txResult(await send(this.clients, { address: this.address, abi: missionEscrowAbi, functionName: "rescue", args: [missionId as Hex] }));
   }
 
-  async createMission(terms: MissionTerms, verifiers: readonly Hex[]): Promise<string> {
+  async createMission(terms: MissionTerms, verifiers: readonly Hex[]): Promise<{ missionId: string } & TxResult> {
     if (verifiers.length !== 3) throw new Error("a Mission needs exactly 3 Verifiers");
     await this.approve(terms.maxBounty);
     const { deadlines } = terms;
@@ -120,30 +120,42 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
     });
     const [created] = parseEventLogs({ abi: missionEscrowAbi, logs: receipt.logs, eventName: "MissionCreated" });
     if (!created) throw new Error("createMission emitted no MissionCreated event");
-    return created.args.missionId;
+    return { missionId: created.args.missionId, ...txResult(receipt) };
   }
 
-  async award(missionId: string, award: AwardTerms, signatures: readonly Hex[]): Promise<void> {
-    await send(this.clients, {
-      address: this.address,
-      abi: missionEscrowAbi,
-      functionName: "award",
-      args: [missionId as Hex, award.worker, award.price, award.stake, twoSignatures(signatures)],
-    });
+  async award(missionId: string, award: AwardTerms, signatures: readonly Hex[]): Promise<TxResult> {
+    return txResult(
+      await send(this.clients, {
+        address: this.address,
+        abi: missionEscrowAbi,
+        functionName: "award",
+        args: [missionId as Hex, award.worker, award.price, award.stake, twoSignatures(signatures)],
+      }),
+    );
   }
 
-  async stake(missionId: string, amount: bigint): Promise<void> {
+  async stake(missionId: string, amount: bigint): Promise<TxResult> {
     await this.approve(amount);
-    await send(this.clients, { address: this.address, abi: missionEscrowAbi, functionName: "stake", args: [missionId as Hex] });
+    return txResult(await send(this.clients, { address: this.address, abi: missionEscrowAbi, functionName: "stake", args: [missionId as Hex] }));
   }
 
-  async settle(missionId: string, outcome: Outcome, evidenceHash: Hex, signatures: readonly Hex[]): Promise<void> {
-    await send(this.clients, {
-      address: this.address,
-      abi: missionEscrowAbi,
-      functionName: "settle",
-      args: [missionId as Hex, OUTCOMES.indexOf(outcome), evidenceHash, twoSignatures(signatures)],
-    });
+  async settle(missionId: string, outcome: Outcome, evidenceHash: Hex, signatures: readonly Hex[]): Promise<TxResult> {
+    return txResult(
+      await send(this.clients, {
+        address: this.address,
+        abi: missionEscrowAbi,
+        functionName: "settle",
+        args: [missionId as Hex, OUTCOMES.indexOf(outcome), evidenceHash, twoSignatures(signatures)],
+      }),
+    );
+  }
+
+  async owed(account: Hex): Promise<bigint> {
+    return this.clients.public.readContract({ address: this.address, abi: missionEscrowAbi, functionName: "owed", args: [account] });
+  }
+
+  async withdraw(): Promise<TxResult> {
+    return txResult(await send(this.clients, { address: this.address, abi: missionEscrowAbi, functionName: "withdraw", args: [] }));
   }
 
   /** Lets the escrow pull `amount` of the settlement token, if it can't already. */
@@ -174,6 +186,8 @@ export class EscrowContract implements EscrowPort, RequesterEscrowPort {
     return this.asset;
   }
 }
+
+const txResult = (receipt: TransactionReceipt): TxResult => ({ txHash: receipt.transactionHash });
 
 function twoSignatures(signatures: readonly Hex[]): readonly [Hex, Hex] {
   if (signatures.length < 2) throw new Error("the Quorum needs 2 signatures");

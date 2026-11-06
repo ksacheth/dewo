@@ -3,6 +3,7 @@
 // these once M1, M2 and M3 land; tests use in-memory fakes. Money is USDC base units (bigint).
 import type { Action, ChatReceipt, Hex } from "../formats";
 import type { EventData, EventType } from "../shared/events";
+import type { WithdrawalPort } from "../shared/payout-claim";
 
 export type DifficultyClass = "easy" | "medium" | "hard";
 
@@ -43,9 +44,14 @@ export interface EscrowMission {
   settled: boolean;
 }
 
-export interface EscrowPort {
+/** Every on-chain write reports its transaction hash, so events can link to the explorer. */
+export interface TxResult {
+  txHash: Hex;
+}
+
+export interface EscrowPort extends WithdrawalPort {
   getMission(missionId: string): Promise<EscrowMission>;
-  stake(missionId: string, amount: bigint): Promise<void>;
+  stake(missionId: string, amount: bigint): Promise<TxResult>;
 }
 
 export interface SeedRelease {
@@ -76,7 +82,7 @@ export interface BoardPort {
 }
 
 export interface RegistryPort {
-  submitEpisode(missionId: string, episodeLogRoot: Hex, policyRoot: Hex, decisionCount: number): Promise<void>;
+  submitEpisode(missionId: string, episodeLogRoot: Hex, policyRoot: Hex, decisionCount: number): Promise<TxResult>;
   isSubmitted(missionId: string, worker: Hex): Promise<boolean>;
 }
 

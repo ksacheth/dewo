@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { seedCommitment, toBaseUnits, type Hex } from "../src/formats";
 import type { AuditPort, PaymentRecord } from "../src/requester/audit";
 import { CREATE_RETRY_SECONDS } from "../src/requester/requester";
-import { RIVAL, ME, SALT, SEED, VERIFIER_URLS, requesterIn, world } from "./fakes";
+import { BIDDING_CLOSES_AFTER, REPLAY_PRICE, REQUESTER_ADDRESS, RIVAL, ME, SALT, SEED, VERIFIER_ADDRESSES, VERIFIER_URLS, requesterIn, world } from "./fakes";
 
 const randoms = (): (() => Hex) => {
   const values: Hex[] = [SEED, SALT];
@@ -15,7 +15,7 @@ function setupRequester() {
   const bid = (worker: Hex, price: number) =>
     w.board.bids.push({ missionId: "m1", worker, policyHash: "0x00", workerPubKey: `${worker}ff`, sealedPrice: [`enc(${toBaseUnits(price)})@k`] });
   const post = () => r.requester.post({ difficulty: "medium", maxBounty: 10, riskWeight: 0.5 });
-  const closeBidding = () => (w.clock.t += 61);
+  const closeBidding = () => (w.clock.t += BIDDING_CLOSES_AFTER);
   return { ...w, ...r, bid, post, closeBidding };
 }
 
@@ -39,7 +39,7 @@ describe("Requester: posting", () => {
     const { terms } = await s.escrow.getMission(missionId);
     expect(terms).toMatchObject({ maxBounty: 10_000_000n, difficultyClass: "medium", riskWeightBps: 5000 });
     expect(terms.seedCommitment).toBe(seedCommitment(SEED, SALT));
-    expect(terms.deadlines).toMatchObject({ biddingClosesAt: s.clock.t + 60, rescueAt: s.clock.t + 3600 });
+    expect(terms.deadlines).toMatchObject({ biddingClosesAt: s.clock.t + 75, rescueAt: s.clock.t + 3600 });
     expect(JSON.stringify(s.board.listings, (_k, v) => (typeof v === "bigint" ? String(v) : v))).not.toContain(SEED.slice(2));
     expect(s.stage()).toBe("BIDDING");
   });
@@ -157,7 +157,7 @@ describe("Requester: HCS spending log", () => {
     const r = requesterIn(w, { audit });
     const missionId = await r.requester.post({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5 });
     w.board.bids.push({ missionId, worker: ME, policyHash: "0x00", workerPubKey: "0x04", sealedPrice: ["enc(2000000)@k"] });
-    w.clock.t += 61;
+    w.clock.t += BIDDING_CLOSES_AFTER;
     await r.requester.tick();
     await w.escrow.stake(missionId, 500_000n);
     await r.requester.tick();
@@ -169,13 +169,77 @@ describe("Requester: HCS spending log", () => {
   it("records every paid Replay", async () => {
     const records: PaymentRecord[] = [];
     const { missionId } = await settledWith({ recordPayment: async (r) => void records.push(r) });
-    expect(records.map((r) => r.verifier)).toEqual(VERIFIER_URLS);
-    expect(records[0]).toMatchObject({ missionId, outcome: "Pass" });
+    expect(records.map((r) => r.verifierUrl)).toEqual(VERIFIER_URLS);
+    expect(records.map((r) => r.verifier)).toEqual(VERIFIER_ADDRESSES);
+    expect(records[0]).toEqual({
+      missionId,
+      verifier: VERIFIER_ADDRESSES[0],
+      verifierUrl: VERIFIER_URLS[0],
+      outcome: "Pass",
+      amount: REPLAY_PRICE.toString(),
+      payTo: "0.0.5005",
+      network: "hedera:testnet",
+      asset: "0.0.429274",
+      paymentTx: `tx-${VERIFIER_URLS[0]}`,
+      at: expect.any(String),
+    });
   });
 
   it("still settles when the audit log is down", async () => {
     const { w } = await settledWith({ recordPayment: async () => Promise.reject(new Error("HCS down")) });
     expect(w.escrow.settlements).toHaveLength(1);
+  });
+});
+
+describe("Requester: deferred payouts (R11)", () => {
+  it("withdraws what the escrow parked for it after the Mission settles", async () => {
+    const s = await staked();
+    s.escrow.owedBy.set(REQUESTER_ADDRESS, 4_000_000n);
+    await s.registry.submitEpisode("m1", "0x01", "0x02", 3);
+    await s.requester.tick();
+
+    expect(s.stage()).toBe("SETTLED");
+    expect(s.escrow.withdrawals).toEqual([{ account: REQUESTER_ADDRESS, amount: 4_000_000n }]);
+    expect(await s.escrow.owed(REQUESTER_ADDRESS)).toBe(0n);
+  });
+
+  it("does not block settling when withdraw fails, and retries on the next tick", async () => {
+    const s = await staked();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    s.escrow.owedBy.set(REQUESTER_ADDRESS, 4_000_000n);
+    s.escrow.withdrawFails = true;
+    await s.registry.submitEpisode("m1", "0x01", "0x02", 3);
+    await s.requester.tick();
+
+    expect(s.stage()).toBe("SETTLED");
+    expect(s.escrow.withdrawals).toHaveLength(0);
+    expect(errors).toHaveBeenCalled();
+
+    s.escrow.withdrawFails = false;
+    await s.requester.tick();
+    expect(s.escrow.withdrawals).toHaveLength(1);
+    await s.requester.tick();
+    expect(s.escrow.withdrawals).toHaveLength(1);
+    errors.mockRestore();
+  });
+
+  it("claims after a rescue too", async () => {
+    const s = setupRequester();
+    await s.post();
+    s.escrow.owedBy.set(REQUESTER_ADDRESS, 10_000_000n);
+    s.clock.t += 3600;
+    await s.requester.tick();
+
+    expect(s.stage()).toBe("RESCUED");
+    expect(s.escrow.withdrawals).toEqual([{ account: REQUESTER_ADDRESS, amount: 10_000_000n }]);
+  });
+
+  it("checks once at startup and then stays quiet while nothing is owed", async () => {
+    const s = setupRequester();
+    const owed = vi.spyOn(s.escrow, "owed");
+    await s.requester.tick();
+    await s.requester.tick();
+    expect(owed).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -343,7 +407,7 @@ describe("Requester: isolation", () => {
     await requester.post(request);
     await requester.post(request);
     w.board.bids.push({ missionId: "m2", worker: ME, policyHash: "0x00", workerPubKey: "0x04", sealedPrice: ["enc(2000000)@k"] });
-    w.clock.t += 61;
+    w.clock.t += BIDDING_CLOSES_AFTER;
 
     const real = w.escrow.getMission.bind(w.escrow);
     w.escrow.getMission = async (id) => (id === "m1" ? Promise.reject(new Error("rpc")) : real(id));

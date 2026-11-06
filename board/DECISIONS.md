@@ -23,7 +23,7 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
 ## D2 **I4**: `missionId` is the Escrow's `bytes32`
 
 - **Decision:** everywhere, `missionId` = `MissionEscrow`'s bytes32 Mission ID as `0x` + 64 hex. It is an
-  indexed attribute on all four entities. The Arkiv entity key is never used as an ID across modules.
+  indexed attribute on all five entities. The Arkiv entity key is never used as an ID across modules.
   `getMission(id)` queries by attribute.
 - **Why:** EIP-712 `Award` / `Verdict` already use the bytes32. One ID, no mapping table.
 - **Integration impact:** M4 must call `createMission` on Hedera *before* `postMission` on Arkiv.
@@ -55,6 +55,9 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
   several Verdicts for one Mission counts once, by its earliest (`$createdAt`, then `$key`). Arkiv is public, so
   without this duplicates or outsiders could forge a Quorum. `openBid` also now rejects any price that is not a
   positive integer, and `pickWinner` ignores prices <= 0.
+- **Update 2026-11-06 (R3):** two Verdicts match only if they have the same Outcome **and** the same `evidenceHash`
+  (that is what `settle()` needs). Counting rules are otherwise unchanged: only the Mission's Verifiers count, one
+  Verdict per Verifier per Mission (the earliest).
 
 ## D5: Every read filters by the trusted writer
 
@@ -71,7 +74,7 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
 ## D6: The mock is backed by one shared JSON file
 
 - **Decision:** `@dewo/board/mock` keeps state in `BOARD_MOCK_FILE` (default `runs/board-mock.json`). It re-reads
-  the file on every call and writes it atomically (temp file + rename). Same exports and signatures as the real library.
+  the file on every call and writes it atomically (temp file + rename). Same entity functions and signatures as the real library (`postMission`, `setMissionStatus`, `listOpenMissions`, `getMission`, `placeBid`, `listBids`, `releaseSeed`, `readSeedRelease`, `revealSeed`, `readSeedReveal`, `writeVerdict`, `listVerdicts`, `leaderboard`), plus the pure modules re-exported unchanged (schemas, crypto, scoring, events). The Arkiv client helpers (`makeClients`, `readClient`, `configureBoard`, `explorerUrl`, `blockTimestamps`) exist only in the real library; the mock adds `resetMock` and `seedMock`. Everything `web/` and its scripts import from the mock (`emit`, `runsDir`, the entity functions) is covered.
 - **Why:** M4 (Requester + Workers) and M5 (3 Verifiers) run as separate processes; a pure in-memory mock can't be shared.
   Rejected: an HTTP mock server (one more process to run).
 - **Integration impact:** every process must point at the same file; delete it to reset.
@@ -97,6 +100,11 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
 - **Decision:** `listBids(missionId)` keeps only the earliest Bid (`$createdAt`) per Worker.
 - **Why:** Bids are `readonly`, so the first one is the commitment. Rejecting the Worker entirely would punish a
   harmless retry after a network glitch. Blocks the "late cheaper rebid" trick.
+- **Update 2026-11-06 (R2, late-bid cutoff):** a Bid counts only if the block that created it has a timestamp <= the
+  Mission's `biddingClosesAt` (unix seconds). `listBids(missionId, { closesAt? })` applies it; `closesAt` defaults to
+  the Mission's `biddingClosesAt`, and an unknown Mission yields no Bids. Arkiv rows carry only a block number
+  (`$createdAt`), so the real client reads each block's timestamp once (cached) and exposes it as `BidRow.createdAtSec`;
+  the mock stores a seconds timestamp at write time. Every Verifier therefore sees the same frozen Bid set (spec 4.3 rule 4).
 
 ## D10 **I4**: Source TypeScript, no build step
 
@@ -126,7 +134,16 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
 ## D14: `listBids` already carries what the Requester needs (requested by M4 on #13)
 
 - `listBids(missionId)` rows include `worker` and `workerPubKey` (as `0x04…` hex). M4's `workerPubKey(missionId, worker)` is a one-line lookup over it.
-- **Adapter notes for M4's `BoardPort` / `RequesterBoardPort`:** our amounts are USDC base units as `bigint` (D11), `sealBid` returns `Uint8Array` ciphertexts (not hex strings), `postMission` takes `MissionInput` (`riskWeight` 0 to 1, `biddingClosesAt` seconds, `verifiers` comma-joined), and `reliabilityOf` is `reliability(await listVerdicts({ worker }))`.
+- **Adapter notes for M4's `BoardPort` / `RequesterBoardPort`:** our amounts are USDC base units as `bigint` (D11), `sealBid` returns `Uint8Array` ciphertexts (not hex strings), `postMission` takes `MissionInput` (`riskWeight` 0 to 1, `biddingClosesAt` seconds, `verifiers` comma-joined), and `reliabilityOf` is `reliability(await listVerdicts({ worker }), trustedVerifiers())` (the Verifier list is now an explicit argument, see the D4 update).
+
+## D15: I8 event files: `runs/<missionId>/events.<process>.ndjson`
+
+- **Decision:** each process appends to its own file, `runs/<missionId>/events.<process>.ndjson`, where `<process>` is
+  `requester`, `worker-<name>`, `verifier-<n>` or `web` (`/^[a-z0-9-]+$/`). `board/src/events.ts` is the source of
+  truth for the event types and their `data` shapes.
+- **Emitters (R10):** `bids.revealed` and `verdict.signed` are emitted by the Verifiers (`verifier-<n>`), not by
+  the Requester; the Requester emits `mission.posted`, `seed.released`, `replay.paid` and `settled`.
+- **Why:** one file per process means no write races; the web feed tails every `events.*.ndjson` of a Mission.
 
 ## Also added to I4 (needed by the spec, missing from the function list)
 
@@ -144,7 +161,7 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
 > Found while planning `board/` against the Arkiv SDK. Full reasoning: `board/DECISIONS.md`.
 >
 > 1. **Mission and Bid expiry → rescue deadline (60 min)**, plus a new indexed `biddingClosesAt` on `mission`. As written, they expire at bidding close, so `/award` (M5) couldn't read them. The board still hides cards at close.
-> 2. **`missionId` = the Escrow bytes32** everywhere, an indexed attribute on all four entities. M4: call `createMission` before `postMission`.
+> 2. **`missionId` = the Escrow bytes32** everywhere, an indexed attribute on all five entities. M4: call `createMission` before `postMission`.
 > 3. **`verdict` gains `difficultyClass`**, so XP works after the Mission expires. M5 fills it. (Updated 2026-11-06: `stepBudget` dropped per ADR 0003; see D3.)
 > 4. **Trusted writers:** reads filter Verdicts by `VERIFIER_ADDRESSES` (env, same value in M4, M5, web), Seed Releases by the Mission's requester, and drop Bids whose owner isn't the worker.
 > 5. **Bid layout:** `priceCt0..2` + `verifiers` (addresses in the same order). M4: pass Verifier pubkeys to `sealBid` in `VERIFIER_ADDRESSES` order.
@@ -152,3 +169,7 @@ Entries marked **I4** change the interface; the rest are internal to `board/`.
 > 7. **No build step:** `@dewo/board` exports `.ts` source; M4 and M5 run with `tsx`. Say if that doesn't work for you.
 > 8. **Mock is file-backed** (`BOARD_MOCK_FILE`, default `runs/board-mock.json`) so separate processes share it.
 > 9. **Root `LICENSE` (MIT)**: OK to add? Arkiv requires an open-source license.
+> 10. **D13, Seed Reveal:** a fifth entity, `dewo.seedReveal`, owned by the Requester, `readonly`, 180 days. `revealSeed` / `readSeedReveal` publish the Course Seed and salt after the Episode so Verifiers can Replay. Verifiers still check them against the on-chain `seedCommitment`.
+> 11. **D14, Verifier list:** `quorumResults`, `reliability`, `totalXp` and `leaderboardFrom` take the Verifier addresses explicitly (`trustedVerifiers()`); only those owners count, one Verdict per Verifier per Mission, and two Verdicts match only on the same Outcome and `evidenceHash` (R3). M4's `reliabilityOf` is `reliability(await listVerdicts({ worker }), trustedVerifiers())`.
+> 12. **Prices:** a Bid price is a positive integer in base units (`openBid` rejects anything else and, given `maxBounty`, a price above it); `pickWinner` ignores prices <= 0. `listBids` ignores Bids created after `biddingClosesAt` (R2).
+> 13. **Event files:** `runs/<missionId>/events.<process>.ndjson` with `requester`, `worker-<name>`, `verifier-<n>`, `web`; `board/src/events.ts` defines the types. Verifiers emit `bids.revealed` and `verdict.signed` (R10).

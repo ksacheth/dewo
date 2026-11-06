@@ -17,3 +17,7 @@ We chose this because a published floor (0G cost per Decision × a Step Budget) 
 - Underbidding is policed only by the stake, Fail payouts and Reliability, not by any price rule.
 - Path Cost ignores clearance and smoothness; both are roadmap additions to q.
 - Bonded efficiency claims (a Path Quality target, not raw steps) are the roadmap form of performance bidding, for tasks fully known at bid time.
+
+## Update (2026-11-06)
+
+Constants: Decision Cap is 60. A course is an Invalid Course when the Optimal Path Cost exceeds 29 (the Path Allowance would exceed the Decision Cap). Path Quality is q = min(1, Optimal Path Cost / Path Cost), 0 if Path Cost is 0. XP for a Pass is 100 × m_difficulty × (1 + q), with m = 1 / 1.5 / 2 for easy / medium / hard, and Level = floor(sqrt(XP / 100)).

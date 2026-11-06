@@ -9,3 +9,7 @@ We chose this over LLM-as-judge grading (non-deterministic, gameable) and over c
 - Generative media task graded by an LLM judge: rejected, no deterministic Pass.
 - Outcome-only verification (Replay + signatures, Workers unconstrained): rejected, prompt steering.
 - One fixed Policy for all Workers: rejected, nothing left to compete on.
+
+## Update (2026-11-06)
+
+The Course Seed stays sealed until the winner has staked (Seed Release), not merely until bidding closes, and becomes public via the Seed Reveal after the Episode Submission so anyone can re-run the Replay. Bit-reproducible requests also require Workers to run the simulator in the same pinned Docker image the Verifiers use (`sim/scripts/sim-docker`), so `frameHash` and the PNG bytes in the 0G request match the Replay.

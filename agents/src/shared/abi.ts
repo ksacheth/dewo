@@ -11,10 +11,14 @@ export const missionEscrowAbi = parseAbi([
   "function stake(bytes32 missionId) payable",
   "function settle(bytes32 missionId, uint8 outcome, bytes32 evidenceHash, bytes[2] sigs)",
   "function rescue(bytes32 missionId)",
+  "function withdraw()",
+  "function owed(address account) view returns (uint256)",
   "function getMission(bytes32 missionId) view returns (Mission)",
   "function awardDigest(bytes32 missionId, address worker, uint256 price, uint256 bidStake) view returns (bytes32)",
   "function verdictDigest(bytes32 missionId, uint8 outcome, bytes32 evidenceHash) view returns (bytes32)",
   "event MissionCreated(bytes32 indexed missionId, address indexed requester, uint256 maxBounty, uint8 difficultyClass, uint16 riskWeightBps)",
+  "event PayoutDeferred(bytes32 indexed missionId, address indexed recipient, uint256 amount)",
+  "event Withdrawn(address indexed recipient, uint256 amount)",
 ]);
 
 export const episodeRegistryAbi = parseAbi([

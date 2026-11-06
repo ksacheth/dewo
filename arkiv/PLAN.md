@@ -33,8 +33,8 @@ Not ours: `data-quality.md` (Mirror track only). `swarm.md` only if the Swarm st
 ## 2. File by file
 
 ### `schema.md` (write as soon as board's `schemas.ts` lands, keep in sync)
-- One section per entity: `dewo.mission`, `dewo.bid`, `dewo.seedRelease`, `dewo.verdict`.
-- For each: a table of columns (name, Arkiv type, indexed?, meaning), owner (`$owner` and which wallet), expiration and the reason for it, creation flags (`readonly` on bid / seedRelease / verdict), and who reads it (which module, which UI panel).
+- One section per entity: `dewo.mission`, `dewo.bid`, `dewo.seedRelease`, `dewo.seedReveal`, `dewo.verdict`.
+- For each: a table of columns (name, Arkiv type, indexed?, meaning), owner (`$owner` and which wallet), expiration and the reason for it, creation flags (`readonly` on bid / seedRelease / seedReveal / verdict), and who reads it (which module, which UI panel).
 - The exact query each consumer runs (copied from `board/src/*.ts`), e.g. `select().from(Verdict).where(eq("worker", w)).ownedBy(verifier1)`.
 - Writer wallet addresses (Requester, 3 Workers, 3 Verifiers), with explorer links.
 - One real entity key per schema with an explorer link, filled in after a real run.
@@ -61,9 +61,9 @@ One table, one row per Arkiv feature, each with "what the user sees":
 | Feature | Where | What the user sees |
 |---|---|---|
 | Indexed `difficultyClass`, `status`, `biddingClosesAt` | Mission Board filter | Filter chips query Arkiv directly |
-| Expiration | mission / bid / seedRelease / verdict | Board cards disappear; seeds don't linger; history lasts months |
+| Expiration | mission / bid / seedRelease / seedReveal / verdict | Board cards disappear; seeds don't linger; history lasts months |
 | Ownership (`$owner`, `ownedBy`) | every read | Fake Verdicts from other wallets don't count; leaderboard can't be farmed by writing entities |
-| `readonly` flag | bid, seedRelease, verdict | A sealed Bid can't be changed after the fact |
+| `readonly` flag | bid, seedRelease, seedReveal, verdict | A sealed Bid can't be changed after the fact |
 | `bytes` columns + ECIES | bid, seedRelease | Ciphertext prices in the explorer until the Award |
 | `patchEntity` | mission `status` | Card moves from open to awarded |
 | `watchEntityEvents` (if used) | board | Cards appear live without refresh |

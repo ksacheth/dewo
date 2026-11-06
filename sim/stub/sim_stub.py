@@ -6,6 +6,15 @@ session, replay), but the Course is a straight line with no obstacles and the
 frames are flat-colour PNGs. Hashes are deterministic, so consumers can
 develop against it, but they are NOT the hashes the real sim will produce.
 
+frameHash differs from the real definition: the real sim hashes the raw RGB
+pixels ("dewo-frame-v1" + width + height + RGB bytes, sha256) of a MuJoCo
+render, while the stub hashes the bytes of its own flat-colour PNG, whose
+colour is derived from seed, step and pose. Same shape ("0x" + 64 hex), same
+rule (one hash per Decision, the view before the Action), different values.
+Episode semantics match the real sim: it ends at STOP, on a collision or at
+the goal (the stub never collides); later Actions are an error in `session`
+and ignored in `replay`.
+
     python3 sim/stub/sim_stub.py course --seed 0xabc --difficulty medium --out course.json
     python3 sim/stub/sim_stub.py plan --course course.json [--max-cost 29]
     python3 sim/stub/sim_stub.py session --course course.json --frames-dir frames/
@@ -72,6 +81,7 @@ class Rover:
         self.x, self.y, self.yaw = s["x"], s["y"], s["yaw"]
         self.step = 0
         self.collisions = 0
+        self.done = False
 
     def pose(self):
         return {"x": _r(self.x), "y": _r(self.y), "yaw": _r(self.yaw)}
@@ -89,8 +99,13 @@ class Rover:
         return png, "0x" + hashlib.sha256(png).hexdigest()
 
     def act(self, action):
+        if action not in ACTIONS:
+            raise ValueError(f"unknown action {action!r}")
+        if self.done:
+            raise RuntimeError("episode is over")
         if action == "STOP":
-            return False  # ends the Episode; STOP uses no step
+            self.done = True  # STOP uses no step
+            return False
         if action == "FORWARD":
             self.x += FORWARD_M * math.cos(self.yaw)
             self.y += FORWARD_M * math.sin(self.yaw)
@@ -100,7 +115,8 @@ class Rover:
             self.yaw -= TURN_RAD
         self.x, self.y, self.yaw = _r(self.x), _r(self.y), _r(self.yaw)
         self.step += 1
-        return False  # the stub has no obstacles, so never a collision
+        self.done = self.at_goal()  # the stub has no obstacles, so never a collision
+        return False
 
 
 def cmd_course(args):
@@ -127,45 +143,67 @@ def cmd_session(args):
         line = line.strip()
         if not line:
             continue
-        msg = json.loads(line)
-        if msg.get("cmd") == "observe":
-            png, h = rover.frame()
-            path = frames / f"frame_{rover.step:04d}.png"
-            path.write_bytes(png)
-            out = {
-                "step": rover.step,
-                "frame": str(path),
-                "frameHash": h,
-                "pose": rover.pose(),
-                "atGoal": rover.at_goal(),
-                "collisions": rover.collisions,
-            }
-        elif msg.get("cmd") == "act" and msg.get("action") in ACTIONS:
-            collision = rover.act(msg["action"])
-            out = {
-                "step": rover.step,
-                "collision": collision,
-                "atGoal": rover.at_goal(),
-                "pose": rover.pose(),
-            }
-        else:
-            out = {"error": f"bad message: {line}"}
+        try:
+            msg = json.loads(line)
+            if not isinstance(msg, dict):
+                raise ValueError(f"expected a JSON object in {line}")
+            if msg.get("cmd") == "observe":
+                out = observe(rover, frames)
+            elif msg.get("cmd") == "act":
+                out = act(rover, msg.get("action"))
+            else:
+                out = {"error": f"unknown cmd in {line}"}
+        except (ValueError, RuntimeError) as e:
+            out = {"error": str(e)}
         print(json.dumps(out), flush=True)
+
+
+def observe(rover, frames):
+    png, h = rover.frame()
+    path = frames / f"frame_{rover.step:04d}.png"
+    path.write_bytes(png)
+    return {
+        "step": rover.step,
+        "frame": str(path),
+        "frameHash": h,
+        "pose": rover.pose(),
+        "atGoal": rover.at_goal(),
+        "collisions": rover.collisions,
+    }
+
+
+def act(rover, action):
+    collision = rover.act(action)
+    if collision:
+        rover.collisions += 1
+    return {
+        "step": rover.step,
+        "collision": collision,
+        "atGoal": rover.at_goal(),
+        "pose": rover.pose(),
+    }
 
 
 def cmd_replay(args):
     course = json.loads(Path(args.course).read_text())
     actions = json.loads(Path(args.actions).read_text())
+    error = None
+    if not isinstance(actions, list):
+        error = "actions must be a JSON list of Action strings"
+    else:
+        bad = [a for a in actions if not isinstance(a, str) or a not in ACTIONS]
+        if bad:
+            error = f"unknown action {bad[0]!r}"
+    if error:
+        print(json.dumps({"error": error}))
+        raise SystemExit(1)
     rover = Rover(course)
     hashes = []
     for action in actions:
-        if action not in ACTIONS:
-            raise SystemExit(f"unknown action: {action}")
-        if action == "STOP" or rover.at_goal():
-            break
-        hashes.append(rover.frame()[1])  # the view the model saw for this Decision
-        if rover.act(action):
-            rover.collisions += 1
+        if rover.done:
+            break  # goal reached, collided or STOPped: later Actions are never executed
+        hashes.append(rover.frame()[1])  # the view this Decision was made from (STOP too)
+        if act(rover, action)["collision"]:
             break
     print(
         json.dumps(

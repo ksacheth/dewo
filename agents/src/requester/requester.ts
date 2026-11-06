@@ -4,7 +4,9 @@
 // Like the Worker, it re-reads the chain before acting and records a step only after it is confirmed.
 import { randomBytes } from "node:crypto";
 import { seedCommitment, toBaseUnits, type Hex } from "../formats";
-import type { Clock, DifficultyClass, EscrowMission, EventsPort, MissionTerms, RegistryPort } from "../worker/ports";
+import { PayoutClaimer } from "../shared/payout-claim";
+import { hederaTxUrl } from "../shared/tx-links";
+import type { Clock, DifficultyClass, EscrowMission, EventsPort, MissionTerms, RegistryPort, TxResult } from "../worker/ports";
 import type { Keyed, RecordStore } from "../worker/records";
 import type { AuditPort, PaymentRecord } from "./audit";
 import { payouts } from "./payouts";
@@ -53,6 +55,8 @@ export interface RequesterRecord extends Keyed {
   /** Kept while CREATING so a restart can retry createMission with the same seed. */
   request?: MissionRequest;
   attemptedAt?: number;
+  /** The createMission transaction, for the mission.posted link; unknown if a restart found the Mission by its Seed Commitment. */
+  createTx?: Hex;
   /** Verdicts already paid for, by Verifier URL, so a retry never pays twice. */
   verdicts: Record<string, SignedVerdict>;
   paidReplays: number;
@@ -70,6 +74,13 @@ export interface MissionRequest {
 
 export interface Windows {
   biddingSeconds: number;
+  /**
+   * Extra seconds added to the bidding window to cover createMission's confirmation time. The
+   * deadline is fixed inside createMission's terms, so it cannot be measured from the confirmation:
+   * the real window is measured from the createMission call (now), and Bidders see about
+   * biddingSeconds from the time the Mission is listed.
+   */
+  biddingSlackSeconds: number;
   stakeWindow: number;
   seedReleaseWindow: number;
   episodeWindow: number;
@@ -80,6 +91,7 @@ export interface Windows {
 /** docs/spec.md section 3 (tunable). */
 export const DEFAULT_WINDOWS: Windows = {
   biddingSeconds: 60,
+  biddingSlackSeconds: 15,
   stakeWindow: 30,
   seedReleaseWindow: 30,
   episodeWindow: 300,
@@ -87,6 +99,8 @@ export const DEFAULT_WINDOWS: Windows = {
 };
 
 export interface RequesterConfig {
+  /** The EVM address of the key that signs the escrow writes; its deferred payouts are claimed with withdraw(). */
+  address: Hex;
   verifiers: readonly { url: string; address: Hex }[];
   windows: Windows;
   /** Spending cap: the most Replays this Requester pays for on one Mission. */
@@ -111,11 +125,14 @@ const random32 = (): Hex => `0x${randomBytes(32).toString("hex")}`;
 export class Requester {
   /** CREATING records whose createMission is in flight in this process. */
   private readonly creating = new Set<string>();
+  private readonly payouts: PayoutClaimer;
 
   constructor(
     private readonly config: RequesterConfig,
     private readonly deps: RequesterDeps,
-  ) {}
+  ) {
+    this.payouts = new PayoutClaimer(deps.escrow, config.address, "requester");
+  }
 
   /** I7 POST /missions. Everything after this is autonomous. */
   async post(request: MissionRequest): Promise<string> {
@@ -133,14 +150,16 @@ export class Requester {
       request,
     };
     this.deps.records.put(creating);
-    const missionId = await this.createOnChain(creating);
-    this.adopt(creating, missionId);
+    const created = await this.createOnChain(creating);
+    this.adopt(creating, created.missionId, created.txHash);
+    const { missionId } = created;
     await this.tickMission(missionId);
     return missionId;
   }
 
   async tick(): Promise<void> {
     for (const { missionId } of this.deps.records.all()) await this.tickMission(missionId);
+    await this.payouts.claim();
   }
 
   /** One Mission's failure never stops the others. */
@@ -165,7 +184,10 @@ export class Requester {
   private async advance(record: RequesterRecord): Promise<void> {
     if (record.stage === "CREATING") return this.recoverCreating(record);
     const mission = await this.deps.escrow.getMission(record.missionId);
-    if (mission.settled) return this.move(record, "SETTLED");
+    if (mission.settled) {
+      this.payouts.markDue();
+      return this.move(record, "SETTLED");
+    }
     if (this.deps.clock.now() >= mission.terms.deadlines.rescueAt) return this.rescue(record);
     if (record.stage === "CREATED") return this.list(record, mission);
     if (record.stage === "BIDDING") return this.closeBidding(record, mission);
@@ -176,16 +198,16 @@ export class Requester {
   }
 
   /** Sends createMission for a CREATING record, remembering the attempt so a restart does not repeat it at once. */
-  private async createOnChain(creating: RequesterRecord): Promise<string> {
+  private async createOnChain(creating: RequesterRecord): Promise<{ missionId: string } & TxResult> {
     const { request, seed, salt } = creating;
     const now = this.deps.clock.now();
-    const { biddingSeconds, rescueSeconds, ...windows } = this.config.windows;
+    const { biddingSeconds, biddingSlackSeconds, rescueSeconds, ...windows } = this.config.windows;
     const terms: MissionTerms = {
       maxBounty: toBaseUnits(request!.maxBounty),
       difficultyClass: request!.difficulty,
       riskWeightBps: Math.round(request!.riskWeight * 10_000),
       seedCommitment: seedCommitment(seed, salt),
-      deadlines: { biddingClosesAt: now + biddingSeconds, rescueAt: now + rescueSeconds, ...windows },
+      deadlines: { biddingClosesAt: now + biddingSeconds + biddingSlackSeconds, rescueAt: now + rescueSeconds, ...windows },
     };
     this.deps.records.put({ ...creating, attemptedAt: now });
     this.creating.add(creating.missionId);
@@ -200,21 +222,21 @@ export class Requester {
   private async recoverCreating(creating: RequesterRecord): Promise<void> {
     if (this.creating.has(creating.missionId)) return;
     const found = await this.deps.escrow.findMission(creating.missionId as Hex);
-    const missionId = found ?? (await this.retryCreate(creating));
-    if (!missionId) return;
-    this.adopt(creating, missionId);
-    await this.advanceUntilWaiting(missionId);
+    const created = found ? { missionId: found } : await this.retryCreate(creating);
+    if (!created) return;
+    this.adopt(creating, created.missionId, "txHash" in created ? created.txHash : undefined);
+    await this.advanceUntilWaiting(created.missionId);
   }
 
-  private async retryCreate(creating: RequesterRecord): Promise<string | null> {
+  private async retryCreate(creating: RequesterRecord): Promise<({ missionId: string } & TxResult) | null> {
     if (this.deps.clock.now() < (creating.attemptedAt ?? 0) + CREATE_RETRY_SECONDS) return null;
     return this.createOnChain(creating);
   }
 
   /** Re-keys a CREATING record by its real missionId. Written new-first so a crash in between is harmless. */
-  private adopt(creating: RequesterRecord, missionId: string): void {
+  private adopt(creating: RequesterRecord, missionId: string, createTx?: Hex): void {
     if (!this.deps.records.get(missionId)) {
-      this.deps.records.put({ ...creating, missionId, stage: "CREATED", request: undefined, attemptedAt: undefined });
+      this.deps.records.put({ ...creating, missionId, stage: "CREATED", request: undefined, attemptedAt: undefined, createTx });
     }
     this.deps.records.put({ ...creating, stage: "RETIRED", note: `created as ${missionId}` });
   }
@@ -238,13 +260,14 @@ export class Requester {
       riskWeight: terms.riskWeightBps / 10_000,
       biddingClosesAt: terms.deadlines.biddingClosesAt,
       arkivKey: key,
-    });
+    }, record.createTx && hederaTxUrl(record.createTx));
   }
 
   /** The Mission is unsettled past rescueAt, whatever stage we were in: take the bounty back. */
   private async rescue(record: RequesterRecord): Promise<void> {
     await this.deps.escrow.rescue(record.missionId);
     this.move(record, "RESCUED");
+    this.payouts.markDue();
   }
 
   private closeBidding(record: RequesterRecord, mission: EscrowMission): void {
@@ -260,12 +283,12 @@ export class Requester {
     if (!agreed) return;
 
     const { worker, price, stake } = agreed.value;
-    await this.deps.escrow.award(record.missionId, { worker, price, stake }, agreed.signatures);
+    const { txHash } = await this.deps.escrow.award(record.missionId, { worker, price, stake }, agreed.signatures);
     this.move(record, "AWARDED");
     // One event per signature that went on-chain, naming the Verifier who signed it.
     for (const index of agreed.indexes) {
       const verifier = this.config.verifiers[index]!.address;
-      this.deps.events.emit(record.missionId, "award.signed", { worker, price: price.toString(), stake: stake.toString(), verifier });
+      this.deps.events.emit(record.missionId, "award.signed", { worker, price: price.toString(), stake: stake.toString(), verifier }, hederaTxUrl(txHash));
     }
   }
 
@@ -315,15 +338,16 @@ export class Requester {
     }
 
     const { outcome, evidenceHash } = agreed.value;
-    await this.deps.escrow.settle(record.missionId, outcome, evidenceHash, agreed.signatures);
+    const { txHash } = await this.deps.escrow.settle(record.missionId, outcome, evidenceHash, agreed.signatures);
     this.move(current, "SETTLED", outcome);
+    this.payouts.markDue();
     const { award, terms } = mission;
     const paid = payouts(outcome, terms.maxBounty, award?.price ?? 0n, award?.stake ?? 0n);
     this.deps.events.emit(record.missionId, "settled", {
       outcome,
       workerPayout: paid.worker.toString(),
       requesterPayout: paid.requester.toString(),
-    });
+    }, hederaTxUrl(txHash));
   }
 
   /** A failed call still counts against the cap: the payment may have gone through. */
@@ -337,7 +361,17 @@ export class Requester {
       const verifier = this.config.verifiers.find((v) => v.url === url)!.address;
       if (payment.challenged) this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: 402, amount: payment.amount.toString() });
       this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: "paid", amount: payment.amount.toString() });
-      await this.audit({ missionId: record.missionId, verifier: url, outcome: verdict.outcome });
+      await this.audit({
+        missionId: record.missionId,
+        verifier,
+        verifierUrl: url,
+        outcome: verdict.outcome,
+        amount: payment.amount.toString(),
+        payTo: payment.payTo,
+        network: payment.network,
+        asset: payment.asset,
+        paymentTx: payment.paymentTx,
+      });
     } catch (error) {
       next = { ...next, note: `Replay at ${url} failed: ${String(error)}` };
     }
@@ -361,7 +395,7 @@ export class Requester {
 
   private lapsed(mission: EscrowMission): boolean {
     const { award, stakedAt, terms } = mission;
-    return !!award && stakedAt === null && this.deps.clock.now() > award.awardedAt + terms.deadlines.stakeWindow;
+    return !!award && stakedAt === null && this.deps.clock.now() >= award.awardedAt + terms.deadlines.stakeWindow;
   }
 
   private move(record: RequesterRecord, stage: RequesterStage, note?: string): void {

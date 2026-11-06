@@ -18,6 +18,7 @@ import type {
   SimPort,
   SimSession,
   StoragePort,
+  TxResult,
 } from "../src/worker/ports";
 import type { AuditPort } from "../src/requester/audit";
 import type {
@@ -51,6 +52,13 @@ export const policy: Policy = {
   version: "1",
 };
 
+let txCounter = 0;
+/** A distinct fake transaction hash per call. */
+export function fakeTx(): TxResult {
+  txCounter += 1;
+  return { txHash: toHex(txCounter, { size: 32 }) };
+}
+
 export class FakeClock {
   t = 1_000;
   now(): number {
@@ -71,6 +79,11 @@ export function terms(overrides: Partial<MissionTerms> = {}): MissionTerms {
 
 export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
   missions = new Map<string, EscrowMission>();
+  /** Payouts parked by settle/rescue for a recipient that could not receive; tests set them directly. */
+  owedBy = new Map<Hex, bigint>();
+  withdrawals: { account: Hex; amount: bigint }[] = [];
+  /** While set, withdraw() reverts like the contract does when delivery still fails. */
+  withdrawFails = false;
   stakes: { missionId: string; amount: bigint }[] = [];
   /** Every Award ever made, including lapsed ones. */
   awards: { missionId: string; award: AwardTerms; signatures: readonly Hex[] }[] = [];
@@ -82,10 +95,10 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
     this.missions.set(missionId, { terms: missionTerms, award: null, stakedAt: null, settled: false });
   }
 
-  async createMission(missionTerms: MissionTerms): Promise<string> {
+  async createMission(missionTerms: MissionTerms): Promise<{ missionId: string } & TxResult> {
     const missionId = `m${this.missions.size + 1}`;
     this.open(missionId, missionTerms);
-    return missionId;
+    return { missionId, ...fakeTx() };
   }
 
   rescues: string[] = [];
@@ -94,20 +107,23 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
     return [...this.missions].find(([, m]) => m.terms.seedCommitment === commitment)?.[0] ?? null;
   }
 
-  async rescue(missionId: string): Promise<void> {
+  async rescue(missionId: string): Promise<TxResult> {
     if (this.clock.now() < this.mission(missionId).terms.deadlines.rescueAt) throw new Error("InvalidTime");
     this.rescues.push(missionId);
     this.patch(missionId, { settled: true });
+    return fakeTx();
   }
 
-  async award(missionId: string, award: AwardTerms, signatures: readonly Hex[]): Promise<void> {
+  async award(missionId: string, award: AwardTerms, signatures: readonly Hex[]): Promise<TxResult> {
     this.awards.push({ missionId, award, signatures });
     this.grant(missionId, award);
+    return fakeTx();
   }
 
-  async settle(missionId: string, outcome: Outcome, evidenceHash: Hex, signatures: readonly Hex[]): Promise<void> {
+  async settle(missionId: string, outcome: Outcome, evidenceHash: Hex, signatures: readonly Hex[]): Promise<TxResult> {
     this.settlements.push({ missionId, outcome, evidenceHash, signatures });
     this.patch(missionId, { settled: true });
+    return fakeTx();
   }
 
   /** Test helper: sets the current Award directly. */
@@ -124,9 +140,33 @@ export class FakeEscrow implements EscrowPort, RequesterEscrowPort {
     return this.mission(missionId);
   }
 
-  async stake(missionId: string, amount: bigint): Promise<void> {
+  async owed(account: Hex): Promise<bigint> {
+    return this.owedBy.get(account) ?? 0n;
+  }
+
+  /** Without an account this is the plain shared fake; `forAccount` binds the caller. */
+  async withdraw(): Promise<TxResult> {
+    throw new Error("use escrow.forAccount(address) to say who withdraws");
+  }
+
+  /** A view of this escrow whose withdraw() is called by `account` (the real contract uses msg.sender). */
+  forAccount(account: Hex): FakeEscrow {
+    const view = Object.create(this) as FakeEscrow;
+    view.withdraw = async () => {
+      const amount = this.owedBy.get(account) ?? 0n;
+      if (amount === 0n) throw new Error("NothingOwed");
+      if (this.withdrawFails) throw new Error("transfer still fails");
+      this.owedBy.delete(account);
+      this.withdrawals.push({ account, amount });
+      return fakeTx();
+    };
+    return view;
+  }
+
+  async stake(missionId: string, amount: bigint): Promise<TxResult> {
     this.stakes.push({ missionId, amount });
     this.patch(missionId, { stakedAt: this.clock.now() });
+    return fakeTx();
   }
 
   private mission(missionId: string): EscrowMission {
@@ -190,8 +230,9 @@ export class FakeBoard implements BoardPort, RequesterBoardPort {
 export class FakeRegistry implements RegistryPort {
   submissions: { missionId: string; episodeLogRoot: Hex; policyRoot: Hex; decisionCount: number }[] = [];
 
-  async submitEpisode(missionId: string, episodeLogRoot: Hex, policyRoot: Hex, decisionCount: number): Promise<void> {
+  async submitEpisode(missionId: string, episodeLogRoot: Hex, policyRoot: Hex, decisionCount: number): Promise<TxResult> {
     this.submissions.push({ missionId, episodeLogRoot, policyRoot, decisionCount });
+    return fakeTx();
   }
   async isSubmitted(missionId: string): Promise<boolean> {
     return this.submissions.some((s) => s.missionId === missionId);
@@ -295,7 +336,7 @@ export class FakeVerifiers implements VerifiersPort {
     const submitted = await this.registry.isSubmitted(missionId);
     const outcome: Outcome = this.dissenting.has(url) ? "Fail" : submitted ? "Pass" : "NoShow";
     const verdict: SignedVerdict = { outcome, evidenceHash: keccak256(toBytes(`${missionId}:${outcome}`)), signature: sign(url, missionId) };
-    return { verdict, payment: { challenged: true, amount: REPLAY_PRICE } };
+    return { verdict, payment: { challenged: true, amount: REPLAY_PRICE, payTo: "0.0.5005", network: "hedera:testnet", asset: "0.0.429274", paymentTx: `tx-${url}` } };
   }
 
   private failIfBroken(url: string): void {
@@ -307,7 +348,10 @@ const sign = (url: string, missionId: string): Hex => keccak256(toBytes(`${url}:
 
 export const VERIFIER_URLS = ["http://v1", "http://v2", "http://v3"];
 export const VERIFIER_ADDRESSES: Hex[] = VERIFIER_URLS.map((_, i) => toHex(i + 1, { size: 20 }));
+export const REQUESTER_ADDRESS: Hex = "0x00000000000000000000000000000000000000cc";
 export const REPLAY_PRICE = 100_000n;
+/** Seconds after posting at which the Requester's bidding window (with slack) has closed. */
+export const BIDDING_CLOSES_AFTER = DEFAULT_WINDOWS.biddingSeconds + DEFAULT_WINDOWS.biddingSlackSeconds + 1;
 
 /** The shared fakes that a Requester and Workers meet in. */
 export function world() {
@@ -317,8 +361,10 @@ export function world() {
   const registry = new FakeRegistry();
   const storage = new FakeStorage();
   const verifiers = new FakeVerifiers(board, escrow, registry);
-  const events: { missionId: string; type: string; data: unknown }[] = [];
-  const emit = { emit: (missionId: string, type: string, data: unknown) => void events.push({ missionId, type, data }) };
+  const events: { missionId: string; type: string; data: unknown; txUrl?: string }[] = [];
+  const emit = {
+    emit: (missionId: string, type: string, data: unknown, txUrl?: string) => void events.push({ missionId, type, data, ...(txUrl ? { txUrl } : {}) }),
+  };
   return { clock, escrow, board, registry, storage, verifiers, events, emit };
 }
 
@@ -328,23 +374,24 @@ export function requesterIn(w: World, options: { random?: () => Hex; audit?: Aud
   const records = new MemoryRecordStore<RequesterRecord>();
   const requester = new Requester(
     {
+      address: REQUESTER_ADDRESS,
       verifiers: VERIFIER_URLS.map((url, i) => ({ url, address: VERIFIER_ADDRESSES[i]! })),
       windows: DEFAULT_WINDOWS,
       maxPaidReplays: 3,
     },
-    { ...w, events: w.emit, records, random: options.random, audit: options.audit },
+    { ...w, escrow: w.escrow.forAccount(REQUESTER_ADDRESS), events: w.emit, records, random: options.random, audit: options.audit },
   );
   return { requester, records, stage: (missionId = "m1") => records.get(missionId)?.stage };
 }
 
-export function workerIn(w: World, options: { address?: Hex; answers?: string[]; goalAt?: number; margin?: number } = {}) {
+export function workerIn(w: World, options: { address?: Hex; answers?: string[]; goalAt?: number; margin?: number; policy?: Policy } = {}) {
   const sim = new FakeSim(options.goalAt);
   const inference = new ScriptedInference(options.answers ?? ["FORWARD", "FORWARD", "FORWARD"]);
   const records = new MemoryRecordStore();
   const config: WorkerConfig = {
     address: options.address ?? ME,
     publicKey: "0x04ab",
-    policy,
+    policy: options.policy ?? policy,
     verifierPubKeys: ["0x01", "0x02", "0x03"],
     strategy: {
       costPerDecision: 0.05,
@@ -356,6 +403,7 @@ export function workerIn(w: World, options: { address?: Hex; answers?: string[];
   };
   const worker = new Worker(config, {
     ...w,
+    escrow: w.escrow.forAccount(config.address),
     events: w.emit,
     inference,
     sim,

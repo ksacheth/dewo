@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { policyHash } from "../src/formats";
 import { payouts } from "../src/requester/payouts";
 import { OUTCOMES } from "../src/requester/ports";
-import { REPLAY_PRICE, RIVAL, VERIFIER_ADDRESSES, policy, requesterIn, workerIn, world } from "./fakes";
+import type { EventType } from "../src/shared/events";
+import { hederaTxUrl, zeroGTxUrl } from "../src/shared/tx-links";
+import { BIDDING_CLOSES_AFTER, REPLAY_PRICE, RIVAL, VERIFIER_ADDRESSES, policy, requesterIn, workerIn, world } from "./fakes";
 
 async function fullMission() {
   const w = world();
@@ -14,7 +16,7 @@ async function fullMission() {
   };
   const missionId = await requester.requester.post({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5 });
   await everyone();
-  w.clock.t += 61;
+  w.clock.t += BIDDING_CLOSES_AFTER;
   for (let i = 0; i < 3; i++) await everyone();
   const of = (type: string) => w.events.filter((e) => e.type === type).map((e) => e.data);
   return { w, missionId, of };
@@ -28,7 +30,7 @@ describe("I8 payloads", () => {
     const stake = award!.award.stake.toString();
 
     expect(of("mission.posted")).toEqual([
-      { difficultyClass: "easy", maxBounty: "10000000", riskWeight: 0.5, biddingClosesAt: 1_060, arkivKey: "arkiv-mission-1" },
+      { difficultyClass: "easy", maxBounty: "10000000", riskWeight: 0.5, biddingClosesAt: 1_075, arkivKey: "arkiv-mission-1" },
     ]);
     expect(of("bid.sealed")).toEqual([{ worker: RIVAL, workerName: "Careful", policyHash: policyHash(policy), arkivKey: "arkiv-bid-1" }]);
     expect(of("award.signed")).toEqual([
@@ -57,11 +59,56 @@ describe("I8 payloads", () => {
     ]);
   });
 
+  it("links the transaction behind every on-chain event (Hedera on HashScan, 0G on Chainscan)", async () => {
+    const { w } = await fullMission();
+    const urlsOf = (type: string) => w.events.filter((e) => e.type === type).map((e) => e.txUrl);
+    const hashscan = /^https:\/\/hashscan\.io\/testnet\/transaction\/0x[0-9a-f]{64}$/;
+    const chainscan = /^https:\/\/chainscan-galileo\.0g\.ai\/tx\/0x[0-9a-f]{64}$/;
+
+    for (const type of ["mission.posted", "award.signed", "stake.deposited", "settled"]) {
+      const urls = urlsOf(type);
+      expect(urls.length, type).toBeGreaterThan(0);
+      for (const url of urls) expect(url, type).toMatch(hashscan);
+    }
+    expect(urlsOf("episode.submitted")).toEqual([expect.stringMatching(chainscan)]);
+    // Both signatures of one Award ride in the same transaction.
+    expect(new Set(urlsOf("award.signed")).size).toBe(1);
+    // Off-chain events carry no link.
+    for (const type of ["bid.sealed", "seed.released", "decision.made", "replay.paid"]) {
+      for (const url of urlsOf(type)) expect(url, type).toBeUndefined();
+    }
+  });
+
+  it("builds the explorer links from a transaction hash", () => {
+    const hash = `0x${"ab".repeat(32)}` as const;
+    expect(hederaTxUrl(hash)).toBe(`https://hashscan.io/testnet/transaction/${hash}`);
+    expect(zeroGTxUrl(hash)).toBe(`https://chainscan-galileo.0g.ai/tx/${hash}`);
+  });
+
   it("types every amount as a string of base units", async () => {
     const { w } = await fullMission();
     for (const { data } of w.events) {
       for (const [key, value] of Object.entries(data as Record<string, unknown>)) expect(typeof value, key).not.toBe("bigint");
     }
+  });
+});
+
+describe("I8 event types", () => {
+  it("mirrors all 11 types of @dewo/board's EventData (a missing or extra key fails typecheck)", () => {
+    const all: Record<EventType, true> = {
+      "mission.posted": true,
+      "bid.sealed": true,
+      "bids.revealed": true,
+      "award.signed": true,
+      "stake.deposited": true,
+      "seed.released": true,
+      "decision.made": true,
+      "episode.submitted": true,
+      "replay.paid": true,
+      "verdict.signed": true,
+      settled: true,
+    };
+    expect(Object.keys(all)).toHaveLength(11);
   });
 });
 
