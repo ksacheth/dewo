@@ -10,12 +10,12 @@ export function BidCards({ state }: { state: MissionState }) {
   const revealed = state.revealed
   return (
     <section className="panel" aria-label="Bids">
-      <h2>Bids <span className="dim">· {revealed ? "revealed" : "sealed on Arkiv"}</span></h2>
+      <h2><span className="num">02</span>Bids <span className="dim">· {revealed ? "revealed" : "sealed on Arkiv"}</span></h2>
       {error && <p className="bad">{error}</p>}
       {revealed
         ? revealed.bids.map((b) => (
             <div key={b.worker} className="card flip" style={{ borderColor: b.worker === revealed.winner ? "var(--ok)" : undefined }}>
-              <div className="row"><strong>{b.workerName}</strong>{b.worker === revealed.winner && <span className="ok">WINNER</span>}<span style={{ marginLeft: "auto" }}>{usdc(b.price)} USDC</span></div>
+              <div className="row"><strong>{b.workerName}</strong>{b.worker === revealed.winner && <span className="ok">WINNER</span>}<span className="value" style={{ marginLeft: "auto" }}>{usdc(b.price)}<small>USDC</small></span></div>
               <div className="dim">Reliability {(b.R * 100).toFixed(0)}% · score {b.score.toFixed(3)}</div>
             </div>
           ))

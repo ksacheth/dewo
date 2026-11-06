@@ -14,7 +14,7 @@ export function MissionBoard({ selected, onSelect }: { selected: string | null; 
   const open = (data ?? []).filter((m) => m.biddingClosesAt > now) // vanishes at the countdown's end
   return (
     <section className="panel" aria-label="Mission Board">
-      <h2>Mission Board <span className="dim">· Arkiv</span></h2>
+      <h2><span className="num">01</span>Mission Board <span className="dim">· Arkiv</span></h2>
       <div className="row" role="group" aria-label="Difficulty Class filter" style={{ marginBottom: 8 }}>
         {CLASSES.map((c) => <button key={c} className="chip" aria-pressed={cls === c} onClick={() => setCls(c)}>{c}</button>)}
       </div>
@@ -22,7 +22,7 @@ export function MissionBoard({ selected, onSelect }: { selected: string | null; 
       {!error && open.length === 0 && <p className="dim">No open Missions.</p>}
       {open.map((m) => (
         <div key={m.$key} className="card" style={{ borderColor: m.missionId === selected ? "var(--accent)" : undefined, cursor: "pointer" }} onClick={() => onSelect(m.missionId)}>
-          <div className="row"><strong>{m.difficultyClass}</strong><span>{usdc(m.bounty)} USDC</span><span className="dim">{m.stepBudget} steps · w {m.riskWeight}</span>
+          <div className="row"><strong>{m.difficultyClass}</strong><span className="value">{usdc(m.bounty)}<small>USDC</small></span><span className="dim">{m.stepBudget} steps · w {m.riskWeight}</span>
             <span className="ok" style={{ marginLeft: "auto" }}>{clock(m.biddingClosesAt - now)}</span></div>
           <div className="mono dim">commit {short(m.seedCommitment)} · <a href={arkivEntity(m.$key)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>Arkiv entity</a></div>
         </div>

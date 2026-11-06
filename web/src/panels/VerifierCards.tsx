@@ -10,7 +10,7 @@ export function VerifierCards({ state }: { state: MissionState }) {
   const agree = agreement(state)
   return (
     <section className="panel" aria-label="Verifiers">
-      <h2>Verifier Quorum · x402 per Replay</h2>
+      <h2><span className="num">04</span>Verifier Quorum · x402 per Replay</h2>
       {slots.map(([addr, v], i) => (
         <div key={addr} className="card">
           <div className="row"><strong>Verifier {i + 1}</strong><span className="mono dim">{addr.startsWith("idle") ? "" : short(addr, 4)}</span>
@@ -19,7 +19,7 @@ export function VerifierCards({ state }: { state: MissionState }) {
           {v.evidenceHash && <div className="mono dim">evidence {short(v.evidenceHash)}</div>}
         </div>
       ))}
-      {agree && <div className="banner ok">{agree.count} of 3 agree · {short(agree.hash)}</div>}
+      {agree && <div className="banner ok">{agree.count} of 3 agree · {short(agree.hash)}<div className="meter" aria-hidden><i style={{ width: `${(agree.count / 3) * 100}%` }} /></div></div>}
       {state.settled && (
         <div className="banner ok">Settled: {state.settled.outcome} · Worker {usdc(state.settled.workerPayout)} · Requester {usdc(state.settled.requesterPayout)}{" "}
           {state.settled.txUrl && <a href={state.settled.txUrl} target="_blank" rel="noreferrer">HashScan</a>}</div>

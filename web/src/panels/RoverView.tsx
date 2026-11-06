@@ -10,7 +10,7 @@ export function RoverView({ state }: { state: MissionState }) {
   const failed = Object.values(state.verifiers).some((v) => v.outcome && v.outcome !== "Pass") || (state.settled && state.settled.outcome !== "Pass")
   return (
     <section className="panel hero" aria-label="Rover view">
-      <h2>Rover · every Decision is a 0G model call</h2>
+      <h2><span className="num">03</span>Rover · every Decision is a 0G model call</h2>
       {shown ? <img className="frame" src={`/runs/${shown.frame}`} alt={`Camera frame, step ${shown.step}`} /> : <div className="frame" />}
       {state.decisions.some((d) => d.action === "STOP") && <div className="banner bad">Safe-stop: the rover halted. Outcome is Fail.</div>}
       {failed && <div className="banner bad">Outcome: {state.settled?.outcome ?? "Fail"}</div>}
