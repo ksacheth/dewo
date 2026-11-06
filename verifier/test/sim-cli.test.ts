@@ -54,12 +54,13 @@ describe("assertSimVersion (the Verifier pins the sim build)", () => {
     const calls: string[][] = [];
     await assertSimVersion(async (args) => { calls.push(args); return `${SIM_VERSION}\n`; });
     expect(calls).toEqual([["--version"]]);
-    expect(SIM_VERSION).toBe("0.2.0");
+    expect(SIM_VERSION).toBe("0.3.0");
   });
 
   it("refuses an older build, the stub, or a sim that cannot answer", async () => {
-    await expect(assertSimVersion(async () => "0.1.0\n")).rejects.toThrow(/0\.1\.0.*0\.2\.0/);
-    await expect(assertSimVersion(async () => "0.2.0-stub\n")).rejects.toThrow(/dewo-sim 0\.2\.0/);
+    await expect(assertSimVersion(async () => "0.1.0\n")).rejects.toThrow(/0\.1\.0.*0\.3\.0/);
+    await expect(assertSimVersion(async () => "0.2.0\n")).rejects.toThrow(/0\.2\.0.*0\.3\.0/);
+    await expect(assertSimVersion(async () => "0.3.0-stub\n")).rejects.toThrow(/dewo-sim 0\.3\.0/);
     await expect(assertSimVersion(async () => { throw new Error("unrecognized arguments: --version"); })).rejects.toThrow(/unrecognized/);
   });
 });

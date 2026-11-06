@@ -7,29 +7,30 @@ Requester can use it to judge whether a Mission's `maxSteps` is achievable.
 No Verifier calls it; a Pass never depends on the optimum.
 """
 
-from . import rover as R
+from .robots import robot_class
 
 DEFAULT_MAX_COST = 60  # search bound: courses needing more steps report unsolvable
 
 
 def solve(course, max_cost=DEFAULT_MAX_COST):
-    """Shortest Action list (layered BFS over position and heading) of cost <= max_cost, or None."""
-    start = R.initial_state(course)
-    if R.at_goal(course, start):
+    """Shortest Action list (layered BFS over the robot's lattice states) of cost <= max_cost, or None."""
+    K = robot_class(course)
+    start = K.initial_state(course)
+    if K.goal_reached(course, start):
         return []
     parent = {start: None}  # state -> (previous state, action)
     frontier = [start]
     for _ in range(max_cost):
         nxt = []
         for s in frontier:
-            for action in (R.FORWARD, R.TURN_LEFT, R.TURN_RIGHT):
-                n = R.transition(s, action)
+            for action in K.MOVES:
+                n = K.transition(s, action)
                 if n in parent:
                     continue
-                if action == R.FORWARD and R.move_collides(course, s, n):
+                if K.may_collide(action) and K.move_collides(course, s, n):
                     continue  # blocked from here; another route to n may be free
                 parent[n] = (s, action)
-                if R.at_goal(course, n):
+                if K.goal_reached(course, n):
                     actions = []
                     while parent[n] is not None:
                         n, a = parent[n]

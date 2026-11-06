@@ -17,7 +17,7 @@ def test_course_plan_replay_shapes(tmp_path):
     course = tmp_path / "course.json"
     sim("course", "--seed", "0xabc", "--difficulty", "medium", "--out", course)
     assert json.loads(course.read_text()) == json.loads((FIX / "course_medium.json").read_text())
-    assert set(json.loads(course.read_text())) == {"seed", "difficulty", "start", "goal", "obstacles", "version"}
+    assert set(json.loads(course.read_text())) == {"seed", "difficulty", "task", "start", "goal", "obstacles", "version"}
     assert json.loads(sim("plan", "--course", course, "--max-cost", 15)) == {"solvable": True, "optimalPathCost": 15}
     assert json.loads(sim("plan", "--course", course)) == {"solvable": True, "optimalPathCost": 15}
     assert json.loads(sim("plan", "--course", course, "--max-cost", 14)) == {"solvable": False, "optimalPathCost": -1}
@@ -58,4 +58,4 @@ def test_replay_bad_actions_file_reports_error_and_exits_nonzero(tmp_path):
 def test_version_is_the_package_version():
     from sim import __version__
 
-    assert sim("--version").strip() == __version__ == "0.2.0"
+    assert sim("--version").strip() == __version__ == "0.3.0"
