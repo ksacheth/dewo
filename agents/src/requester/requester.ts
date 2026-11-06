@@ -3,7 +3,7 @@
 // Episode submitted (or window over) -> pay for Replays -> settle.
 // Like the Worker, it re-reads the chain before acting and records a step only after it is confirmed.
 import { randomBytes } from "node:crypto";
-import { limitsProblems, toBaseUnits, type Hex, type MissionLimits } from "../formats";
+import { limitsProblems, seedForTask, taskOf, toBaseUnits, type Hex, type MissionLimits, type Task } from "../formats";
 import { PayoutClaimer } from "../shared/payout-claim";
 import { hederaTxUrl } from "../shared/tx-links";
 import type { Clock, DifficultyClass, EscrowMission, EventsPort, MissionTerms, RegistryPort, TxResult } from "../worker/ports";
@@ -76,6 +76,8 @@ export interface MissionRequest {
   /** The Mission Limits (ADR 0006); the Requester's configured defaults fill a missing one. */
   maxSteps?: number;
   maxCollisions?: number;
+  /** The robot the Course is for, encoded in the Course Seed (formats/task.ts); default "rover". */
+  task?: Task;
 }
 
 export interface Windows {
@@ -163,7 +165,7 @@ export class Requester {
   async post(request: MissionRequest, idempotencyKey?: string): Promise<string> {
     const limited = this.withLimits(request);
     const random = this.deps.random ?? random32;
-    const seed = random();
+    const seed = seedForTask(random(), request.task ?? "rover");
     // Save the seed first: a restart finds the funded Mission by it, and retries createMission with it.
     const creating: RequesterRecord = {
       missionId: seed,
@@ -299,6 +301,7 @@ export class Requester {
     this.move(record, "BIDDING");
     this.deps.events.emit(record.missionId, "mission.posted", {
       difficultyClass: terms.difficultyClass,
+      task: taskOf(terms.courseSeed),
       maxBounty: terms.maxBounty.toString(),
       riskWeight: terms.riskWeightBps / 10_000,
       maxSteps: terms.maxSteps,

@@ -1,5 +1,5 @@
 // The Decision loop: frame -> Policy request -> 0G -> parsed Action -> sim.
-import { buildRequest, parseAction, type Action, type Decision, type MissionLimits, type Policy } from "../formats";
+import { buildRequest, parseAction, type Action, type Decision, type MissionLimits, type Policy, type Task } from "../formats";
 import type { InferencePort, InferenceReply, SimSession } from "./ports";
 
 /** MAX_STEPS: maxSteps Decisions made without the goal. MAX_COLLISIONS: more collisions than a Pass allows, so stop paying 0G. */
@@ -14,6 +14,8 @@ export interface EpisodeInput {
   policy: Policy;
   session: SimSession;
   inference: InferencePort;
+  /** The robot the Mission is for (taskOf its Course Seed): which Actions an answer can parse to. Default "rover". */
+  task?: Task;
   /** The Mission's limits from the escrow: the loop bound and the point past which the Episode cannot pass. */
   limits: MissionLimits;
   /**
@@ -72,7 +74,7 @@ async function decide(input: EpisodeInput, step: number, history: Action[]): Pro
     providerAddress: policy.providerAddress,
     request,
     rawResponse: reply.rawResponse,
-    action: parseAction(reply.rawResponse),
+    action: parseAction(reply.rawResponse, input.task),
     ...(reply.receipt ? { receipt: reply.receipt } : {}),
   };
   return { decision, framePath: observation.framePath };

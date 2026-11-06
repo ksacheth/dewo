@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { toBaseUnits, type Hex } from "../src/formats";
+import { taskOf, toBaseUnits, type Hex } from "../src/formats";
 import type { AuditPort, PaymentRecord } from "../src/requester/audit";
 import { CREATE_RETRY_SECONDS } from "../src/requester/requester";
 import { BIDDING_CLOSES_AFTER, REPLAY_PRICE, REQUESTER_ADDRESS, RIVAL, ME, SEED, VERIFIER_ADDRESSES, VERIFIER_URLS, requesterIn, world } from "./fakes";
@@ -42,6 +42,15 @@ describe("Requester: posting", () => {
     expect(s.board.listings[0]).toMatchObject({ courseSeed: SEED, maxSteps: 60, maxCollisions: 0 });
     expect(s.events.find((e) => e.type === "mission.posted")?.data).toMatchObject({ maxSteps: 60, maxCollisions: 0 });
     expect(s.stage()).toBe("BIDDING");
+  });
+
+  it("encodes a drone request in the Course Seed, so the task is fixed on-chain with it", async () => {
+    const s = setupRequester();
+    const missionId = await s.requester.post({ difficulty: "medium", maxBounty: 10, riskWeight: 0.5, task: "drone" });
+    const { terms } = await s.escrow.getMission(missionId);
+    expect(taskOf(terms.courseSeed)).toBe("drone");
+    expect(terms.courseSeed.slice(10)).toBe(SEED.slice(10));
+    expect(s.events.find((e) => e.type === "mission.posted")?.data).toMatchObject({ task: "drone" });
   });
 
   it("uses the limits the request names", async () => {

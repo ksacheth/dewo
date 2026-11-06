@@ -3,7 +3,8 @@
 
 Same commands and JSON shapes as the real `sim` package (course, plan,
 session, replay), but the Course is a straight line with no obstacles and the
-frames are flat-colour PNGs. Hashes are deterministic, so consumers can
+frames are flat-colour PNGs. A drone seed (DRONE_SEED_PREFIX) gives a drone Course
+with the hoop straight ahead at the start altitude. Hashes are deterministic, so consumers can
 develop against it, but they are NOT the hashes the real sim will produce.
 
 frameHash differs from the real definition: the real sim hashes the raw RGB
@@ -34,6 +35,9 @@ VERSION = "stub-1"
 FORWARD_M = 0.5
 TURN_RAD = math.pi / 6  # 30 degrees
 ACTIONS = ("FORWARD", "TURN_LEFT", "TURN_RIGHT", "STOP")
+DRONE_ACTIONS = ("FORWARD", "TURN_LEFT", "TURN_RIGHT", "ASCEND", "DESCEND", "STOP")
+DRONE_SEED_PREFIX = "0x64726f6e"  # as in the real sim: a seed starting with b"dron" is a drone Course
+ALT_STEP = 0.5
 GOAL_DISTANCE = {"easy": 2.0, "medium": 3.5, "hard": 5.0}
 GOAL_RADIUS = 0.3
 DEFAULT_MAX_COST = 60  # plan's search bound, as in the real sim
@@ -45,15 +49,28 @@ def _r(v):
     return round(v + 0.0, 6)
 
 
+def task_of(seed):
+    return "drone" if seed.lower().startswith(DRONE_SEED_PREFIX) else "rover"
+
+
 def make_course(seed, difficulty):
-    return {
+    task = task_of(seed)
+    course = {
         "seed": seed,
         "difficulty": difficulty,
+        "task": task,
         "start": {"x": 0.0, "y": 0.0, "yaw": 0.0},
         "goal": {"x": GOAL_DISTANCE[difficulty], "y": 0.0, "r": GOAL_RADIUS},
         "obstacles": [],
         "version": VERSION,
     }
+    if task == "drone":  # the hoop is straight ahead at the start altitude
+        course["start"]["z"] = course["goal"]["z"] = ALT_STEP
+    return course
+
+
+def actions_for(course):
+    return DRONE_ACTIONS if course.get("task") == "drone" else ACTIONS
 
 
 def _png(rgb):
@@ -79,27 +96,32 @@ class Rover:
         self.course = course
         s = course["start"]
         self.x, self.y, self.yaw = s["x"], s["y"], s["yaw"]
+        self.z = s.get("z")  # None for a rover
+        self.actions = actions_for(course)
         self.step = 0
         self.collisions = 0
         self.done = False
 
     def pose(self):
-        return {"x": _r(self.x), "y": _r(self.y), "yaw": _r(self.yaw)}
+        if self.z is None:
+            return {"x": _r(self.x), "y": _r(self.y), "yaw": _r(self.yaw)}
+        return {"x": _r(self.x), "y": _r(self.y), "z": _r(self.z), "yaw": _r(self.yaw)}
 
     def at_goal(self):
         g = self.course["goal"]
-        return math.hypot(self.x - g["x"], self.y - g["y"]) <= g["r"]
+        dz = 0.0 if self.z is None else self.z - g["z"]
+        return math.hypot(self.x - g["x"], self.y - g["y"], dz) <= g["r"]
 
     def frame(self):
         """Return (png bytes, '0x' + sha256 hex) for the current pose."""
         p = self.pose()
-        key = f'{self.course["seed"]}:{self.step}:{p["x"]}:{p["y"]}:{p["yaw"]}'
+        key = f'{self.course["seed"]}:{self.step}:{p["x"]}:{p["y"]}:{p["yaw"]}' + (f':{p["z"]}' if "z" in p else "")
         rgb = hashlib.sha256(key.encode()).digest()[:3]
         png = _png(rgb)
         return png, "0x" + hashlib.sha256(png).hexdigest()
 
     def act(self, action):
-        if action not in ACTIONS:
+        if action not in self.actions:
             raise ValueError(f"unknown action {action!r}")
         if self.done:
             raise RuntimeError("episode is over")
@@ -113,6 +135,10 @@ class Rover:
             self.yaw += TURN_RAD
         elif action == "TURN_RIGHT":
             self.yaw -= TURN_RAD
+        elif action == "ASCEND":
+            self.z += ALT_STEP
+        elif action == "DESCEND":
+            self.z -= ALT_STEP
         self.x, self.y, self.yaw = _r(self.x), _r(self.y), _r(self.yaw)
         self.step += 1
         self.done = self.at_goal()  # the stub has no obstacles, so never a collision
@@ -191,7 +217,7 @@ def cmd_replay(args):
     if not isinstance(actions, list):
         error = "actions must be a JSON list of Action strings"
     else:
-        bad = [a for a in actions if not isinstance(a, str) or a not in ACTIONS]
+        bad = [a for a in actions if not isinstance(a, str) or a not in actions_for(course)]
         if bad:
             error = f"unknown action {bad[0]!r}"
     if error:
@@ -219,7 +245,7 @@ def cmd_replay(args):
 def main(argv=None):
     p = argparse.ArgumentParser(prog="sim_stub")
     # Never a real sim version, so a Verifier pinned to one refuses to start on the stub.
-    p.add_argument("--version", action="version", version="0.2.0-stub")
+    p.add_argument("--version", action="version", version="0.3.0-stub")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("course")

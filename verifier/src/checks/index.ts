@@ -1,5 +1,5 @@
 import { keccak256, toBytes, type Hex } from "viem";
-import { canonicalJson, movingSteps, replayableSteps, type EpisodeLog, type MissionLimits, type Policy } from "@dewo/agents/formats";
+import { canonicalJson, movingSteps, replayableSteps, taskOf, type EpisodeLog, type MissionLimits, type Policy } from "@dewo/agents/formats";
 import { SimInputError } from "../adapters/sim-cli.js";
 import type { Fetched, MissionRecord, SealedBid, SimPort, ZeroGPort } from "../ports.js";
 import { Outcome } from "../sign.js";
@@ -84,7 +84,8 @@ export async function verifyEpisode(deps: VerifyDeps, e: EpisodeInput): Promise<
   });
   if (!replay) return fail("replay");
   const measured: Measured = { steps: movingSteps(actions), collisions: replay.collisions, atGoal: replay.atGoal };
-  if (!(await checkDecisions(deps.zeroG, policy.value, decisions, replay))) return done(Outcome.Fail, measured, "decisions");
+  // The task is read from the on-chain Course Seed, as the Worker and the sim read it.
+  if (!(await checkDecisions(deps.zeroG, policy.value, decisions, replay, taskOf(e.mission.courseSeed)))) return done(Outcome.Fail, measured, "decisions");
   // Check 3: the goal within the Requester's limits.
   if (!replayPasses(replay, decisions.length, limitsOf(e.mission))) return done(Outcome.Fail, measured, "replay");
   return done(Outcome.Pass, measured);

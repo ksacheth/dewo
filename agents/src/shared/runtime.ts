@@ -2,6 +2,7 @@
 import { join, resolve } from "node:path";
 import type { Clock } from "../worker/ports";
 import type { Env } from "./config";
+import type { OverviewOptions } from "./overview";
 import type { SimCommand } from "./sim-cli";
 
 export const systemClock: Clock = { now: () => Math.floor(Date.now() / 1000) };
@@ -18,6 +19,12 @@ export const statePath = (env: Env, process: string): string => join(resolve(env
 export function simCommand(env: Env): SimCommand {
   const [command, ...args] = (env.SIM_COMMAND || "../sim/scripts/sim-docker").split(" ").filter(Boolean);
   return [command!, ...args];
+}
+
+/** Spectator images for the web UI: on unless OVERVIEW_COMMAND is set to an empty value. Display only. */
+export function overviewOptions(env: Env, emit: OverviewOptions["emit"]): OverviewOptions | undefined {
+  const [command, ...args] = (env.OVERVIEW_COMMAND ?? "../sim/scripts/overview-docker").split(" ").filter(Boolean);
+  return command ? { command: [command, ...args], emit } : undefined;
 }
 
 /** Aborts on the first SIGINT or SIGTERM, so the polling loop finishes its round and exits. */

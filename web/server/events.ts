@@ -177,7 +177,7 @@ function deployments(server: ViteDevServer) {
  * board mock also gets a Mission entity: in real board mode a fake entity (no escrow) would pollute Arkiv, so none is
  * written. Labelled "mock requester" in the UI.
  */
-type MockMissionBody = { difficultyClass: string; maxBounty: number; riskWeight: number; maxSteps: number; maxCollisions: number }
+type MockMissionBody = { difficultyClass: string; maxBounty: number; riskWeight: number; maxSteps: number; maxCollisions: number; task?: string }
 
 const wholeBetween = (x: unknown, min: number, max: number): boolean => Number.isInteger(x) && (x as number) >= min && (x as number) <= max
 
@@ -188,6 +188,7 @@ function mockBodyError(body: MockMissionBody): string | null {
     return "invalid difficultyClass, maxBounty or riskWeight"
   if (!wholeBetween(body.maxSteps, 1, MAX_STEPS) || !wholeBetween(body.maxCollisions, 0, 0xffffffff))
     return `maxSteps must be a whole number from 1 to ${MAX_STEPS} and maxCollisions a whole number of at least 0`
+  if (body.task !== undefined && body.task !== "rover" && body.task !== "drone") return "task must be rover or drone"
   return null
 }
 
@@ -197,6 +198,9 @@ export async function mockRequester(body: MockMissionBody, res: ServerResponse, 
   const { maxSteps, maxCollisions } = body
   const b = await loadBoard()
   const missionId = `0x${randomBytes(32).toString("hex")}`
+  const task = body.task === "drone" ? "drone" : "rover"
+  // Like the Requester: a drone Course Seed carries the "dron" prefix (agents formats/task.ts).
+  const courseSeed = task === "drone" ? `0x64726f6e${randomBytes(28).toString("hex")}` : `0x00${randomBytes(31).toString("hex")}`
   const biddingClosesAt = Math.floor(Date.now() / 1000) + 60
   const maxBounty = BigInt(Math.round(body.maxBounty * 1e6))
   let posted: { entityKey: string; txHash: string } | undefined
@@ -206,9 +210,9 @@ export async function mockRequester(body: MockMissionBody, res: ServerResponse, 
     const wallet = { account: key ? privateKeyToAccount(key) : { address: `0x${"0".repeat(39)}1` } }
     posted = await b.postMission(wallet, {
       missionId, difficultyClass: body.difficultyClass, bounty: maxBounty, biddingClosesAt,
-      courseSeed: `0x${randomBytes(32).toString("hex")}`, maxSteps, maxCollisions, riskWeight: body.riskWeight, verifiers: process.env.VERIFIER_ADDRESSES ?? "",
+      courseSeed, maxSteps, maxCollisions, riskWeight: body.riskWeight, verifiers: process.env.VERIFIER_ADDRESSES ?? "",
     })
   }
-  b.emit(missionId, "web", { type: "mission.posted", data: { difficultyClass: body.difficultyClass, maxBounty: String(maxBounty), riskWeight: body.riskWeight, maxSteps, maxCollisions, biddingClosesAt, ...(posted && { arkivKey: posted.entityKey }) }, txUrl: undefined })
+  b.emit(missionId, "web", { type: "mission.posted", data: { difficultyClass: body.difficultyClass, task, maxBounty: String(maxBounty), riskWeight: body.riskWeight, maxSteps, maxCollisions, biddingClosesAt, ...(posted && { arkivKey: posted.entityKey }) }, txUrl: undefined })
   send(res, 200, { missionId, mock: true, txHash: posted?.txHash })
 }

@@ -93,27 +93,49 @@ def at_goal(course, state):
 class Rover:
     """One Episode's rover. `done` after STOP or reaching the goal.
 
-    A FORWARD that would collide is blocked: the rover bumps, stays where it was and
+    A move that would collide is blocked: the robot bumps, stays where it was and
     counts one collision, and the Episode goes on. Whether that is still a Pass is
     the Mission's `maxCollisions` limit, which the Verifier checks, not the sim.
+
+    The geometry is class attributes so `drone.Drone` reuses these Episode rules.
     """
+
+    TASK = "rover"
+    ACTIONS = ACTIONS
+    MOVES = (FORWARD, TURN_LEFT, TURN_RIGHT)  # the Actions the planner searches, in order
+    initial_state = staticmethod(initial_state)
+    transition = staticmethod(transition)
+    move_collides = staticmethod(move_collides)
+    goal_reached = staticmethod(at_goal)
+    pose_of = staticmethod(pose)
+
+    @staticmethod
+    def mocap(state):
+        """Where the camera body goes: ((x, y, z), yaw index)."""
+        x, y = position(state)
+        return (x, y, 0.0), state[4]
+
+    @staticmethod
+    def may_collide(action):
+        """Only a move that changes position can collide; turning in place never does."""
+        return action == FORWARD
 
     def __init__(self, course):
         self.course = course
-        self.state = initial_state(course)
+        self.state = self.initial_state(course)
         self.step = 0
         self.collisions = 0
         self.done = False
 
     def pose(self):
-        return pose(self.state)
+        return self.pose_of(self.state)
 
     def at_goal(self):
-        return at_goal(self.course, self.state)
+        return self.goal_reached(self.course, self.state)
 
     def act(self, action):
         """Apply one Action. Returns True if it collided (the move was blocked). STOP uses no step."""
-        if action not in ACTIONS:
+        if action not in self.ACTIONS:
             raise ValueError(f"unknown action {action!r}")
         if self.done:
             raise RuntimeError("episode is over")
@@ -121,9 +143,9 @@ class Rover:
             self.done = True
             return False
         before = self.state
-        after = transition(before, action)
+        after = self.transition(before, action)
         self.step += 1
-        hit = move_collides(self.course, before, after)
+        hit = self.may_collide(action) and self.move_collides(self.course, before, after)
         if hit:
             self.collisions += 1
         else:

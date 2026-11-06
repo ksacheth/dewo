@@ -30,7 +30,7 @@ describe("I8 payloads", () => {
     const stake = award!.award.stake.toString();
 
     expect(of("mission.posted")).toEqual([
-      { difficultyClass: "easy", maxBounty: "10000000", riskWeight: 0.5, maxSteps: 60, maxCollisions: 0, biddingClosesAt: 1_075, arkivKey: "arkiv-mission-1" },
+      { difficultyClass: "easy", task: "rover", maxBounty: "10000000", riskWeight: 0.5, maxSteps: 60, maxCollisions: 0, biddingClosesAt: 1_075, arkivKey: "arkiv-mission-1" },
     ]);
     expect(of("bid.sealed")).toEqual([{ worker: RIVAL, workerName: "Careful", policyHash: policyHash(policy), arkivKey: "arkiv-bid-1" }]);
     expect(of("award.signed")).toEqual([
@@ -91,7 +91,7 @@ describe("I8 payloads", () => {
 });
 
 describe("I8 event types", () => {
-  it("mirrors all 10 types of @dewo/board's EventData (a missing or extra key fails typecheck)", () => {
+  it("mirrors all 11 types of @dewo/board's EventData (a missing or extra key fails typecheck)", () => {
     const all: Record<EventType, true> = {
       "mission.posted": true,
       "bid.sealed": true,
@@ -99,12 +99,13 @@ describe("I8 event types", () => {
       "award.signed": true,
       "stake.deposited": true,
       "decision.made": true,
+      "rover.moved": true,
       "episode.submitted": true,
       "replay.paid": true,
       "verdict.signed": true,
       settled: true,
     };
-    expect(Object.keys(all)).toHaveLength(10);
+    expect(Object.keys(all)).toHaveLength(11);
   });
 });
 

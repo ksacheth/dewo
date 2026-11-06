@@ -6,3 +6,8 @@ export const DEFAULT_MAX_STEPS = 60
 /** Protocol ceiling on maxSteps, the same as MissionEscrow.MAX_STEPS and @dewo/agents MAX_STEPS: createMission rejects more. */
 export const MAX_STEPS = 200
 export const DEFAULT_MAX_COLLISIONS = 0
+
+/** A Course Seed starting with the ASCII bytes "dron" is a drone Course; the same rule as @dewo/agents taskOf and the sim. */
+export const DRONE_SEED_PREFIX = "0x64726f6e"
+export type Task = "rover" | "drone"
+export const taskOf = (courseSeed: string): Task => (courseSeed.toLowerCase().startsWith(DRONE_SEED_PREFIX) ? "drone" : "rover")

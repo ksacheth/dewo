@@ -61,9 +61,10 @@ jobs:
           docker run --rm --platform linux/amd64 \
             -v "$PWD/sim/tests:/app/tests:ro" \
             -v "$PWD/sim/stub:/app/stub:ro" \
+            -v "$PWD/sim/overview:/app/overview:ro" \
             -v "$PWD/sim/pyproject.toml:/app/pyproject.toml:ro" \
             -v "$PWD/sim/uv.lock:/app/uv.lock:ro" \
-            -w /app --entrypoint uv dewo-sim:0.2.0 \
+            -w /app --entrypoint uv dewo-sim:0.3.0 \
             run --frozen pytest -q -p no:cacheprovider
 
       - name: Upload replay output
