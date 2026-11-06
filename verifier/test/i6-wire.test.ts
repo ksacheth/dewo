@@ -4,7 +4,7 @@ import { OUTCOMES } from "../../agents/src/requester/ports.js";
 import { createApp, type PaymentGate } from "../src/server.js";
 import { boardEvents } from "../src/events.js";
 import { Outcome, OUTCOME_NAMES } from "../src/sign.js";
-import { FakeSim, MISSION, WORKER, fakeBoard, fakeChain, honestEpisode, zeroG } from "./fixtures/builders.js";
+import { FakeSim, MISSION, VERIFIERS, WORKER, fakeBoard, fakeChain, honestEpisode, zeroG } from "./fixtures/builders.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +20,7 @@ function app(timeline: { stakedAt: number; seedReleasedAt?: number; episodeSubmi
   const { mission, ...episode } = honestEpisode();
   return createApp({
     key: KEY, escrow: ESCROW, gate: paid, events: boardEvents("verifier-1"), sim: new FakeSim(), zeroG: zeroG(), now: () => 5_000,
-    board: fakeBoard({ prices: bidders }), chain: fakeChain(), verdicts: { writeVerdict: async () => ({ entityKey: ("0x" + "ab".repeat(32)) as `0x${string}` }) },
+    board: fakeBoard({ prices: bidders }), chain: fakeChain(), trustedVerifiers: VERIFIERS, verdicts: { writeVerdict: async () => ({ entityKey: ("0x" + "ab".repeat(32)) as `0x${string}` }) },
     source: { load: async () => ({ mission, worker: WORKER, timeline, episode }) },
   });
 }

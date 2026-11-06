@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { policyHash, type EpisodeLog } from "../src/formats";
-import { ME, RIVAL, policy, setup, terms, workerIn, world } from "./fakes";
+import { ME, RIVAL, VERIFIER_ADDRESSES, policy, setup, terms, workerIn, world } from "./fakes";
 
 describe("Worker: bidding", () => {
   it("seals its own price and commits to its Policy", async () => {
@@ -29,6 +29,22 @@ describe("Worker: bidding", () => {
     await w.worker.tick();
     expect(w.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "PRICE_ABOVE_MAX_BOUNTY" });
     expect(w.board.bids).toHaveLength(0);
+  });
+
+  it("skips a Mission whose on-chain Verifiers are not its trusted set (ADR 0005)", async () => {
+    const w = setup();
+    w.post("m1", terms(), [VERIFIER_ADDRESSES[0]!, VERIFIER_ADDRESSES[1]!, RIVAL]);
+    await w.worker.tick();
+    expect(w.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "UNTRUSTED_VERIFIERS" });
+    expect(w.board.bids).toHaveLength(0);
+  });
+
+  it("bids when the on-chain Verifiers are its trusted set in another order and case", async () => {
+    const w = setup();
+    const [a, b, c] = VERIFIER_ADDRESSES as [`0x${string}`, `0x${string}`, `0x${string}`];
+    w.post("m1", terms(), [c, a.toUpperCase().replace("0X", "0x") as `0x${string}`, b]);
+    await w.worker.tick();
+    expect(w.stage()).toBe("BID_PLACED");
   });
 
   it("skips instead of bidding 0 when its strategy prices the Mission at zero", async () => {

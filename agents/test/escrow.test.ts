@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { EscrowContract, toEscrowMission, type RawMission } from "../src/shared/escrow";
 
+const VERIFIERS = [
+  "0x0000000000000000000000000000000000000001",
+  "0x0000000000000000000000000000000000000002",
+  "0x0000000000000000000000000000000000000003",
+] as const;
+
 const raw: RawMission = {
   worker: "0x0000000000000000000000000000000000000000",
+  verifiers: VERIFIERS,
   seedCommitment: `0x${"11".repeat(32)}`,
   maxBounty: 10_000_000n,
   difficultyClass: 2,
@@ -20,6 +27,10 @@ describe("toEscrowMission", () => {
     expect(toEscrowMission(raw).terms).toMatchObject({ maxBounty: 10_000_000n, difficultyClass: "hard", riskWeightBps: 7500 });
     expect(toEscrowMission({ ...raw, difficultyClass: 0 }).terms.difficultyClass).toBe("easy");
     expect(toEscrowMission({ ...raw, difficultyClass: 1 }).terms.difficultyClass).toBe("medium");
+  });
+
+  it("reads the 3 on-chain Verifiers", () => {
+    expect(toEscrowMission(raw).verifiers).toEqual(VERIFIERS);
   });
 
   it("rejects a difficultyClass this adapter does not know", () => {

@@ -48,6 +48,8 @@ export interface WorkerConfig {
   publicKey: Hex;
   policy: Policy;
   verifierPubKeys: readonly Hex[];
+  /** The trusted Verifiers' addresses (derived from VERIFIER_PUBKEYS): a Mission must name exactly these on-chain (ADR 0005). */
+  verifierAddresses: readonly Hex[];
   strategy: PricingStrategy;
 }
 
@@ -136,13 +138,15 @@ export class Worker {
     const { board, escrow, balances, clock } = this.deps;
     // A Bid on Arkiv without a record means a crash between placeBid and the record write.
     if (await board.myBid(missionId, this.config.address)) return this.put({ missionId, stage: "BID_PLACED" });
-    const { terms } = await escrow.getMission(missionId);
+    const { terms, verifiers } = await escrow.getMission(missionId);
     const reliability = await board.reliabilityOf(this.config.address);
     const maxBounty = fromBaseUnits(terms.maxBounty);
     const stake = expectedStake(maxBounty, reliability);
     const bidPrice = price({ ...this.config.strategy, reliability, stake });
 
     const skip = shouldSkip({
+      missionVerifiers: verifiers,
+      trustedVerifiers: this.config.verifierAddresses,
       price: bidPrice,
       maxBounty,
       secondsLeftToBid: terms.deadlines.biddingClosesAt - clock.now(),

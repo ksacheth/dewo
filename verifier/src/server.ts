@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { isHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { BiddingOpenError, EvidenceExpiredError, NoValidBidsError, PendingError, StorageUnavailableError } from "./errors.js";
+import { BiddingOpenError, EvidenceExpiredError, NoValidBidsError, PendingError, StorageUnavailableError, UntrustedVerifiersError } from "./errors.js";
 import { createAwarder, type SignedAward } from "./routes/award.js";
 import { decideVerdict, publishVerdict, type DecidedVerdict } from "./routes/replay.js";
 import type { BoardPort, EpisodeSource, EscrowPort, EventSink, SimPort, VerdictSink, ZeroGPort } from "./ports.js";
+import { verifierSetGuard } from "./verifier-set.js";
 
 export interface GateChallenge { status: number; body: unknown; headers?: Record<string, string> }
 /**
@@ -22,6 +23,8 @@ export interface AppDeps {
   key: Hex; escrow: Address; gate: PaymentGate; now: () => number;
   board: BoardPort; chain: EscrowPort; source: EpisodeSource; sim: SimPort; zeroG: ZeroGPort;
   verdicts: VerdictSink; events: EventSink;
+  /** `VERIFIER_ADDRESSES`: the only Verifier set this instance serves Missions on (ADR 0005). */
+  trustedVerifiers: readonly Address[];
 }
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -32,8 +35,12 @@ async function logFailure(what: string, step: () => Promise<unknown>) {
     console.error(`${what}: ${errorMessage(e)}`);
   }
 }
-/** Pending: retry later. 0G Storage unavailable: retry later (no Verdict). Evidence expired: retrying cannot help. Anything else is our failure. */
+/**
+ * Untrusted Verifiers: refused for good (ADR 0005). Pending: retry later. 0G Storage unavailable: retry later (no Verdict).
+ * Evidence expired: retrying cannot help. Anything else is our failure.
+ */
 const replayErrorStatus = (e: unknown) => {
+  if (e instanceof UntrustedVerifiersError) return 403;
   if (e instanceof PendingError) return 409;
   if (e instanceof StorageUnavailableError) return 503;
   if (e instanceof EvidenceExpiredError) return 410;
@@ -55,11 +62,14 @@ export function createApp(deps: AppDeps) {
   const app = new Hono();
   const verifier = privateKeyToAccount(deps.key).address;
   const awardFor = createAwarder(deps);
+  // ADR 0005: both routes refuse a Mission whose on-chain Verifiers are not this instance plus the other two trusted ones.
+  const refuseUntrusted = verifierSetGuard(deps.chain, verifier, deps.trustedVerifiers);
 
   app.post("/award", async (c) => {
     const missionId = await readMissionId(c.req.raw);
     if (!missionId) return respond({ error: "missionId must be a 32-byte hex string" }, 400);
     try {
+      await refuseUntrusted(missionId);
       const award = await awardFor(missionId);
       await announceAward(missionId, award);
       return respond(award);
@@ -67,6 +77,7 @@ export function createApp(deps: AppDeps) {
       // The Requester reads a null body as "no valid Bid to award" (agents/src/requester/verifier-client.ts).
       if (e instanceof NoValidBidsError) return respond(null);
       if (e instanceof BiddingOpenError) return respond({ error: e.message }, 409);
+      if (e instanceof UntrustedVerifiersError) return respond({ error: e.message }, 403);
       return respond({ error: (e as Error).message }, 422);
     }
   });
@@ -93,6 +104,7 @@ export function createApp(deps: AppDeps) {
   async function paidReplay(missionId: Hex, payment: GatePaid): Promise<Response> {
     let decided: DecidedVerdict;
     try {
+      await refuseUntrusted(missionId);
       decided = await decideVerdict(deps, missionId);
     } catch (e) {
       return respond({ error: errorMessage(e) }, replayErrorStatus(e));

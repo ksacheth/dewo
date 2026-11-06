@@ -257,7 +257,7 @@ Verified calls: `wallet.createEntity(Schema, data, { expiration: ExpirationTime.
 - Any single Verifier can decrypt Bid prices early and leak them (fix: 2-of-3 threshold encryption, future work).
 - A Worker can seal different prices to each Verifier, which can stall the Award (there is no plaintext commitment to the price).
 - A Requester whose own Worker legitimately bids best can farm XP (it costs real bounty, 0G inference and Replay fees each time).
-- In the demo, all three Verifiers run on our infrastructure; in production they would be independently operated and staked.
+- The demo trusts a fixed set of 3 Verifiers, run on three separate hosts with separate keys. Workers and Verifiers refuse any Mission whose on-chain Verifiers are not that set. They are not staked; production needs a registry of staked, independently operated Verifiers and a committee drawn per Mission from future-block randomness, and a Requester could still retry `createMission` to grind for a friendly committee (ADR 0005).
 - The optimistic Reliability prior is partly offset by the stake formula, not eliminated.
 - Path Quality counts Actions only. Clearance from obstacles and smoothness are not scored yet, so a path that hugs obstacles scores the same as a safe one of equal length.
 - A Bid carries no performance claim. Scoring auctions where a Worker posts a bonded efficiency target (a Path Quality, not a raw step count) are future work, and fit tasks fully known at bid time.

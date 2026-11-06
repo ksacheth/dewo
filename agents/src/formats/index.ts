@@ -5,3 +5,4 @@ export * from "./policy";
 export * from "./request";
 export * from "./seed";
 export * from "./usdc";
+export * from "./verifier-set";
