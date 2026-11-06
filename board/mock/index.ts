@@ -160,6 +160,15 @@ export async function readSeedRelease(missionId: Hex, workerPrivKey: Hex): Promi
   return row ? JSON.parse(decrypt(workerPrivKey, row.sealed)) : null
 }
 
+export async function seedReleasedAt(missionId: Hex, worker: Hex, requester?: Hex): Promise<number | null> {
+  const owner = requester ?? (await getMission(missionId))?.requester
+  if (!owner) return null
+  const row = live(load().seedReleases)
+    .filter((r) => r.missionId === missionId && same(r.worker, worker) && same(r.$owner, owner))
+    .sort((a, b) => a.$createdAt - b.$createdAt || (a.$key < b.$key ? -1 : 1))[0]
+  return row ? Math.floor(row.$createdAt / 1000) : null
+}
+
 export async function revealSeed(wallet: WalletLike, missionId: Hex, seed: string, salt: string): Promise<Written> {
   const owner = wallet.account.address
   return write("seedReveals", () => ({ ...meta(owner, LIFETIME_MS.seedReveal), missionId, seed, salt }))

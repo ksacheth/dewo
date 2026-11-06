@@ -1,5 +1,20 @@
 # agents: M4 @dewo/agents (Requester and Worker agents, I2/I3 formats).
 
+## Running the agents
+
+From `agents/`, with a `.env` copied from `.env.example`:
+
+```bash
+pnpm requester   # the Requester and its API (POST /missions on REQUESTER_PORT, used by the web UI)
+pnpm worker      # one Worker; run one process per Policy (WORKER_POLICY, own WORKER_PRIVATE_KEY)
+```
+
+Both read the escrow and registry addresses, and the escrow's deploy block, from `../chain/deployments/*.json`, and use
+the real Arkiv board through `src/shared/arkiv-board.ts` (on top of `@dewo/board`; the tests run the same adapters
+against `@dewo/board/mock`). Each key must be funded where it writes: Hedera (HBAR, and USDC to stake or lock a bounty),
+Rabdi (Arkiv entities) and, for Workers, Galileo (Episode Submission and Storage). Records are kept in
+`AGENT_STATE_DIR` (default `.state/`, gitignored), so a restarted agent resumes its Missions.
+
 ## Demo Policies (ADR 0004)
 
 `policies/*.json` all use `0gm-1.0-35b-a3b` on the mainnet TeeML provider

@@ -9,3 +9,4 @@ out/
 cache/
 __pycache__/
 .venv/
+agents/.state/

@@ -83,6 +83,28 @@ describe("EscrowContract.findMission", () => {
   });
 });
 
+describe("EscrowContract.assetBalance", () => {
+  it("reads the account's balance of the escrow's settlement token", async () => {
+    const calls: { address: string; functionName: string; args?: unknown[] }[] = [];
+    const clients = {
+      public: {
+        readContract: async (call: { address: string; functionName: string; args?: unknown[] }) => {
+          calls.push(call);
+          return call.functionName === "asset" ? "0x0000000000000000000000000000000000068cda" : 1_250_000n;
+        },
+      },
+    } as never;
+    const escrow = new EscrowContract(clients, "0x00000000000000000000000000000000000000dd", { fromBlock: 0n });
+
+    expect(await escrow.assetBalance("0x00000000000000000000000000000000000000aa")).toBe(1_250_000n);
+    expect(calls.at(-1)).toMatchObject({
+      address: "0x0000000000000000000000000000000000068cda",
+      functionName: "balanceOf",
+      args: ["0x00000000000000000000000000000000000000aa"],
+    });
+  });
+});
+
 describe("EscrowContract settlement asset", () => {
   it("does not cache a failed lookup", async () => {
     const reads = [Promise.reject(new Error("rpc blip")), Promise.resolve("0x00000000000000000000000000000000000000cc")];
