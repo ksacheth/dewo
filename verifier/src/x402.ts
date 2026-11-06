@@ -37,7 +37,7 @@ export async function createX402Gate(opts: X402Options): Promise<PaymentGate> {
     const match = server.findMatchingRequirements(requirements, payload);
     if (!match) return challenge(req, "payment does not match requirements");
     const verified = await server.verifyPayment(payload, match);
-    if (!verified.isValid) return challenge(req, verified.invalidReason ?? "payment invalid");
+    if (!verified.isValid) return challenge(req, [verified.invalidReason ?? "payment invalid", verified.invalidMessage].filter(Boolean).join(": "));
     return {
       // Charged by the caller only after the work succeeded.
       async settle() {

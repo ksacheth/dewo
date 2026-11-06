@@ -8,7 +8,7 @@
  *   HEDERA_CLIENT_PRIVATE_KEY     payer ECDSA key, 0x-prefixed
  *   X402_FACILITATOR_URL          optional, defaults to Blocky402 testnet
  */
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { x402Client } from "@x402/core/client";
@@ -56,5 +56,8 @@ const payload = await client.createPaymentPayload(required);
 const second = await call({ "payment-signature": encodePaymentSignatureHeader(payload) });
 console.log("2. paid request   ->", second.status, await second.text());
 
-const paid = readFileSync(join(runs, MISSION, "events.verifier-spike.ndjson"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).find((e) => e.type === "replay.paid");
+const eventsFile = join(runs, MISSION, "events.verifier-spike.ndjson");
+const paid = existsSync(eventsFile)
+  ? readFileSync(eventsFile, "utf8").trim().split("\n").map((l) => JSON.parse(l)).find((e) => e.type === "replay.paid")
+  : undefined;
 console.log("3. replay.paid    ->", paid ? JSON.stringify(paid) : "not emitted (settlement failed)");
