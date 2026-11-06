@@ -209,10 +209,12 @@ describe("separate processes share the mock file", () => {
     const tsx = join(__dirname, "..", "node_modules", ".bin", "tsx")
     const entry = JSON.stringify(join(__dirname, "..", "mock", "index.ts"))
     const procs = 6
-    const each = 8
+    const each = 40
+    const startAt = Date.now() + 4000 // children boot slowly; release them together
     const script = (p: number) => `import * as b from ${entry};
       import { privateKeyToAccount } from "viem/accounts";
       const wallet = { account: privateKeyToAccount(${JSON.stringify(workerA.privateKey)}) };
+      await new Promise((r) => setTimeout(r, ${startAt} - Date.now()));
       for (let i = 0; i < ${each}; i++) await b.revealSeed(wallet, "0x${"%064x" % 0}".replace(/0$/, String(${p})), "seed" + ${p} + "-" + i, "salt")`
     await Promise.all(Array.from({ length: procs }, (_, p) => new Promise<void>((ok, fail) => {
       const c = spawn(tsx, ["--input-type=module", "-e", script(p)], { env: process.env, stdio: "inherit" })
