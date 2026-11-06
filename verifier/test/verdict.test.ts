@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SimInputError } from "../src/adapters/sim-cli.js";
 import { verifyEpisode } from "../src/checks/index.js";
 import { Outcome } from "../src/sign.js";
-import { FakeSim, honestEpisode, zeroG, frameHashFor, pngFor } from "./fixtures/builders.js";
+import { FakeSim, honestEpisode, zeroG, frameHashFor, pngFor, ROUTER_POLICY } from "./fixtures/builders.js";
 import { buildRequest } from "@dewo/agents/formats";
 
 const deps = (sim = new FakeSim(), g = zeroG()) => ({ sim, zeroG: g });
@@ -167,6 +167,22 @@ describe("verifyEpisode", () => {
       expect(v.outcome).toBe(Outcome.Fail);
       expect(v.failedCheck).toBe("replay");
     });
+    it("passes a Router Episode (ADR 0004): the rebuild includes the Policy's chat_template_kwargs", async () => {
+      const ep = honestEpisode(undefined, ROUTER_POLICY);
+      expect((ep.log.decisions[0]!.request as { chat_template_kwargs?: unknown }).chat_template_kwargs).toEqual({ enable_thinking: false });
+      expect((await verifyEpisode(deps(), ep)).outcome).toBe(Outcome.Pass);
+    });
+
+    it("fails a Router Decision whose request dropped or changed chat_template_kwargs", async () => {
+      const dropped = honestEpisode(undefined, ROUTER_POLICY);
+      delete (dropped.log.decisions[1]!.request as { chat_template_kwargs?: unknown }).chat_template_kwargs;
+      expect((await verifyEpisode(deps(), dropped)).failedCheck).toBe("decisions");
+
+      const thinking = honestEpisode(undefined, ROUTER_POLICY);
+      (thinking.log.decisions[0]!.request as { chat_template_kwargs?: unknown }).chat_template_kwargs = { enable_thinking: true };
+      expect((await verifyEpisode(deps(), thinking)).failedCheck).toBe("decisions");
+    });
+
     it("fails a Decision answered by a provider other than the one the Policy commits to", async () => {
       const ep = honestEpisode();
       ep.log.decisions[1]!.providerAddress = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";

@@ -56,12 +56,18 @@ export const frameHashFor = (prefix: Action[]): Hex => frameHashOfPng(pngFor(pre
 
 export const zeroG = (valid = true): ZeroGPort => ({ verifyResponse: async () => valid });
 
-export function honestEpisode(actions: Action[] = ["FORWARD", "FORWARD", "FORWARD"]): EpisodeInput {
+/** A Policy as ADR 0004 runs it: the mainnet Router model, pinned TeeML provider, thinking off in the request body. */
+export const ROUTER_POLICY: Policy = {
+  ...POLICY, model: "0gm-1.0-35b-a3b", providerAddress: "0xf4FB8d2bD856e672b5f9848b0eD235A20079B250",
+  requestOptions: { chat_template_kwargs: { enable_thinking: false } },
+};
+
+export function honestEpisode(actions: Action[] = ["FORWARD", "FORWARD", "FORWARD"], policy: Policy = POLICY): EpisodeInput {
   const decisions: Decision[] = actions.map((action, step) => {
     const frameHash = frameHashFor(actions.slice(0, step));
     return {
-      step, frameHash, chatID: `chat-${step}`, providerAddress: PROVIDER,
-      request: buildRequest(POLICY, pngFor(actions.slice(0, step)), actions.slice(0, step)),
+      step, frameHash, chatID: `chat-${step}`, providerAddress: policy.providerAddress,
+      request: buildRequest(policy, pngFor(actions.slice(0, step)), actions.slice(0, step)),
       rawResponse: `I will go ${action}.`, action,
     };
   });
@@ -71,9 +77,9 @@ export function honestEpisode(actions: Action[] = ["FORWARD", "FORWARD", "FORWAR
   };
   return {
     mission: { missionId: MISSION, seedCommitment: log.header.seedCommitment, difficultyClass: "medium", riskWeight: 0.5, maxBounty: 10_000_000n, deadlines: DEADLINES },
-    bid: { key: bidKey(WORKER), worker: WORKER, policyHash: policyHash(POLICY) },
+    bid: { key: bidKey(WORKER), worker: WORKER, policyHash: policyHash(policy) },
     reveal: { seed: SEED, salt: SALT },
-    policy: POLICY,
+    policy,
     log,
     episodeLogRoot: ("0x" + "33".repeat(32)) as Hex,
     decisionCount: actions.length,

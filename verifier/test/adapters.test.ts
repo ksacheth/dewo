@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Hex } from "viem";
 import { hederaEscrow, type RawMission } from "../src/adapters/escrow-chain.js";
-import { zeroGCompute } from "../src/adapters/zerog-compute.js";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { mainnetComputeBroker, zeroGCompute } from "../src/adapters/zerog-compute.js";
 import { zeroGRegistry, type RegistryEntry } from "../src/adapters/zerog-registry.js";
 import { zeroGStorage } from "../src/adapters/zerog-storage.js";
 
@@ -21,6 +23,33 @@ describe("zeroGCompute", () => {
     expect(await zeroGCompute(broker(false)).verifyResponse(WORKER, "c")).toBe(false);
     expect(await zeroGCompute(broker(null)).verifyResponse(WORKER, "c")).toBe(false);
     expect(await zeroGCompute(broker(new Error("provider unreachable"))).verifyResponse(WORKER, "c")).toBe(false);
+  });
+});
+
+describe("mainnetComputeBroker (ADR 0004)", () => {
+  /** A local JSON-RPC stand-in that only answers eth_chainId, so no real network is touched. */
+  async function rpcWithChainId(chainId: number): Promise<{ url: string; server: Server }> {
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        const parsed = JSON.parse(body) as { id: number } | { id: number }[];
+        const answer = (r: { id: number }) => ({ jsonrpc: "2.0", id: r.id, result: `0x${chainId.toString(16)}` });
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify(Array.isArray(parsed) ? parsed.map(answer) : answer(parsed)));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, server };
+  }
+
+  it("refuses an RPC that is not 0G mainnet, so a Galileo URL cannot silently verify against testnet contracts", async () => {
+    const { url, server } = await rpcWithChainId(16602);
+    try {
+      await expect(mainnetComputeBroker(url)).rejects.toThrow(/not 0G mainnet/);
+    } finally {
+      server.close();
+    }
   });
 });
 

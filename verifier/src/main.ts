@@ -1,14 +1,12 @@
 import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
-import { JsonRpcProvider, Wallet } from "ethers";
-import { createZGComputeNetworkBroker } from "@0gfoundation/0g-compute-ts-sdk";
 import { HTTPFacilitatorClient } from "@x402/core/http";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Address, Hex } from "viem";
 import { arkivAdapters } from "./adapters/board.js";
 import { hederaEscrow, viemEscrowReader } from "./adapters/escrow-chain.js";
 import { cliSim, localRunner } from "./adapters/sim-cli.js";
-import { zeroGCompute } from "./adapters/zerog-compute.js";
+import { mainnetComputeBroker, zeroGCompute } from "./adapters/zerog-compute.js";
 import { viemRegistryReader, zeroGRegistry } from "./adapters/zerog-registry.js";
 import { indexerAt, zeroGStorage } from "./adapters/zerog-storage.js";
 import { createEpisodeSource } from "./episodes.js";
@@ -49,11 +47,14 @@ async function main() {
   const escrowAddress = deployedAddress("MISSION_ESCROW_ADDRESS", "hedera-testnet.json");
   const registryAddress = deployedAddress("EPISODE_REGISTRY_ADDRESS", "0g-galileo.json");
   const hederaRpc = process.env.HEDERA_RPC_URL ?? "https://testnet.hashio.io/api";
+  // The RPC splits by purpose (ADR 0004): the EpisodeRegistry and Storage stay on Galileo, while Decisions are answered
+  // through the 0G Router on mainnet, so their processResponse check runs there.
   const zgRpc = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
+  const zgMainnetRpc = process.env.ZG_MAINNET_RPC_URL ?? "https://evmrpc.0g.ai";
 
   // Replays run in the pinned dewo-sim image (R1) so frame hashes match the Workers'; SIM_CMD=sim inside the Verifier image, which is built on it.
   const sim = cliSim(localRunner((process.env.SIM_CMD ?? "../sim/scripts/sim-docker").split(" ")));
-  const broker = await createZGComputeNetworkBroker(new Wallet(key, new JsonRpcProvider(zgRpc)));
+  const broker = await mainnetComputeBroker(zgMainnetRpc);
   const { board, seeds, verdicts } = arkivAdapters(key);
   const chain = hederaEscrow(viemEscrowReader(hederaRpc, escrowAddress));
   const gate = await createX402Gate({
