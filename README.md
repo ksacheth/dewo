@@ -59,7 +59,8 @@ Verifiers are paid per Replay through x402, never from Escrow. A payout that can
 | `MissionEscrow` on Hedera testnet | [`0x9aae6A883B4d16BF53Fa6339c606D18b47342631`](https://hashscan.io/testnet/contract/0.0.11337437) (`0.0.11337437`), settles in Circle USDC `0.0.429274` |
 | Escrow holds and pays out HTS USDC (spike #5) | 1 USDC in via `createMission`: [HashScan](https://hashscan.io/testnet/transaction/1793959306.817990545); back out via `rescue()`: [HashScan](https://hashscan.io/testnet/transaction/1793959493.464701456) |
 | HashScan link of a `settle()` | TODO(evidence): from the end-to-end run |
-| `EpisodeRegistry` address and an `EpisodeSubmitted` tx on 0G Chainscan | TODO(evidence) |
+| `EpisodeRegistry` address and an `EpisodeSubmitted` tx on 0G Chainscan | [`0xa4D143e33a4db897C1861C4B7CB50946Aa5278BA`](https://chainscan-galileo.0g.ai/address/0xa4D143e33a4db897C1861C4B7CB50946Aa5278BA) (deploy: [Chainscan](https://chainscan-galileo.0g.ai/tx/0x0b432d09046a893854e33ac9180356ff8757147a820ac20caaeff663e22aef2c)); one Episode submitted with a real 0G Storage root: [Chainscan](https://chainscan-galileo.0g.ai/tx/0x9860eb3cffb26f293a15824df3fe3de91afd5a67aacd3243b21901b9d815a5b1) |
+| 0G Storage upload and download by root hash (spike #7) | `pnpm --filter @dewo/agents spike:0g storage`: root `0x6240a68f6d028505520d777ce8aab67d0eb5dc5812b72256cbc891a3b4ad40d2`, 78 bytes, downloaded identical |
 | Arkiv writer wallet | [`0xbb465214d0D2028016102ec38358D6643366cE96`](https://rabdi.explorer.arkiv.network/address/0xbb465214d0D2028016102ec38358D6643366cE96) (test wallet; agent wallets TODO(evidence)) |
 | One runnable Arkiv query | `pnpm --filter @dewo/board query`; output in [arkiv/how-you-use-arkiv.md](arkiv/how-you-use-arkiv.md) |
 

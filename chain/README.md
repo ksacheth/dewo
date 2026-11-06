@@ -10,7 +10,7 @@ Design, deadline semantics and outstanding interface coordination are in
   all five signed Outcomes, rescue, exact Bid Stake collection.
 - Registry: immutable Episode Submission per Mission and Worker.
 - Local tests mock HTS association; they do **not** prove live HTS compatibility.
-- `MissionEscrow` is deployed on Hedera testnet (see `deployments/`); USDC deposit and refund are proven on HashScan. The 0G `EpisodeRegistry` is not deployed yet.
+- `MissionEscrow` is deployed on Hedera testnet (see `deployments/`); USDC deposit and refund are proven on HashScan. The 0G `EpisodeRegistry` is deployed on Galileo (see `deployments/`).
 - Award replacement is implemented: `award()` may be called again only while Awarded
   and unstaked, from `awardedAt + stakeWindow`; the lapsed winner cannot be re-awarded;
   no round field in the signed types (proposal still open).
@@ -118,7 +118,9 @@ fallback happens if association fails. HBAR does not fulfill the USDC acceptance
    ([HashScan](https://hashscan.io/testnet/transaction/1793959306.817990545)) and back out with `rescue()` after `rescueAt`
    ([HashScan](https://hashscan.io/testnet/transaction/1793959493.464701456)); `owed` stayed 0. Still to do live: two real Verifier
    signatures, `stake` and `settle`.
-3. Deploy the registry on Galileo and submit one Episode; verify event and timestamp.
+3. Galileo: **done.** `EpisodeRegistry` is live at [`0xa4D143e33a4db897C1861C4B7CB50946Aa5278BA`](https://chainscan-galileo.0g.ai/address/0xa4D143e33a4db897C1861C4B7CB50946Aa5278BA). One Episode was submitted
+   ([Chainscan](https://chainscan-galileo.0g.ai/tx/0x9860eb3cffb26f293a15824df3fe3de91afd5a67aacd3243b21901b9d815a5b1)) with a real 0G Storage root as its log root; `EpisodeSubmitted` named the
+   Mission and Worker, and `submissions()` returned both roots, 1 Decision, the block timestamp and `exists`.
 4. Export and commit actual deployment artifacts. Hand these and signing types to
    M3/M4/M5, then exercise the real agent/Verifier integration.
 
