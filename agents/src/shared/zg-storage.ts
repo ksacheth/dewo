@@ -31,6 +31,12 @@ export class ZeroGStorage implements StoragePort {
     return result.rootHash as Hex;
   }
 
+  async rootOf(bytes: Uint8Array): Promise<Hex> {
+    const [tree, error] = await new MemData(bytes).merkleTree();
+    if (error || !tree) throw error ?? new Error("could not build the Merkle tree");
+    return tree.rootHash() as Hex;
+  }
+
   async download(root: Hex): Promise<Uint8Array> {
     const [blob, error] = await this.indexer.downloadToBlob(root);
     if (error) throw error;

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { policyHash, type EpisodeLog } from "../src/formats";
+import { keccak256 } from "viem";
+import { canonicalJson, policyHash, type EpisodeLog } from "../src/formats";
+import { SUBMIT_TX_SECONDS } from "../src/worker/worker";
 import { ME, RIVAL, SEED, VERIFIER_ADDRESSES, policy, setup, terms, workerIn, world } from "./fakes";
 
 describe("Worker: bidding", () => {
@@ -380,6 +382,67 @@ describe("Worker: retrying a flown Episode", () => {
     await w.worker.tick();
     expect(w.stage()).toBe("SUBMITTED");
     expect(w.registry.submissions).toEqual([only]);
+  });
+
+  it("waits for a stalled 0G upload, then submits with the locally computed roots before the deadline (rescue, not a No-show)", async () => {
+    const w = await flown();
+    w.storage.hang = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await w.worker.tick();
+    expect(w.stage()).toBe("EPISODE_DONE");
+    expect(w.registry.submissions).toHaveLength(0);
+
+    const { deadline, decisions } = w.records.get("m1")!.episode!;
+    w.clock.t = deadline - SUBMIT_TX_SECONDS;
+    await w.worker.tick();
+    expect(w.stage()).toBe("SUBMITTED");
+    const policyRoot = keccak256(new TextEncoder().encode(canonicalJson(policy)));
+    const log: EpisodeLog = { header: { missionId: "m1", worker: ME, policyRoot, courseSeed: SEED }, decisions };
+    expect(w.registry.submissions).toEqual([
+      { missionId: "m1", policyRoot, episodeLogRoot: keccak256(new TextEncoder().encode(JSON.stringify(log))), decisionCount: decisions.length },
+    ]);
+    errors.mockRestore();
+    warnings.mockRestore();
+  });
+
+  it("rejoins an upload still in flight on the next tick instead of starting another", async () => {
+    const w = await flown();
+    w.storage.hang = true;
+    const uploads = vi.spyOn(w.storage, "upload");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await w.worker.tick();
+    await w.worker.tick();
+    await w.worker.tick();
+    expect(uploads).toHaveBeenCalledTimes(1); // the Policy, once; the Episode Log follows only after it (one signer, one at a time)
+    errors.mockRestore();
+  });
+
+  it("uploads the shared Policy again for every Mission, so each has a Flow submission in its own window", async () => {
+    const w = await flown();
+    const uploads = vi.spyOn(w.storage, "upload");
+    await w.worker.tick();
+    expect(w.stage()).toBe("SUBMITTED");
+    expect(uploads).toHaveBeenCalledTimes(2);
+
+    w.post("m2");
+    await w.worker.tick();
+    w.escrow.grant("m2");
+    await w.worker.tick();
+    expect(w.records.get("m2")?.stage).toBe("SUBMITTED");
+    expect(uploads).toHaveBeenCalledTimes(4); // the Policy and the Episode Log of each Mission
+  });
+
+  it("logs a failed 0G upload with its Mission, however late it fails", async () => {
+    const w = await flown();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(w.storage, "upload").mockImplementation(() => Promise.reject(new Error("node gone")));
+    await w.worker.tick();
+    expect(errors.mock.calls.some(([m]) => String(m).includes("m1") && String(m).includes("failed"))).toBe(true);
+    errors.mockRestore();
+    warnings.mockRestore();
   });
 
   it("stays busy while an Episode awaits submission", async () => {

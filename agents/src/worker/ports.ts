@@ -83,7 +83,9 @@ export interface RegistryPort {
 }
 
 export interface StoragePort {
-  /** Uploads to 0G Storage and returns the root hash. */
+  /** The root hash `upload` returns for these bytes, computed locally without uploading. */
+  rootOf(bytes: Uint8Array): Promise<Hex>;
+  /** Uploads to 0G Storage and returns the root hash. Can take long, or never settle when a storage node does not sync. */
   upload(bytes: Uint8Array): Promise<Hex>;
 }
 
