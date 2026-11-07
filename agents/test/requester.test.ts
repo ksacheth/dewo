@@ -412,7 +412,33 @@ describe("Requester: crash safety", () => {
       return replay(url, id);
     };
     await s.requester.tick();
-    expect(seen).toEqual([1, 2, 3]);
+    expect(seen).toEqual([3, 3, 3]); // every slot is reserved in one write before any payment goes out
+  });
+
+  it("asks all three Verifiers at once, not one after another", async () => {
+    const s = await staked();
+    await s.registry.submitEpisode("m1", "0x01", "0x02", 3);
+    let inFlight = 0, most = 0;
+    const replay = s.verifiers.requestReplay.bind(s.verifiers);
+    s.verifiers.requestReplay = async (url, id) => {
+      most = Math.max(most, ++inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      inFlight--;
+      return replay(url, id);
+    };
+    await s.requester.tick();
+    expect(most).toBe(3);
+    expect(s.escrow.settlements[0]?.outcome).toBe("Pass");
+  });
+
+  it("keeps a possibly paid failure in the note even when another Verifier is only not ready", async () => {
+    const s = await staked();
+    s.verifiers.broken.add(VERIFIER_URLS[0]!);
+    s.verifiers.notReady.add(VERIFIER_URLS[1]!);
+    await s.registry.submitEpisode("m1", "0x01", "0x02", 3);
+    await s.requester.tick();
+    expect(s.records.get("m1")?.note).toContain(`Replay at ${VERIFIER_URLS[0]} failed`);
+    expect(s.records.get("m1")?.paidReplays).toBe(2); // the not-ready slot went back; the failed one may have been paid
   });
 
   it("holds the Replay cap across a crash mid-payment", async () => {
