@@ -97,6 +97,9 @@ export interface Windows {
 }
 
 /** docs/spec.md section 3 (tunable). */
+/** What one Verifier answered to a Replay request. */
+type ReplayResult = { url: string } & ({ verdict: SignedVerdict } | { notReady: string } | { failed: string });
+
 export const DEFAULT_WINDOWS: Windows = {
   biddingSeconds: 60,
   biddingSlackSeconds: 15,
@@ -358,11 +361,7 @@ export class Requester {
   }
 
   private async verify(record: RequesterRecord, mission: EscrowMission): Promise<void> {
-    let current = record;
-    for (const { url } of this.config.verifiers) {
-      if (current.verdicts[url] || current.paidReplays >= this.config.maxPaidReplays) continue;
-      current = await this.payForReplay(current, url);
-    }
+    const current = await this.payForReplays(record);
 
     const verdicts = this.config.verifiers.map(({ url }) => current.verdicts[url]);
     const agreed = quorum(verdicts, (v) => `${v.outcome}|${v.evidenceHash}`);
@@ -385,19 +384,41 @@ export class Requester {
     }, hederaTxUrl(txHash));
   }
 
-  /** A failed call still counts against the cap (the payment may have gone through), except a Verifier's "not ready yet". */
-  private async payForReplay(record: RequesterRecord, url: string): Promise<RequesterRecord> {
-    // Reserve the slot before paying: a crash mid-payment must count as spent.
-    let next: RequesterRecord = { ...record, paidReplays: record.paidReplays + 1 };
+  /**
+   * Asks every Verifier without a Verdict at once, within the Replay budget, so the Quorum takes one Replay's time, not three.
+   * A failed call still counts against the cap (the payment may have gone through), except a Verifier's "not ready yet".
+   */
+  private async payForReplays(record: RequesterRecord): Promise<RequesterRecord> {
+    const budget = Math.max(0, this.config.maxPaidReplays - record.paidReplays);
+    const urls = this.config.verifiers.map(({ url }) => url).filter((url) => !record.verdicts[url]).slice(0, budget);
+    if (urls.length === 0) return record;
+    // Reserve every slot in one write before any payment goes out: a crash mid-payment must count as spent.
+    let next: RequesterRecord = { ...record, paidReplays: record.paidReplays + urls.length };
     this.deps.records.put(next);
+
+    const results = await Promise.all(urls.map((url) => this.requestReplay(record.missionId, url)));
+    const notes: string[] = [];
+    for (const result of results) {
+      if ("verdict" in result) next = { ...next, verdicts: { ...next.verdicts, [result.url]: result.verdict } };
+      // Not ready yet (409/503) was never charged, so the slot goes back and the next tick asks again.
+      else if ("notReady" in result) {
+        next = { ...next, paidReplays: next.paidReplays - 1 };
+        notes.push(`Replay at ${result.url} not ready yet: ${result.notReady}`);
+      } else notes.unshift(`Replay at ${result.url} failed: ${result.failed}`); // a possibly paid failure is the note that matters
+    }
+    next = { ...next, note: notes[0] ?? next.note };
+    this.deps.records.put(next);
+    return next;
+  }
+
+  private async requestReplay(missionId: string, url: string): Promise<ReplayResult> {
     try {
-      const { verdict, payment } = await this.deps.verifiers.requestReplay(url, record.missionId);
-      next = { ...next, verdicts: { ...next.verdicts, [url]: verdict } };
+      const { verdict, payment } = await this.deps.verifiers.requestReplay(url, missionId);
       const verifier = this.config.verifiers.find((v) => v.url === url)!.address;
       // D15: the Verifier owns the "paid" event (it alone knows the settlement transaction); the Requester reports only the challenge.
-      if (payment.challenged) this.deps.events.emit(record.missionId, "replay.paid", { verifier, status: 402, amount: payment.amount.toString() });
+      if (payment.challenged) this.deps.events.emit(missionId, "replay.paid", { verifier, status: 402, amount: payment.amount.toString() });
       await this.audit({
-        missionId: record.missionId,
+        missionId,
         verifier,
         verifierUrl: url,
         outcome: verdict.outcome,
@@ -407,15 +428,15 @@ export class Requester {
         asset: payment.asset,
         paymentTx: payment.paymentTx,
       });
+      return { url, verdict };
     } catch (error) {
-      // Not ready yet (409/503) was never charged, so the slot goes back and the next tick asks again; anything else may have been paid.
-      if (error instanceof VerifierNotReadyError) this.announceWaiting(record.missionId, url, error);
-      next = error instanceof VerifierNotReadyError
-        ? { ...record, note: `Replay at ${url} not ready yet: ${error.message}` }
-        : { ...next, note: `Replay at ${url} failed: ${String(error)}` };
+      if (error instanceof VerifierNotReadyError) {
+        this.announceWaiting(missionId, url, error);
+        return { url, notReady: error.message };
+      }
+      console.warn(`requester: Replay of ${missionId} at ${url} failed and counts against the budget:`, error);
+      return { url, failed: String(error) };
     }
-    this.deps.records.put(next);
-    return next;
   }
 
   /** Tells the feed why a Verifier is not ready, but only when the reason or the end of the wait changed since the last tick. */
