@@ -58,15 +58,26 @@ const memoized = (stampOf: StampOf): StampOf => {
 export interface FlowOptions {
   /** Blocks per `eth_getLogs` call, under the RPC's range limit. Fixed in code, so every Verifier scans the same ranges. */
   chunk?: bigint;
+  /** Seconds the chain head must be past the window before the Verifier answers (HEAD_MARGIN_SECONDS when unset). */
+  headMarginSeconds?: number;
 }
 const DEFAULT_CHUNK = 5_000n; // about 40 minutes of Galileo blocks
 
 /**
  * How far past the window the chain head must be before the Verifier answers. A load-balanced RPC can serve `eth_getLogs` from a
- * node a little behind the head it reported, and that node answers an empty list rather than an error; this margin (a constant,
- * so every Verifier applies the same one) keeps the window well inside what such a node has already seen.
+ * node a little behind the head it reported, and that node answers an empty list rather than an error; this margin keeps the
+ * window well inside what such a node has already seen. All Verifiers of a Quorum must use the same value (ZG_HEAD_MARGIN_SECONDS);
+ * a smaller one answers sooner but risks a wrong "not uploaded" Fail from a lagging RPC node.
  */
 export const HEAD_MARGIN_SECONDS = 120;
+
+/** Reads ZG_HEAD_MARGIN_SECONDS: unset means HEAD_MARGIN_SECONDS; otherwise a whole number of seconds, 0 or more. */
+export function headMarginSeconds(value: string | undefined): number {
+  if (!value?.trim()) return HEAD_MARGIN_SECONDS;
+  const seconds = Number(value);
+  if (!Number.isInteger(seconds) || seconds < 0) throw new Error(`ZG_HEAD_MARGIN_SECONDS must be a whole number of seconds, 0 or more, not ${JSON.stringify(value)}`);
+  return seconds;
+}
 
 /** The roots (lowercased) with no Flow `Submit` in blocks [first, last], scanned in fixed chunks from `first`. */
 async function rootsNotSubmitted(reader: FlowReader, roots: readonly Hex[], first: bigint, last: bigint, chunk: bigint): Promise<Set<string>> {
@@ -82,12 +93,12 @@ async function rootsNotSubmitted(reader: FlowReader, roots: readonly Hex[], firs
  * Proof of upload on 0G Galileo: every 0G Storage upload first submits its root to the Flow contract, so a root with no `Submit` in
  * the window was never uploaded in it. The window is mapped to blocks by timestamp alone, so all Verifiers scan the same blocks.
  */
-export function zeroGFlow(reader: FlowReader, { chunk = DEFAULT_CHUNK }: FlowOptions = {}): UploadRecordPort {
-  /** The chain head, once its block is stamped at least HEAD_MARGIN_SECONDS past `to`. */
+export function zeroGFlow(reader: FlowReader, { chunk = DEFAULT_CHUNK, headMarginSeconds = HEAD_MARGIN_SECONDS }: FlowOptions = {}): UploadRecordPort {
+  /** The chain head, once its block is stamped at least headMarginSeconds past `to`. */
   async function headPast(stampOf: StampOf, to: number): Promise<bigint> {
     const head = await reader.latestBlock();
-    if ((await stampOf(head)) < to + HEAD_MARGIN_SECONDS) {
-      throw new FinalityPendingError(`Galileo is not ${HEAD_MARGIN_SECONDS} s past ${to} yet`, to + HEAD_MARGIN_SECONDS);
+    if ((await stampOf(head)) < to + headMarginSeconds) {
+      throw new FinalityPendingError(`Galileo is not ${headMarginSeconds} s past ${to} yet`, to + headMarginSeconds);
     }
     return head;
   }
