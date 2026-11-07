@@ -7,7 +7,8 @@ describe("parseAction", () => {
     ["turn_left", "TURN_LEFT"],
     ["  Turn_Right.\n", "TURN_RIGHT"],
     ["I will go FORWARD now", "FORWARD"],
-    ["TURN_LEFT then FORWARD", "TURN_LEFT"],
+    ["TURN_LEFT then FORWARD", "FORWARD"],
+    ["TARGET: left\nBLOCKED: no, FORWARD is clear but\nMOVE: TURN_LEFT", "TURN_LEFT"],
     ["stop", "STOP"],
   ])("reads %j as %s", (raw, expected) => {
     expect(parseAction(raw)).toBe(expected);

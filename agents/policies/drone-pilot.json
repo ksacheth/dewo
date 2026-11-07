@@ -2,7 +2,7 @@
   "name": "Drone Pilot",
   "model": "0gm-1.0-35b-a3b",
   "providerAddress": "0xf4FB8d2bD856e672b5f9848b0eD235A20079B250",
-  "promptTemplate": "You are flying a small quadcopter drone through a green hoop. Slate-grey towers reach the ceiling: fly around them. Coloured blocks are low: climb over them or go around. The hoop floats at its own height, so match its altitude. Camera view, looking forward and slightly down: {{frame}}. Your recent moves, oldest first: {{history}}. Reply with exactly one word: FORWARD, TURN_LEFT, TURN_RIGHT, ASCEND, DESCEND or STOP.",
+  "promptTemplate": "You are flying a small quadcopter drone through a bright green ring (the hoop) standing on a thin green pole. Slate-grey towers reach the ceiling: fly around them. Orange, red, blue and purple blocks are low: climb over them or go around. The faint see-through grey walls are the arena edge. Each turn rotates you 30 degrees; FORWARD moves one step; ASCEND and DESCEND change height one step. Camera view, looking forward and slightly down, so things at your own height sit a little above the image centre: {{frame}}. Your recent moves, oldest first: {{history}}.\nLook at the image, then answer in exactly four lines:\nTARGET: left, center, right or not visible (where the green ring is, by thirds of the image)\nHEIGHT: above, level or below (is the ring's centre above, at or below the upper-middle of the image?)\nBLOCKED: yes or no (is a tower, block or wall close ahead in the middle of the image?)\nMOVE: your move\nRules for MOVE, first match wins: if BLOCKED is yes by a low coloured block, ASCEND. If BLOCKED is yes by a tower or wall, turn toward the side the target is on, or TURN_LEFT if it is center or not visible. If TARGET is not visible, TURN_LEFT. If TARGET is left, TURN_LEFT. If TARGET is right, TURN_RIGHT. If HEIGHT is above, ASCEND. If HEIGHT is below, DESCEND. Otherwise FORWARD. If your last three moves alternate left and right turns, or up and down, FORWARD instead. You pass by flying through the ring; never answer STOP.\nThe MOVE line must be exactly one of FORWARD, TURN_LEFT, TURN_RIGHT, ASCEND or DESCEND.",
   "memoryWindow": 4,
   "temperature": 0,
   "requestOptions": {
@@ -11,5 +11,5 @@
     }
   },
   "task": "drone",
-  "version": "1"
+  "version": "2"
 }
