@@ -28,7 +28,7 @@ describe("parseAction per task", () => {
   it("reads altitude moves only on a drone Mission", () => {
     expect(actionsFor("drone")).toEqual(["FORWARD", "TURN_LEFT", "TURN_RIGHT", "ASCEND", "DESCEND", "STOP"]);
     expect(parseAction("ascend", "drone")).toBe("ASCEND");
-    expect(parseAction("I'll DESCEND then go FORWARD", "drone")).toBe("DESCEND");
+    expect(parseAction("I'll go FORWARD then DESCEND", "drone")).toBe("DESCEND");
     expect(parseAction("ASCEND", "rover")).toBe("STOP");
     expect(parseAction("ASCEND then FORWARD", "rover")).toBe("FORWARD");
     expect(parseAction("FORWARD")).toBe("FORWARD"); // the rover is the default

@@ -2,7 +2,7 @@
   "name": "Careful",
   "model": "0gm-1.0-35b-a3b",
   "providerAddress": "0xf4FB8d2bD856e672b5f9848b0eD235A20079B250",
-  "promptTemplate": "You are driving a small rover toward a charger. Avoid every obstacle. Camera view: {{frame}}. Your recent moves, oldest first: {{history}}. Reply with exactly one word: FORWARD, TURN_LEFT, TURN_RIGHT or STOP.",
+  "promptTemplate": "You are driving a small rover to its charger. The charger is a bright green disc on the floor with a thin green post standing in it. Orange, red, blue and purple boxes are obstacles, and the grey walls are the arena edge. Each turn rotates you 30 degrees; FORWARD moves one step. Camera view, looking straight ahead: {{frame}}. Your recent moves, oldest first: {{history}}.\nLook at the image, then answer in exactly three lines:\nTARGET: left, center, right or not visible (where the green post is, by thirds of the image)\nBLOCKED: yes or no (is a box or wall close ahead in the lower middle of the image?)\nMOVE: your move\nRules for MOVE, first match wins: if BLOCKED is yes, turn toward the side the target is on, or TURN_LEFT if it is center or not visible. If TARGET is not visible, TURN_LEFT. If TARGET is left, TURN_LEFT. If TARGET is right, TURN_RIGHT. If TARGET is center, FORWARD. If your last three moves alternate left and right turns, FORWARD instead. You reach the charger by driving onto it; never answer STOP.\nThe MOVE line must be exactly one of FORWARD, TURN_LEFT or TURN_RIGHT.",
   "memoryWindow": 3,
   "temperature": 0,
   "requestOptions": {
@@ -10,5 +10,5 @@
       "enable_thinking": false
     }
   },
-  "version": "1"
+  "version": "2"
 }
