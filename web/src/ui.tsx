@@ -50,12 +50,25 @@ export function Tag({ children, tone, live }: { children: ReactNode; tone?: "ok"
 }
 
 /** Segmented control: a presentational stand-in for a select or a row of chips. */
-export function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: readonly T[]; onChange: (v: T) => void; label: string }) {
+export function Segmented<T extends string>({ value, options, onChange, label, render }: { value: T; options: readonly T[]; onChange: (v: T) => void; label: string; render?: (o: T) => ReactNode }) {
   const i = Math.max(0, options.indexOf(value))
   return (
     <div className="segmented" role="radiogroup" aria-label={label} style={{ "--n": options.length, "--i": i } as CSSProperties}>
       <i className="segmented-thumb" aria-hidden />
-      {options.map((o) => <button key={o} type="button" role="radio" aria-checked={o === value} onClick={() => onChange(o)}>{o}</button>)}
+      {options.map((o) => <button key={o} type="button" role="radio" aria-checked={o === value} onClick={() => onChange(o)}>{render ? render(o) : o}</button>)}
     </div>
+  )
+}
+
+/** Previous / next for a paged list, with where you are. Renders nothing for a single page. */
+export function Pager({ page, pages, total, per, onChange, noun = "Missions" }: { page: number; pages: number; total: number; per: number; onChange: (page: number) => void; noun?: string }) {
+  if (pages <= 1) return null
+  const from = (page - 1) * per + 1, to = Math.min(total, page * per)
+  return (
+    <nav className="pager" aria-label="Pages">
+      <button type="button" className="chip sm" disabled={page <= 1} onClick={() => onChange(page - 1)}>← Prev</button>
+      <span className="pager-at"><span className="mono">{from}–{to}</span> of {total} {noun} · page {page} of {pages}</span>
+      <button type="button" className="chip sm" disabled={page >= pages} onClick={() => onChange(page + 1)}>Next →</button>
+    </nav>
   )
 }
