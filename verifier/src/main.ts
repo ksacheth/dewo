@@ -7,7 +7,7 @@ import { arkivAdapters } from "./adapters/board.js";
 import { hederaEscrow, viemEscrowReader } from "./adapters/escrow-chain.js";
 import { assertSimVersion, cliSim, localRunner } from "./adapters/sim-cli.js";
 import { mainnetComputeBroker, zeroGCompute } from "./adapters/zerog-compute.js";
-import { GALILEO_FLOW, viemFlowReader, zeroGFlow } from "./adapters/zerog-flow.js";
+import { GALILEO_FLOW, headMarginSeconds, viemFlowReader, zeroGFlow } from "./adapters/zerog-flow.js";
 import { viemRegistryReader, zeroGRegistry } from "./adapters/zerog-registry.js";
 import { indexerAt, zeroGStorage } from "./adapters/zerog-storage.js";
 import { createEpisodeSource } from "./episodes.js";
@@ -76,7 +76,9 @@ async function main() {
       board, chain,
       registry: zeroGRegistry(viemRegistryReader(zgRpc, registryAddress)),
       storage: zeroGStorage(indexerAt(process.env.ZG_STORAGE_INDEXER ?? "https://indexer-storage-testnet-turbo.0g.ai")),
-      uploads: zeroGFlow(viemFlowReader(zgRpc, (process.env.ZG_FLOW_ADDRESS as Address | undefined) ?? GALILEO_FLOW)),
+      uploads: zeroGFlow(viemFlowReader(zgRpc, (process.env.ZG_FLOW_ADDRESS as Address | undefined) ?? GALILEO_FLOW), {
+        headMarginSeconds: headMarginSeconds(process.env.ZG_HEAD_MARGIN_SECONDS),
+      }),
     }),
   });
   serve({ fetch: app.fetch, port });

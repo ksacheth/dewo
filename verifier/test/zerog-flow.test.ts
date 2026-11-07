@@ -3,7 +3,7 @@ import { MemData } from "@0gfoundation/0g-storage-ts-sdk";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { encodeAbiParameters, encodeEventTopics, parseAbiItem, parseAbiParameters, type Hex } from "viem";
-import { GALILEO_FLOW, HEAD_MARGIN_SECONDS, fileRoot, viemFlowReader, zeroGFlow, type FlowReader, type SubmissionNode } from "../src/adapters/zerog-flow.js";
+import { GALILEO_FLOW, HEAD_MARGIN_SECONDS, fileRoot, headMarginSeconds, viemFlowReader, zeroGFlow, type FlowReader, type SubmissionNode } from "../src/adapters/zerog-flow.js";
 
 const SUBMIT = parseAbiItem(
   "event Submit(address indexed sender, bytes32 indexed identity, uint256 submissionIndex, uint256 startPos, uint256 length, (uint256 length, bytes tags, (bytes32 root, uint256 height)[] nodes) submission)",
@@ -35,6 +35,16 @@ describe("fileRoot", () => {
   });
 });
 
+describe("headMarginSeconds", () => {
+  it("defaults to HEAD_MARGIN_SECONDS, reads whole seconds and rejects anything else", () => {
+    expect(headMarginSeconds(undefined)).toBe(HEAD_MARGIN_SECONDS);
+    expect(headMarginSeconds(" ")).toBe(HEAD_MARGIN_SECONDS);
+    expect(headMarginSeconds("0")).toBe(0);
+    expect(headMarginSeconds("15")).toBe(15);
+    for (const bad of ["-1", "1.5", "soon"]) expect(() => headMarginSeconds(bad)).toThrow(/ZG_HEAD_MARGIN_SECONDS/);
+  });
+});
+
 describe("zeroGFlow.submittedBetween", () => {
   const ROOT = node("ab").root;
   /** Two blocks per second from t=1000, a 50 s gap after block 400, and Submit events at the given blocks. */
@@ -59,6 +69,13 @@ describe("zeroGFlow.submittedBetween", () => {
     await expect(zeroGFlow(reader).assertPast(1_550 - HEAD_MARGIN_SECONDS)).resolves.toBeUndefined();
     await expect(zeroGFlow(reader).assertPast(1_551 - HEAD_MARGIN_SECONDS)).rejects.toThrow(/not 120 s past/);
     expect(ranges).toEqual([]);
+  });
+
+  it("uses a configured head margin, down to 0", async () => {
+    const { reader } = chain(1_000n, {}); // the head block is stamped 1_550
+    await expect(zeroGFlow(reader, { headMarginSeconds: 0 }).assertPast(1_550)).resolves.toBeUndefined();
+    await expect(zeroGFlow(reader, { headMarginSeconds: 0 }).assertPast(1_551)).rejects.toThrow(/not 0 s past/);
+    await expect(zeroGFlow(reader, { headMarginSeconds: 10 }).assertPast(1_541)).rejects.toThrow(/not 10 s past/);
   });
 
   it("finds a submission of the root inside the window", async () => {
