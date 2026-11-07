@@ -66,7 +66,9 @@ All in [`board/src`](../board/src). Every read filters by the writer it trusts, 
 | Role | Address |
 |---|---|
 | Test wallet: wrote every entity below, and is the "mock requester" in the web UI | [`0xbb465214d0D2028016102ec38358D6643366cE96`](https://rabdi.explorer.arkiv.network/address/0xbb465214d0D2028016102ec38358D6643366cE96) |
-| Requester, 3 Workers, 3 Verifiers | TODO(evidence): filled from the end-to-end run once M4 and M5 land |
+| Requester agent (live end-to-end run) | [`0xc0951010013c2aE3620931Fc2A407E94861dCA1d`](https://rabdi.explorer.arkiv.network/address/0xc0951010013c2aE3620931Fc2A407E94861dCA1d) |
+| Worker agent (live end-to-end run) | [`0x1801048f510Ca61A6B363189800fE8Bc62AD25C3`](https://rabdi.explorer.arkiv.network/address/0x1801048f510Ca61A6B363189800fE8Bc62AD25C3) |
+| Verifiers | the 3 addresses in `VERIFIER_ADDRESSES`, also listed in each Mission's `verifiers` column |
 
 ## Real entities (Rabdi)
 
