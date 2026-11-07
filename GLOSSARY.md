@@ -23,8 +23,12 @@ The party that decides pass or fail for an Episode by replaying it; never the Re
 _Avoid_: judge, evaluator, oracle
 
 **Policy**:
-A Worker's fixed recipe for piloting: which model it calls, how it prompts it, and how much past context it feeds back.
+A Worker's fixed recipe for piloting: which model it calls, how it prompts it, and how much past context it feeds back. One model sees the frame and answers with the Action (single-stage), or a vision model describes the frame and a text model decides (two-stage, ADR 0008).
 _Avoid_: strategy, brain, loadout, config
+
+**Scene Description** (also **Perception**):
+The text a two-stage Policy's vision model returns for a camera frame (the perceive call), fed to the text model as `{{scene}}` for the decide call. Logged in the Decision as `perception`. Worker evidence, not ground truth.
+_Avoid_: caption, observation
 
 **Bid**:
 A Worker's offer to complete a Mission at a price of its own choosing (a positive integer in base units, at most the Max Bounty), hidden from everyone but the Verifiers until the Award, carrying a commitment to the Policy it will use and no performance claim.
@@ -89,7 +93,7 @@ A move the robot could not make because it would hit an obstacle, leave the aren
 _Avoid_: crash, hit
 
 **Decision**:
-One perception-and-action turn: the robot's view goes to the model, and one action comes back. In code, `step` in the Episode Log is the Decision index. Max Steps counts Decisions; `steps` in `sim replay` output and in a Verdict counts the moving Actions (every Decision except stop).
+One perception-and-action turn: the robot's view goes to the model, and one action comes back. With a two-stage Policy it is two model calls, perceive then decide (ADR 0008). In code, `step` in the Episode Log is the Decision index. Max Steps counts Decisions; `steps` in `sim replay` output and in a Verdict counts the moving Actions (every Decision except stop).
 _Avoid_: step, move, tick, inference
 
 **Action**:

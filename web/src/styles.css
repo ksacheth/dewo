@@ -190,6 +190,9 @@ th.num { text-align:right; } td.num { text-align:right; font-family:var(--mono);
 .arena-hud { position:absolute; left:12px; top:12px; display:flex; gap:10px; align-items:baseline; padding:6px 10px; border-radius:6px; background:#0b0f12c4; backdrop-filter:blur(6px); color:#f2f3ef; font:12px var(--mono); }
 .arena-hud strong { font-weight:500; color:var(--accent); }
 .arena-hud .dim { color:#ffffff80; }
+.scene { margin:8px 0 0; font-size:12px; }
+.scene summary { cursor:pointer; color:var(--dim); }
+.scene p { margin:6px 0 0; white-space:pre-wrap; max-height:160px; overflow:auto; }
 .step { display:grid; grid-template-columns:64px 1fr auto; gap:10px; align-items:center; min-height:44px; padding:0 18px; border-bottom:1px solid var(--line); cursor:pointer; font-size:13px; transition:background .25s var(--ease-out); }
 .step strong { font-family:var(--mono); font-size:12px; font-weight:400; color:var(--fg); }
 .step > span:first-child { font-family:var(--mono); font-size:12px; color:var(--dim); }

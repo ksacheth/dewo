@@ -32,6 +32,23 @@ export interface Decision {
    * recoverAddress(hashMessage(text), signature) == the provider's TEE signer. No per-step call to 0G.
    */
   receipt?: ChatReceipt;
+  /**
+   * Two-stage Policies only (ADR 0008): the perceive call that turned the frame into the Scene Description.
+   * Then `request`, `rawResponse`, `chatID` and `receipt` above are the decide call, whose prompt contains
+   * `perception.rawResponse`; `providerAddress` is the decide provider.
+   */
+  perception?: Perception;
+}
+
+/** The perceive call of a two-stage Decision: the vision model's text description of the camera frame. */
+export interface Perception {
+  chatID: string;
+  providerAddress: Hex;
+  /** The exact request body sent to 0G: the frame's PNG and the Policy's perceive prompt. */
+  request: unknown;
+  /** The Scene Description, fed to the decide stage as {{scene}}. */
+  rawResponse: string;
+  receipt?: ChatReceipt;
 }
 
 export interface ChatReceipt {

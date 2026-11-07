@@ -5,6 +5,16 @@ import type { MissionState } from "../feed"
 import { short } from "../links"
 import { Panel } from "../ui"
 
+/** What the vision model reported about the frame before the text model chose the Action (two-stage Policies, ADR 0008). */
+export function SceneDescription({ step, scene }: { step: number; scene: string }) {
+  return (
+    <details className="scene" key={step}>
+      <summary>Scene description</summary>
+      <p className="mono dim">{scene}</p>
+    </details>
+  )
+}
+
 /**
  * The run as it happens: the arena view (rover.moved images, one move behind the Episode) with the onboard frame of
  * the Decision behind the move on screen, and every Decision beside it. Picking a Decision shows the arena as the
@@ -42,6 +52,7 @@ export function RunView({ state }: { state: MissionState }) {
               <span>Decision {decisionNumber(decision.step)}<span className="dim"> / {maxSteps}</span></span>
               {action && <strong>{action}</strong>}
             </>} />
+          {decision?.scene && <SceneDescription step={decision.step} scene={decision.scene} />}
           {last?.collision && !pickedMove && <div className="banner bad">Collision: the move was blocked</div>}
           {last?.atGoal && !pickedMove && <div className="banner ok">{goalText(task)}</div>}
           {stopped && <div className="banner bad">Episode ended by STOP</div>}

@@ -1,0 +1,26 @@
+{
+  "name": "Drone Perceive Decide",
+  "perceive": {
+    "model": "0gm-1.0-35b-a3b",
+    "providerAddress": "0xf4FB8d2bD856e672b5f9848b0eD235A20079B250",
+    "promptTemplate": "You are the eyes of a small quadcopter drone. Look at the forward camera image {{frame}} (it looks forward and slightly down) and describe only what is visible. Do not say what the drone should do. Reply in at most 7 short lines, in exactly this format:\nTARGET (green ring on a pole): visible yes or no; side left, centre or right; distance near or far; height above or below the centre of the image, or level.\nOBSTACLE (one line for each tower or coloured box you can see): kind tower or box; side left, centre or right; distance near or far; touching the image edge yes or no.\nIf you see no obstacle, write: OBSTACLE: none.",
+    "temperature": 0,
+    "requestOptions": {
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    }
+  },
+  "decide": {
+    "model": "glm-5.3",
+    "providerAddress": "0xD179F4526064846dE9a9E9D93683AF75CB72E503",
+    "promptTemplate": "You fly a small drone through a green ring. Each turn is 30 degrees. FORWARD moves 0.5 m. ASCEND and DESCEND move 0.5 m up or down. Towers reach the ceiling, so go around them; coloured boxes are low, so you may climb over them or go around. A collision blocks the move, so the drone stays where it is. Scene description from the camera (written by another model): {{scene}}\nYour recent moves, oldest first: {{history}}\nSteer toward the target: if the ring is left, TURN_LEFT; if it is right, TURN_RIGHT; if it is above the centre, ASCEND; if it is below the centre, DESCEND; if it is centre and level, FORWARD. If the ring is not visible, TURN_RIGHT to look around. Only if a tower or box is directly ahead (centre) and near, move away from it instead (turn, or ASCEND over a box). Do not zig-zag: do not undo your last turn unless an obstacle forces it. Never reply STOP. Valid actions: FORWARD, TURN_LEFT, TURN_RIGHT, ASCEND, DESCEND. Keep your reasoning short. Your reply must end with a final line of exactly this form: ACTION: <WORD>",
+    "memoryWindow": 4,
+    "temperature": 0,
+    "requestOptions": {
+      "max_tokens": 8192
+    }
+  },
+  "task": "drone",
+  "version": "1"
+}

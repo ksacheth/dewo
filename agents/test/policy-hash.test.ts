@@ -1,9 +1,9 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { canonicalJson, policyHash, type Policy } from "../src/formats";
+import { canonicalJson, isTwoStage, policyHash, type Policy, type SingleStagePolicy } from "../src/formats";
 
-const policy: Policy = {
+const policy: SingleStagePolicy = {
   name: "Careful",
   model: "m",
   providerAddress: "0x0000000000000000000000000000000000000001",
@@ -49,6 +49,14 @@ describe("demo Policy files", () => {
   for (const file of readdirSync(dir)) {
     it(`${file} is a valid demo Policy`, () => {
       const p = JSON.parse(readFileSync(join(dir, file), "utf8")) as Policy;
+      expect(policyHash(p)).toMatch(/^0x[0-9a-f]{64}$/);
+      if (isTwoStage(p)) {
+        expect([p.perceive.temperature, p.decide.temperature]).toEqual([0, 0]);
+        expect(p.perceive.promptTemplate).toContain("{{frame}}");
+        expect(p.decide.promptTemplate).toContain("{{scene}}");
+        expect(p.decide.promptTemplate).toContain("{{history}}");
+        return;
+      }
       expect(p.temperature).toBe(0);
       expect(p.promptTemplate).toContain("{{frame}}");
       expect(p.promptTemplate).toContain("{{history}}");

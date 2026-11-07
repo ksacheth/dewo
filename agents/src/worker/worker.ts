@@ -4,6 +4,7 @@
 // record only after the action is confirmed. One attempt per Mission.
 import {
   assertUsablePolicy,
+  callsPerDecision,
   canonicalJson,
   fromBaseUnits,
   policyHash,
@@ -44,8 +45,9 @@ const UNTRUSTED: SkipReason = "UNTRUSTED_VERIFIERS";
 
 /** The Worker's own strategy, in decimal USDC (converted to base units only when sealing the Bid). */
 export interface PricingStrategy {
+  /** Cost of one 0G call; a two-stage Policy's Decision is two calls, so the Worker doubles it (ADR 0008). */
   costPerDecision: number;
-  /** 0G Compute cost of one Decision, in 0G (the unit BalancesPort.zeroG() reports). */
+  /** 0G Compute cost of one 0G call, in 0G (the unit BalancesPort.zeroG() reports). */
   zeroGPerDecision: number;
   expectedDecisions: number;
   txFees: number;
@@ -187,7 +189,9 @@ export class Worker {
     const maxBounty = fromBaseUnits(terms.maxBounty);
     const stake = expectedStake(maxBounty, reliability);
     // maxSteps caps the Decisions this Worker can pay for, so it caps its inference estimate too (ADR 0006).
-    const bidPrice = price({ ...this.config.strategy, maxSteps: terms.maxSteps, reliability, stake });
+    // The strategy's per-Decision costs are per 0G call: a two-stage Policy makes two calls per Decision (ADR 0008).
+    const calls = callsPerDecision(this.config.policy);
+    const bidPrice = price({ ...this.config.strategy, costPerDecision: this.config.strategy.costPerDecision * calls, maxSteps: terms.maxSteps, reliability, stake });
 
     const skip = shouldSkip({
       missionVerifiers: mission.verifiers,
@@ -202,7 +206,7 @@ export class Worker {
       stake,
       txFees: this.config.strategy.txFees,
       zgBalance: await balances.zeroG(),
-      zeroGPerDecision: this.config.strategy.zeroGPerDecision,
+      zeroGPerDecision: this.config.strategy.zeroGPerDecision * calls,
       maxSteps: terms.maxSteps,
       limitsReachable,
     });
@@ -307,7 +311,9 @@ export class Worker {
         stopAt: (mission.stakedAt ?? 0) + terms.deadlines.episodeWindow - (this.config.submitMarginSeconds ?? DEFAULT_SUBMIT_MARGIN_SECONDS),
         now: () => this.deps.clock.now(),
         onDecision: (d, frame) =>
-          this.deps.events.emit(missionId, "decision.made", { step: d.step, frame, chatID: d.chatID, action: d.action }),
+          this.deps.events.emit(missionId, "decision.made", {
+            step: d.step, frame, chatID: d.chatID, action: d.action, ...(d.perception ? { scene: d.perception.rawResponse } : {}),
+          }),
       });
       return { decisions };
     } finally {
