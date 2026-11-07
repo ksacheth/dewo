@@ -15,7 +15,8 @@ export interface EventData {
   "award.signed": { worker: Addr; price: string; stake: string; verifier: Addr };
   "stake.deposited": { worker: Addr; stake: string };
   /** frame is a path relative to the runs/ folder, served by the web as /runs/<frame>. */
-  "decision.made": { step: number; frame: string; chatID: string; action: string };
+  /** `scene` is the Scene Description of a two-stage Policy (ADR 0008); absent for single-stage Policies. */
+  "decision.made": { step: number; frame: string; chatID: string; action: string; scene?: string };
   /** Display only: whole-arena images of one move, paths relative to runs/. */
   "rover.moved": { step: number; images: string[]; collision: boolean; atGoal: boolean };
   "episode.submitted": { episodeLogRoot: string; policyRoot: string; decisionCount: number };

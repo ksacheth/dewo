@@ -1,5 +1,6 @@
 export * from "./episode-log";
 export * from "./parse-action";
+export * from "./parse-decision";
 export * from "./limits";
 export * from "./policy";
 export * from "./request";

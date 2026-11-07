@@ -1,6 +1,6 @@
 // In-memory stand-ins for Arkiv, Hedera, 0G and the simulator.
 import { keccak256, toBytes, toHex } from "viem";
-import { fromBaseUnits, toBaseUnits, type Action, type Hex, type Policy } from "../src/formats";
+import { fromBaseUnits, toBaseUnits, type Action, type Hex, type Policy, type SingleStagePolicy, type TwoStagePolicy } from "../src/formats";
 import type {
   ActResult,
   Award,
@@ -42,13 +42,37 @@ export const ME: Hex = "0x00000000000000000000000000000000000000aa";
 export const RIVAL: Hex = "0x00000000000000000000000000000000000000bb";
 export const SEED: Hex = "0x1111111111111111111111111111111111111111111111111111111111111111";
 
-export const policy: Policy = {
+export const policy: SingleStagePolicy = {
   name: "Careful",
   model: "vision-large",
   providerAddress: "0x0000000000000000000000000000000000000001",
   promptTemplate: "View: {{frame}}. Recent moves: {{history}}. Reply FORWARD, TURN_LEFT, TURN_RIGHT or STOP.",
   memoryWindow: 3,
   temperature: 0,
+  version: "1",
+};
+
+export const PERCEIVE_PROVIDER: Hex = "0xf4FB8d2bD856e672b5f9848b0eD235A20079B250";
+export const DECIDE_PROVIDER: Hex = "0xD179F4526064846dE9a9E9D93683AF75CB72E503";
+
+/** A two-stage Policy (ADR 0008): a vision model describes the frame, a text model decides. */
+export const twoStagePolicy: TwoStagePolicy = {
+  name: "Perceive Decide",
+  perceive: {
+    model: "0gm-1.0-35b-a3b",
+    providerAddress: PERCEIVE_PROVIDER,
+    promptTemplate: "Describe the scene in {{frame}} briefly.",
+    temperature: 0,
+    requestOptions: { chat_template_kwargs: { enable_thinking: false } },
+  },
+  decide: {
+    model: "glm-5.3",
+    providerAddress: DECIDE_PROVIDER,
+    promptTemplate: "Scene: {{scene}}\nRecent moves: {{history}}\nEnd with a final line: ACTION: <WORD>",
+    temperature: 0,
+    memoryWindow: 3,
+    requestOptions: { max_tokens: 8192 },
+  },
   version: "1",
 };
 

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { keccak256 } from "viem";
 import { canonicalJson, policyHash, type EpisodeLog } from "../src/formats";
 import { SUBMIT_TX_SECONDS } from "../src/worker/worker";
-import { ME, RIVAL, SEED, VERIFIER_ADDRESSES, policy, setup, terms, workerIn, world } from "./fakes";
+import { ME, RIVAL, SEED, VERIFIER_ADDRESSES, policy, setup, terms, twoStagePolicy, workerIn, world } from "./fakes";
 
 describe("Worker: bidding", () => {
   it("seals its own price and commits to its Policy", async () => {
@@ -69,6 +69,21 @@ describe("Worker: bidding", () => {
     await w.worker.tick();
     expect(w.records.get("m1")).toMatchObject({ stage: "LOST", note: "UNTRUSTED_VERIFIERS" });
     expect(w.escrow.stakes).toHaveLength(0);
+  });
+
+  it("counts both 0G calls of a two-stage Policy in its 0G balance check and its price (ADR 0008)", async () => {
+    // The fake 0G balance of 5 covers 60 single-call Decisions (3.0) but not 60 two-call ones (6.0).
+    const w = world();
+    const two = workerIn(w, { policy: twoStagePolicy });
+    w.escrow.open("m1");
+    w.board.open.push("m1");
+    await two.worker.tick();
+    expect(two.records.get("m1")).toMatchObject({ stage: "SKIPPED", note: "ZG_BALANCE_CANNOT_COVER_EPISODE" });
+
+    const one = setup();
+    one.post();
+    await one.worker.tick();
+    expect(one.stage()).toBe("BID_PLACED");
   });
 
   it("skips instead of bidding 0 when its strategy prices the Mission at zero", async () => {

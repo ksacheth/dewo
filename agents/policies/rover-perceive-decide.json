@@ -1,0 +1,25 @@
+{
+  "name": "Rover Perceive Decide",
+  "perceive": {
+    "model": "0gm-1.0-35b-a3b",
+    "providerAddress": "0xf4FB8d2bD856e672b5f9848b0eD235A20079B250",
+    "promptTemplate": "You are the eyes of a small wheeled rover. Look at the camera image {{frame}} and describe only what is visible. Do not say what the rover should do. Reply in at most 6 short lines, in exactly this format:\nTARGET (tall green pole on a green disc): visible yes or no; side left, centre or right; distance near or far.\nBOX (one line for each box or tower you can see): side left, centre or right; distance near or far; touching the image edge yes or no.\nIf you see no box, write: BOX: none.",
+    "temperature": 0,
+    "requestOptions": {
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    }
+  },
+  "decide": {
+    "model": "glm-5.3",
+    "providerAddress": "0xD179F4526064846dE9a9E9D93683AF75CB72E503",
+    "promptTemplate": "You steer a small rover to a green pole (the charger). Each turn is 30 degrees. FORWARD moves 0.5 m. A collision blocks the move, so the rover stays where it is. Scene description from the camera (written by another model): {{scene}}\nYour recent moves, oldest first: {{history}}\nSteer toward the target: if it is left, TURN_LEFT; if it is right, TURN_RIGHT; if it is centre, FORWARD. If the target is not visible, TURN_RIGHT to look around. Only if a box is directly ahead (centre) and near, turn away from it instead. Do not zig-zag: do not undo your last turn unless a box forces it. Never reply STOP. Valid actions: FORWARD, TURN_LEFT, TURN_RIGHT. Keep your reasoning short. Your reply must end with a final line of exactly this form: ACTION: <WORD>",
+    "memoryWindow": 4,
+    "temperature": 0,
+    "requestOptions": {
+      "max_tokens": 8192
+    }
+  },
+  "version": "1"
+}
