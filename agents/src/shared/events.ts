@@ -1,7 +1,7 @@
 // I8 event feed types and name rules.
-// Mirrors EventData in @dewo/board's events.ts (M3 owns it) exactly, all 11 types. Import it from
+// Mirrors EventData in @dewo/board's events.ts (M3 owns it) exactly, all 14 types. Import it from
 // there once M4 can depend on @dewo/board; until then a drift here is only caught by review, so
-// keep it in step. M4 emits 9 of them; bids.revealed and verdict.signed are emitted by the
+// keep it in step. M4 emits 10 of them; bids.revealed, replay.started, replay.progress and verdict.signed are emitted by the
 // Verifiers (M5, process name verifier-<n>) and are mirrored here only so the type is complete.
 // Amounts are strings of USDC base units.
 
@@ -19,6 +19,12 @@ export interface EventData {
   /** Display only: whole-arena images of one move, paths relative to runs/. */
   "rover.moved": { step: number; images: string[]; collision: boolean; atGoal: boolean };
   "episode.submitted": { episodeLogRoot: string; policyRoot: string; decisionCount: number };
+  /** Emitted by M4 when a Verifier answers "not ready" (free). `readyAt` is unix seconds when the wait is known to end. */
+  "replay.waiting": { verifier: Addr | string; reason: string; readyAt?: number };
+  /** Emitted by the Verifiers (M5) when a payment verified and the Replay begins. */
+  "replay.started": { verifier: Addr; decisions: number };
+  /** Emitted by the Verifiers (M5): `step` of `total` Decision checks done (throttled). */
+  "replay.progress": { verifier: Addr; step: number; total: number };
   "replay.paid": { verifier: Addr; status: 402 | "paid"; amount: string };
   /** Emitted by the Verifiers (M5), not by M4. */
   "verdict.signed": { verifier: Addr; outcome: string; evidenceHash: string; arkivKey: string };

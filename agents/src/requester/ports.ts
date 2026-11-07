@@ -81,7 +81,8 @@ export interface ReplayResult {
  * The same statuses after a signed payment are plain errors and count, since the Verifier could have settled the payment.
  */
 export class VerifierNotReadyError extends Error {
-  constructor(readonly status: number, message: string) {
+  /** `reason` is the Verifier's own words; `readyAt` (unix seconds) is set when it said when to come back. */
+  constructor(readonly status: number, message: string, readonly reason: string = message, readonly readyAt?: number) {
     super(message);
     this.name = "VerifierNotReadyError";
   }

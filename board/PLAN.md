@@ -297,7 +297,7 @@ Tests (`scoring.test.ts`), straight from the spec:
 ```ts
 export type EventType = "mission.posted" | "bid.sealed" | "bids.revealed" | "award.signed"
   | "stake.deposited" | "seed.released" | "decision.made" | "episode.submitted"
-  | "replay.paid" | "verdict.signed" | "settled"
+  | "replay.waiting" | "replay.started" | "replay.progress" | "replay.paid" | "verdict.signed" | "settled"
 export type DewoEvent<T extends EventType = EventType> =
   { ts: string; type: T; missionId: string; data: EventData[T]; txUrl?: string }
 export function emit(missionId: string, process: string, event: { type, data, txUrl? }): void
@@ -320,6 +320,9 @@ Defined by `src/events.ts` (the source of truth; this table mirrors it). Files: 
 | `seed.released` | `{ worker, arkivKey }` | agents (Requester) |
 | `decision.made` | `{ step, frame, chatID, action }` (frame = path relative to `runs/`) | agents (Worker) |
 | `episode.submitted` | `{ episodeLogRoot, policyRoot, decisionCount }` | agents (Worker) |
+| `replay.waiting` | `{ verifier, reason, readyAt? }` (`readyAt` = unix seconds) | agents (Requester), once per change of reason or `readyAt` |
+| `replay.started` | `{ verifier, decisions }` | verifier, when a verified payment starts the Replay |
+| `replay.progress` | `{ verifier, step, total }` | verifier, throttled to about 10 per Replay |
 | `replay.paid` | `{ verifier, status: 402 \| "paid", amount }` | agents (Requester) for `402`; verifier for `"paid"` with `txUrl` (D15) |
 | `verdict.signed` | `{ verifier, outcome, evidenceHash, arkivKey }` | verifier (`verifier-<n>`, R10) |
 | `settled` | `{ outcome, workerPayout, requesterPayout }` | agents (Requester) |

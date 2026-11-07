@@ -182,6 +182,31 @@ describe("Requester: Episode and settlement", () => {
     expect(s.escrow.settlements[0]?.outcome).toBe("Pass");
     expect(s.records.get("m1")?.paidReplays).toBe(3);
   });
+
+  it("emits replay.waiting once per change of reason or readyAt, not every tick", async () => {
+    const s = await staked();
+    VERIFIER_URLS.forEach((url) => s.verifiers.notReady.add(url));
+    await s.registry.submitEpisode("m1", "0x01", "0x02", 3);
+    const waiting = () => s.events.filter((e) => e.type === "replay.waiting");
+
+    s.verifiers.notReadyAt = 1_220;
+    await s.requester.tick();
+    await s.requester.tick();
+    expect(waiting()).toHaveLength(3);
+    expect(waiting()[0]).toMatchObject({ missionId: "m1", data: { verifier: expect.stringMatching(/^0x/), reason: s.verifiers.notReadyReason, readyAt: 1_220 } });
+
+    s.verifiers.notReadyAt = 1_300;
+    await s.requester.tick();
+    await s.requester.tick();
+    expect(waiting()).toHaveLength(6);
+
+    s.verifiers.notReadyReason = "mission m1: no Episode Submission yet";
+    s.verifiers.notReadyAt = undefined;
+    await s.requester.tick();
+    await s.requester.tick();
+    expect(waiting()).toHaveLength(9);
+    expect(waiting().at(-1)?.data).toEqual({ verifier: expect.any(String), reason: "mission m1: no Episode Submission yet" });
+  });
 });
 
 describe("Requester: HCS spending log", () => {

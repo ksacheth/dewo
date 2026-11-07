@@ -1,4 +1,5 @@
 import { concat, createPublicClient, http, keccak256, parseAbiItem, type Address, type Hex } from "viem";
+import { FinalityPendingError } from "../errors.js";
 import type { UploadRecordPort } from "../ports.js";
 
 /** The 0G Storage Flow contract on Galileo (chain 16602), as storage nodes report it in `zgs_getStatus` (`networkIdentity.flowAddress`). */
@@ -85,7 +86,9 @@ export function zeroGFlow(reader: FlowReader, { chunk = DEFAULT_CHUNK }: FlowOpt
   /** The chain head, once its block is stamped at least HEAD_MARGIN_SECONDS past `to`. */
   async function headPast(stampOf: StampOf, to: number): Promise<bigint> {
     const head = await reader.latestBlock();
-    if ((await stampOf(head)) < to + HEAD_MARGIN_SECONDS) throw new Error(`Galileo is not ${HEAD_MARGIN_SECONDS} s past ${to} yet`);
+    if ((await stampOf(head)) < to + HEAD_MARGIN_SECONDS) {
+      throw new FinalityPendingError(`Galileo is not ${HEAD_MARGIN_SECONDS} s past ${to} yet`, to + HEAD_MARGIN_SECONDS);
+    }
     return head;
   }
   return {

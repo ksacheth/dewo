@@ -98,6 +98,22 @@ describe("HttpVerifiers against the I6 mock", () => {
     }
   });
 
+  it("carries the reason and the structured readyAt of a not-ready answer", async () => {
+    const answers = ['{"error":"Galileo is not 120 s past 1100 yet","readyAt":1220}', "plain text", '{"error":"x","readyAt":"soon"}'];
+    const busy = createServer((_, res) => res.writeHead(503, { "content-type": "application/json" }).end(answers.shift()));
+    await new Promise<void>((resolve) => busy.listen(0, resolve));
+    try {
+      const busyUrl = `http://127.0.0.1:${(busy.address() as AddressInfo).port}`;
+      const verifiers = new HttpVerifiers(fakePayFetch);
+      const ask = () => verifiers.requestReplay(busyUrl, "m1").catch((e: unknown) => e);
+      expect(await ask()).toMatchObject({ reason: "Galileo is not 120 s past 1100 yet", readyAt: 1220 });
+      expect(await ask()).toMatchObject({ reason: "plain text", readyAt: undefined });
+      expect(await ask()).toMatchObject({ reason: "x", readyAt: undefined });
+    } finally {
+      busy.close();
+    }
+  });
+
   it("fails if the Replay is not paid", async () => {
     await expect(new HttpVerifiers((base) => base).requestReplay(url, "m1")).rejects.toThrow(/402/);
   });

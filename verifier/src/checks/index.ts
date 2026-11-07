@@ -18,7 +18,11 @@ export interface EpisodeInput {
   /** decisionCount recorded by EpisodeRegistry.submitEpisode. */
   decisionCount: number;
 }
-export interface VerifyDeps { sim: SimPort; zeroG: ZeroGPort }
+export interface VerifyDeps {
+  sim: SimPort; zeroG: ZeroGPort;
+  /** Progress of the Decision checks (check 2): `checked` of `total` Decisions passed so far. */
+  onDecisionChecked?: (checked: number, total: number) => void | Promise<void>;
+}
 export type CheckName = "header" | "policy" | "steps" | "decisions" | "replay";
 export interface VerdictResult {
   outcome: Outcome;
@@ -85,7 +89,7 @@ export async function verifyEpisode(deps: VerifyDeps, e: EpisodeInput): Promise<
   if (!replay) return fail("replay");
   const measured: Measured = { steps: movingSteps(actions), collisions: replay.collisions, atGoal: replay.atGoal };
   // The task is read from the on-chain Course Seed, as the Worker and the sim read it.
-  if (!(await checkDecisions(deps.zeroG, policy.value, decisions, replay, taskOf(e.mission.courseSeed)))) return done(Outcome.Fail, measured, "decisions");
+  if (!(await checkDecisions(deps.zeroG, policy.value, decisions, replay, taskOf(e.mission.courseSeed), deps.onDecisionChecked))) return done(Outcome.Fail, measured, "decisions");
   // Check 3: the goal within the Requester's limits.
   if (!replayPasses(replay, decisions.length, limitsOf(e.mission))) return done(Outcome.Fail, measured, "replay");
   return done(Outcome.Pass, measured);
