@@ -26,6 +26,13 @@ sends one per form, reused until the post succeeds or the form changes.
 
 ## Demo Policies (ADR 0004)
 
+`policies/rover-perceive-decide.json` and `policies/drone-perceive-decide.json` are two-stage Policies (ADR 0008): `perceive`
+(`0gm-1.0-35b-a3b`, thinking off) turns the frame into a short structured Scene Description, and `decide` (`glm-5.3` on
+provider `0xD179F4526064846dE9a9E9D93683AF75CB72E503`, `max_tokens` 8192) picks the Action and must end with an `ACTION: <WORD>`
+line. A Worker retries each of the two 0G calls once before it safe-stops, and `WORKER_COST_PER_DECISION` and
+`WORKER_ZG_PER_DECISION` are read per call, so a two-stage Policy counts double in its price and its 0G balance check.
+The `router-check` and `zg-spike` scripts are single-stage only.
+
 `policies/*.json` all use `0gm-1.0-35b-a3b` on the mainnet TeeML provider
 `0xf4FB8d2bD856e672b5f9848b0eD235A20079B250` and set `requestOptions: { "chat_template_kwargs": { "enable_thinking": false } }`,
 which `buildRequest` merges into every request body (it cannot override `model`, `temperature` or `messages`), so the
