@@ -13,7 +13,7 @@ import { RouterInference, ZG_MAINNET, ZG_ROUTER_URL } from "./zg-router";
 import { ZG_TESTNET } from "./zg-storage";
 
 export type InferenceConfig =
-  | { kind: "router"; routerUrl: string; apiKey: string; managementKey?: string; mainnetRpcUrl: string }
+  | { kind: "router"; routerUrl: string; apiKey: string; managementKey?: string; mainnetRpcUrl: string; timeoutMs: number }
   | { kind: "broker"; rpcUrl: string; privateKey: string };
 
 export interface ComputeAdapters {
@@ -41,7 +41,18 @@ function routerConfig(env: Env): InferenceConfig {
     apiKey,
     managementKey: env.ZG_ROUTER_MANAGEMENT_KEY || undefined,
     mainnetRpcUrl: env.ZG_MAINNET_RPC_URL || ZG_MAINNET.rpc,
+    timeoutMs: routerTimeoutSeconds(env.ZG_ROUTER_TIMEOUT_SECONDS) * 1000,
   };
+}
+
+/** A Policy with thinking on takes 15 to 40 s per Decision; the bound only has to catch a Router that is really gone. */
+export const DEFAULT_ROUTER_TIMEOUT_SECONDS = 180;
+
+function routerTimeoutSeconds(value: string | undefined): number {
+  if (!value?.trim()) return DEFAULT_ROUTER_TIMEOUT_SECONDS;
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(`ZG_ROUTER_TIMEOUT_SECONDS must be a positive number of seconds, not ${JSON.stringify(value)}`);
+  return seconds;
 }
 
 function brokerConfig(env: Env): InferenceConfig {
@@ -60,7 +71,9 @@ export function routerBalance(config: Extract<InferenceConfig, { kind: "router" 
 /** Builds the adapters once at Worker startup; every Decision reuses them. */
 export async function connectInference(config: InferenceConfig): Promise<ComputeAdapters> {
   if (config.kind === "router") {
-    const inference = await RouterInference.connect({ url: config.routerUrl, apiKey: config.apiKey, mainnetRpcUrl: config.mainnetRpcUrl });
+    const inference = await RouterInference.connect({
+      url: config.routerUrl, apiKey: config.apiKey, mainnetRpcUrl: config.mainnetRpcUrl, timeoutMs: config.timeoutMs,
+    });
     return { inference, balance: routerBalance(config) };
   }
   const broker = await createZGComputeNetworkBroker(new Wallet(config.privateKey, new JsonRpcProvider(config.rpcUrl)));

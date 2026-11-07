@@ -16,7 +16,14 @@ describe("inferenceConfig", () => {
       apiKey: "sk-1",
       managementKey: undefined,
       mainnetRpcUrl: "https://evmrpc.0g.ai",
+      timeoutMs: 180_000,
     });
+  });
+
+  it("reads the Router timeout in seconds and rejects a bad one", () => {
+    expect(inferenceConfig({ ZG_ROUTER_API_KEY: "sk-1", ZG_ROUTER_TIMEOUT_SECONDS: "45" })).toMatchObject({ timeoutMs: 45_000 });
+    expect(() => inferenceConfig({ ZG_ROUTER_API_KEY: "sk-1", ZG_ROUTER_TIMEOUT_SECONDS: "0" })).toThrow(/ZG_ROUTER_TIMEOUT_SECONDS/);
+    expect(() => inferenceConfig({ ZG_ROUTER_API_KEY: "sk-1", ZG_ROUTER_TIMEOUT_SECONDS: "soon" })).toThrow(/ZG_ROUTER_TIMEOUT_SECONDS/);
   });
 
   it("takes the Router URL, management key and mainnet RPC from the environment", () => {

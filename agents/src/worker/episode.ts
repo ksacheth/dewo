@@ -63,7 +63,9 @@ async function decide(input: EpisodeInput, step: number, history: Action[]): Pro
   let reply: InferenceReply;
   try {
     reply = await inference.complete(policy.providerAddress, request);
-  } catch {
+  } catch (error) {
+    // The Episode safe-stops on this; say why, or a cut-short Episode looks like the Policy chose to end it.
+    console.error(`worker: 0G call for Decision ${step} failed, safe-stopping the Episode:`, error);
     return null;
   }
 
