@@ -1,4 +1,4 @@
-// I7 Requester API: POST /missions { difficulty, maxBounty, riskWeight, maxSteps?, maxCollisions?, task? } -> 201 { missionId }.
+// I7 Requester API: POST /missions { difficulty, maxBounty, riskWeight, maxSteps?, maxCollisions?, task?, courseSeed? } -> 201 { missionId }.
 // A missing limit takes the Requester's configured default (REQUESTER_MAX_STEPS, REQUESTER_MAX_COLLISIONS).
 // An optional Idempotency-Key header makes a retry safe: the same key returns the first attempt's
 // 201 { missionId }, or 202 { pending: true, ref } (its Course Seed) while that attempt is still
@@ -7,7 +7,7 @@
 // token, is open to one browser origin only, and caps the bounty and the body size.
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { limitsProblems, TASKS, toBaseUnits, USDC_DECIMALS, type Task } from "../formats";
+import { limitsProblems, taskOf, TASKS, toBaseUnits, USDC_DECIMALS, type Hex, type Task } from "../formats";
 import type { MissionRequest, PostResult } from "./requester";
 
 const DIFFICULTIES = new Set(["easy", "medium", "hard"]);
@@ -46,7 +46,7 @@ export function listenRequester(server: Server, port: number, host = process.env
 /** The request body if valid, otherwise a message saying what is wrong. */
 export function parseMissionRequest(body: unknown, maxBountyLimit = Infinity): MissionRequest | string {
   if (typeof body !== "object" || body === null) return "body must be a JSON object";
-  const { difficulty, maxBounty, riskWeight, maxSteps, maxCollisions, task } = body as Record<string, unknown>;
+  const { difficulty, maxBounty, riskWeight, maxSteps, maxCollisions, task, courseSeed } = body as Record<string, unknown>;
   if (typeof difficulty !== "string" || !DIFFICULTIES.has(difficulty)) return "difficulty must be easy, medium or hard";
   if (typeof maxBounty !== "number" || !(maxBounty > 0)) return "maxBounty must be a positive number";
   const decimalsError = bountyPrecisionError(maxBounty);
@@ -56,7 +56,16 @@ export function parseMissionRequest(body: unknown, maxBountyLimit = Infinity): M
   const limits = limitsOf(maxSteps, maxCollisions);
   if (typeof limits === "string") return limits;
   if (task !== undefined && !(TASKS as readonly unknown[]).includes(task)) return `task must be ${TASKS.join(" or ")}`;
-  return { difficulty: difficulty as MissionRequest["difficulty"], maxBounty, riskWeight, ...limits, ...(task !== undefined && { task: task as Task }) };
+  if (courseSeed !== undefined) {
+    if (typeof courseSeed !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(courseSeed)) return "courseSeed must be a 32-byte hex string (0x + 64 hex digits)";
+    const wanted = (task as Task | undefined) ?? "rover";
+    if (taskOf(courseSeed as Hex) !== wanted) return `courseSeed is a ${taskOf(courseSeed as Hex)} Course, but task is ${wanted}`;
+  }
+  return {
+    difficulty: difficulty as MissionRequest["difficulty"], maxBounty, riskWeight, ...limits,
+    ...(task !== undefined && { task: task as Task }),
+    ...(courseSeed !== undefined && { courseSeed: (courseSeed as string).toLowerCase() as Hex }),
+  };
 }
 
 /** The optional Mission Limits in a body; an absent one stays absent so the Requester's default applies. */

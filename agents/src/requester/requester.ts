@@ -78,6 +78,11 @@ export interface MissionRequest {
   maxCollisions?: number;
   /** The robot the Course is for, encoded in the Course Seed (formats/task.ts); default "rover". */
   task?: Task;
+  /**
+   * Reuse a known Course (ADR 0006: the Course is public anyway), e.g. to rerun a demo on a Course a Policy is known to pass.
+   * Its task must match `task`. Unset: a fresh random seed.
+   */
+  courseSeed?: Hex;
 }
 
 export interface Windows {
@@ -170,10 +175,11 @@ export class Requester {
   async post(request: MissionRequest, idempotencyKey?: string): Promise<string> {
     const limited = this.withLimits(request);
     const random = this.deps.random ?? random32;
-    const seed = seedForTask(random(), request.task ?? "rover");
-    // Save the seed first: a restart finds the funded Mission by it, and retries createMission with it.
+    const seed = request.courseSeed ?? seedForTask(random(), request.task ?? "rover");
+    // Save the seed first: a restart finds the funded Mission by it, and retries createMission with it. The record is keyed
+    // by the seed until the real missionId is known, unless a reused seed already keys an earlier record.
     const creating: RequesterRecord = {
-      missionId: seed,
+      missionId: this.deps.records.get(seed) ? random() : seed,
       stage: "CREATING",
       seed,
       verdicts: {},
@@ -265,8 +271,10 @@ export class Requester {
   /** After a crash: find the Mission this seed funded, or (once the last attempt is stale) try again. */
   private async recoverCreating(creating: RequesterRecord): Promise<void> {
     if (this.creating.has(creating.missionId)) return;
-    const found = await this.deps.escrow.findMission(creating.missionId as Hex);
-    const created = found ? { missionId: found } : await this.retryCreate(creating);
+    const found = await this.deps.escrow.findMission(creating.seed);
+    // A reused Course Seed also finds the earlier Mission funded with it; one this Requester already tracks is not this attempt's.
+    const ours = found && !this.deps.records.get(found) ? found : null;
+    const created = ours ? { missionId: ours } : await this.retryCreate(creating);
     if (!created) return;
     this.adopt(creating, created.missionId, "txHash" in created ? created.txHash : undefined);
     await this.advanceUntilWaiting(created.missionId);

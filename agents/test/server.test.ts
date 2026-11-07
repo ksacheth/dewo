@@ -31,6 +31,19 @@ describe("parseMissionRequest task", () => {
   });
 });
 
+describe("parseMissionRequest courseSeed", () => {
+  const rover = `0x${"ab".repeat(32)}`, drone = `0x64726f6e${"00".repeat(28)}`;
+  it("passes a rover seed through (lowercased) and leaves it out when absent", () => {
+    expect(parseMissionRequest({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5, courseSeed: rover.toUpperCase().replace("0X", "0x") })).toMatchObject({ courseSeed: rover });
+    expect("courseSeed" in (parseMissionRequest({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5 }) as MissionRequest)).toBe(false);
+  });
+  it("rejects a malformed seed or one for the other task", () => {
+    expect(parseMissionRequest({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5, courseSeed: "0x1234" })).toContain("courseSeed");
+    expect(parseMissionRequest({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5, courseSeed: drone })).toContain("drone Course");
+    expect(parseMissionRequest({ difficulty: "easy", maxBounty: 10, riskWeight: 0.5, task: "drone", courseSeed: drone })).toMatchObject({ courseSeed: drone });
+  });
+});
+
 describe("parseMissionRequest limits", () => {
   it("rejects a maxBounty above the limit", () => {
     expect(parseMissionRequest({ difficulty: "easy", maxBounty: 51, riskWeight: 0.5 }, 50)).toContain("at most 50");

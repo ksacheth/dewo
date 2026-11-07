@@ -576,4 +576,31 @@ describe("Requester: idempotent posting (#37)", () => {
     expect(await requester.postOnce(request, "a")).toEqual({ missionId: "m3" });
     expect(await requester.postOnce(request, "b")).toEqual({ missionId: "m4" });
   });
+
+  it("reuses a given Course Seed without touching the earlier Mission's records", async () => {
+    const w = world();
+    let n = 0;
+    const { requester, records } = requesterIn(w, { random: () => `0x${(++n).toString(16).padStart(64, "0")}` });
+    const seed = `0x${"ab".repeat(32)}` as Hex;
+    expect(await requester.postOnce({ ...request, courseSeed: seed })).toEqual({ missionId: "m1" });
+    expect(await requester.postOnce({ ...request, courseSeed: seed })).toEqual({ missionId: "m2" });
+    expect((await w.escrow.getMission("m1")).terms.courseSeed).toBe(seed);
+    expect((await w.escrow.getMission("m2")).terms.courseSeed).toBe(seed);
+    expect(records.get("m1")?.stage).not.toBe("RETIRED");
+    expect(records.get(seed)).toMatchObject({ stage: "RETIRED", note: "created as m1" });
+  });
+
+  it("does not adopt the earlier Mission when recovering a create on a reused Course Seed", async () => {
+    const w = world();
+    let n = 0;
+    const { requester, records } = requesterIn(w, { random: () => `0x${(++n).toString(16).padStart(64, "0")}` });
+    const seed = `0x${"ab".repeat(32)}` as Hex;
+    await requester.postOnce({ ...request, courseSeed: seed });
+    w.escrow.createMission = async () => { throw new Error("RPC down"); };
+    await expect(requester.postOnce({ ...request, courseSeed: seed }, "k2")).rejects.toThrow("RPC down");
+    const creating = records.all().find((r) => r.stage === "CREATING")!;
+    expect(creating.seed).toBe(seed);
+    await requester.tick(); // findMission(seed) finds m1, which is already tracked: it must not be adopted
+    expect(records.all().find((r) => r.idempotencyKey === "k2")?.stage).toBe("CREATING");
+  });
 });
