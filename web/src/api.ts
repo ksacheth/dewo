@@ -3,7 +3,9 @@ import type { Bid, Leader, Mission } from "./arkiv"
 
 export const API = {
   mode: "/api/board/mode",
-  runs: "/api/runs",
+  /** One page of this machine's Missions: finished ones (filter by status) or live ones. */
+  runs: (q: { view: "history" | "live"; status?: string; page?: number; per?: number }) =>
+    `/api/runs?view=${q.view}${q.status && q.status !== "all" ? `&status=${q.status}` : ""}&page=${q.page ?? 1}&per=${q.per ?? 10}`,
   settlements: "/api/settlements",
   workerNames: "/api/workers",
   missions: (difficultyClass?: string) => `/api/board/missions${difficultyClass && difficultyClass !== "all" ? `?difficultyClass=${difficultyClass}` : ""}`,
@@ -25,7 +27,7 @@ export const API = {
 } as const
 
 export type { Bid, Leader, Mission }
-export type RunSummary = { missionId: string; mtime: number; posted?: { difficultyClass: string; task?: string; maxBounty: string; riskWeight: number; biddingClosesAt: number } }
+export type { RunPage, RunStage, RunStatus, RunSummary } from "../server/runs"
 /** A Verifier's Verdict entity. `steps` counts moving Actions in the Replay (every Decision except STOP). */
 export type Verdict = {
   missionId: string; worker: string; outcome: string; steps: number

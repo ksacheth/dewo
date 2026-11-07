@@ -8,6 +8,7 @@ import { MAX_STEPS } from "../src/constants"
 import type { Plugin, ViteDevServer } from "vite"
 import { AuthError, authFromEnv } from "./auth"
 import { CourseError, loadCourse } from "./course"
+import { pageRuns, parseRunQuery, runIndex } from "./runs"
 
 const MISSION_ID = /^0x[0-9a-fA-F]{64}$/
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x instanceof Uint8Array ? `0x${Buffer.from(x).toString("hex")}` : x))
@@ -66,6 +67,7 @@ export function dewoServer(): Plugin {
       let board: Promise<Record<string, any>> | undefined
       const loadBoard = () => (board ??= server.ssrLoadModule(mode === "mock" ? "@dewo/board/mock" : "@dewo/board") as Promise<Record<string, any>>)
 
+      const runs = runIndex(RUNS, (d) => MISSION_ID.test(d), files, lines)
       const auth = authFromEnv(process.env, join(RUNS, "operators.json"))
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? "/", "http://x")
@@ -102,7 +104,7 @@ export function dewoServer(): Plugin {
             return send(res, 200, await loadCourse({ missionId: course[1], runs: RUNS, board: (await loadBoard()) as never }))
           }
           if (url.pathname === "/api/events") return sse(url, req, res, RUNS)
-          if (url.pathname === "/api/runs") return send(res, 200, listRuns(RUNS))
+          if (url.pathname === "/api/runs") return send(res, 200, pageRuns(runs(), parseRunQuery(url.searchParams), Date.now()))
           if (url.pathname.startsWith("/runs/")) return frame(url.pathname.slice(6), res, RUNS)
           if (url.pathname === "/api/workers") return send(res, 200, workerNames(RUNS))
           if (url.pathname === "/api/settlements") return send(res, 200, settlements(RUNS))
@@ -176,14 +178,6 @@ function sse(url: URL, req: IncomingMessage, res: ServerResponse, RUNS: string) 
   poll()
   const timer = setInterval(poll, 300)
   req.on("close", () => clearInterval(timer))
-}
-
-function listRuns(RUNS: string) {
-  return readdirSync(RUNS).filter((d) => MISSION_ID.test(d)).map((missionId) => {
-    const dir = join(RUNS, missionId)
-    const posted = files(dir).flatMap((f) => lines(join(dir, f))).find((e) => e.type === "mission.posted")
-    return { missionId, posted: posted?.data, mtime: statSync(dir).mtimeMs }
-  }).sort((a, b) => b.mtime - a.mtime)
 }
 
 /** Worker address -> Policy name, from every bid.sealed event on this machine (the Leaderboard and Onboarding show names, not addresses). */
